@@ -3,3 +3,4 @@ secrets.txt
 .env
 firebase-key.json
 node_modules/
+.vercel
