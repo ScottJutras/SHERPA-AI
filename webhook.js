@@ -1,25 +1,25 @@
+require('dotenv').config();
 const express = require('express');
-const { Configuration, OpenAIApi } = require('openai');
+const OpenAI = require('openai'); // Updated import for OpenAI library
 const bodyParser = require('body-parser');
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 
 // Initialize OpenAI
-const configuration = new Configuration({
+const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY, // Ensure this is set in your .env file
 });
-const openai = new OpenAIApi(configuration);
 
 // Function to get a response from ChatGPT
 async function getChatGPTResponse(prompt) {
-    const response = await openai.createCompletion({
+    const response = await openai.completions.create({
         model: 'text-davinci-003',
         prompt: prompt,
         max_tokens: 100,
         temperature: 0.7,
     });
-    return response.data.choices[0].text.trim();
+    return response.choices[0].text.trim();
 }
 
 // Webhook to handle incoming messages
@@ -56,7 +56,7 @@ app.post('/webhook', async (req, res) => {
 });
 
 // Start the server
-const PORT = 3000;
+const PORT = 4000;
 app.listen(PORT, () => {
     console.log(`Webhook server is running on http://localhost:${PORT}`);
 });
