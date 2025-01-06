@@ -56,7 +56,7 @@ app.post('/webhook', async (req, res) => {
 });
 
 // Start the server
-const PORT = 4000;
+const PORT = process.env.PORT || 4000; // Use Vercel's PORT or default to 4000 for local development
 app.listen(PORT, () => {
     console.log(`Webhook server is running on http://localhost:${PORT}`);
 });
