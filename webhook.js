@@ -28,6 +28,11 @@ async function getChatGPTResponse(prompt) {
     }
 }
 
+// GET route for testing deployment
+app.get('/', (req, res) => {
+    res.send('Webhook server is up and running!');
+});
+
 // Webhook to handle incoming messages
 app.post('/webhook', async (req, res) => {
     const from = req.body.From; // User's phone number
@@ -69,6 +74,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app; // Export app for Vercel
+
 
 
 
