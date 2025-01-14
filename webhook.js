@@ -1,10 +1,11 @@
 require('dotenv').config();
 const express = require('express');
-const OpenAI = require('openai'); // Updated import for OpenAI library
+const OpenAI = require('openai');
 const bodyParser = require('body-parser');
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
+app.use(bodyParser.json()); // Add JSON body parsing for flexibility
 
 // Initialize OpenAI
 const openai = new OpenAI({
@@ -13,19 +14,24 @@ const openai = new OpenAI({
 
 // Function to get a response from ChatGPT
 async function getChatGPTResponse(prompt) {
-    const response = await openai.completions.create({
-        model: 'text-davinci-003',
-        prompt: prompt,
-        max_tokens: 100,
-        temperature: 0.7,
-    });
-    return response.choices[0].text.trim();
+    try {
+        const response = await openai.completions.create({
+            model: 'text-davinci-003',
+            prompt: prompt,
+            max_tokens: 100,
+            temperature: 0.7,
+        });
+        return response.choices[0].text.trim();
+    } catch (error) {
+        console.error('Error in OpenAI API call:', error.message);
+        throw new Error('Failed to fetch response from ChatGPT');
+    }
 }
 
 // Webhook to handle incoming messages
 app.post('/webhook', async (req, res) => {
     const from = req.body.From; // User's phone number
-    const body = req.body.Body.trim().toLowerCase(); // Normalize input
+    const body = req.body.Body?.trim().toLowerCase(); // Normalize input
 
     let reply;
 
@@ -47,6 +53,7 @@ app.post('/webhook', async (req, res) => {
         reply = 'Sorry, something went wrong. Please try again later.';
     }
 
+    // Send Twilio-compatible XML response
     res.set('Content-Type', 'text/xml');
     res.send(`
       <Response>
@@ -60,6 +67,9 @@ const PORT = process.env.PORT || 4000; // Use Vercel's PORT or default to 4000 f
 app.listen(PORT, () => {
     console.log(`Webhook server is running on http://localhost:${PORT}`);
 });
+
+module.exports = app; // Export app for Vercel
+
 
 
 
