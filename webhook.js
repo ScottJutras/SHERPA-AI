@@ -5,12 +5,15 @@ const bodyParser = require('body-parser');
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json()); // Add JSON body parsing for flexibility
+app.use(bodyParser.json());
 
 // Initialize OpenAI
 const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY, // Ensure this is set in your .env file
+    apiKey: process.env.OPENAI_API_KEY,
 });
+
+// Determine the environment (production or development)
+const environment = process.env.NODE_ENV || 'development';
 
 // Function to get a response from ChatGPT
 async function getChatGPTResponse(prompt) {
@@ -28,17 +31,14 @@ async function getChatGPTResponse(prompt) {
     }
 }
 
-// GET route for testing deployment
-app.get('/', (req, res) => {
-    res.send('Webhook server is up and running!');
-});
-
 // Webhook to handle incoming messages
 app.post('/webhook', async (req, res) => {
     const from = req.body.From; // User's phone number
     const body = req.body.Body?.trim().toLowerCase(); // Normalize input
 
     let reply;
+
+    console.log(`[${environment}] Incoming message from ${from}: ${body}`);
 
     try {
         if (body === 'hi' || body === 'hello') {
@@ -54,7 +54,7 @@ app.post('/webhook', async (req, res) => {
             reply = await getChatGPTResponse(body);
         }
     } catch (error) {
-        console.error('Error handling incoming message:', error);
+        console.error(`[${environment}] Error handling message from ${from}:`, error);
         reply = 'Sorry, something went wrong. Please try again later.';
     }
 
@@ -68,13 +68,12 @@ app.post('/webhook', async (req, res) => {
 });
 
 // Start the server
-const PORT = process.env.PORT || 4000; // Use Vercel's PORT or default to 4000 for local development
+const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
-    console.log(`Webhook server is running on http://localhost:${PORT}`);
+    console.log(`[${environment}] Webhook server is running on http://localhost:${PORT}`);
 });
 
-module.exports = app; // Export app for Vercel
-
+module.exports = app;
 
 
 
