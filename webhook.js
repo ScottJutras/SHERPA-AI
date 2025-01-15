@@ -18,15 +18,20 @@ const environment = process.env.NODE_ENV || 'development';
 // Function to get a response from ChatGPT
 async function getChatGPTResponse(prompt) {
     try {
+        console.log(`[DEBUG] Fetching response from OpenAI for prompt: "${prompt}"`);
         const response = await openai.completions.create({
-            model: 'text-davinci-003',
-            prompt: prompt,
+            model: 'gpt-3.5-turbo', // Updated model
+            messages: [
+                { role: 'system', content: 'You are a helpful assistant.' },
+                { role: 'user', content: prompt }
+            ],
             max_tokens: 100,
             temperature: 0.7,
         });
-        return response.choices[0].text.trim();
+        console.log(`[DEBUG] OpenAI response:`, response.data.choices[0].message.content.trim());
+        return response.data.choices[0].message.content.trim();
     } catch (error) {
-        console.error('Error in OpenAI API call:', error.message);
+        console.error(`[ERROR] OpenAI API call failed:`, error.message);
         throw new Error('Failed to fetch response from ChatGPT');
     }
 }
@@ -36,25 +41,31 @@ app.post('/webhook', async (req, res) => {
     const from = req.body.From; // User's phone number
     const body = req.body.Body?.trim().toLowerCase(); // Normalize input
 
-    let reply;
+    console.log(`[DEBUG] Incoming POST request to /webhook`);
+    console.log(`[${environment}] Incoming message from ${from}: "${body}"`);
 
-    console.log(`[${environment}] Incoming message from ${from}: ${body}`);
+    let reply;
 
     try {
         if (body === 'hi' || body === 'hello') {
             reply = 'Hi! Welcome to our service. Reply with:\n1. Help\n2. Services\n3. Contact';
+            console.log(`[DEBUG] Predefined reply for greeting: "${reply}"`);
         } else if (body === '1') {
             reply = 'How can we assist you today?';
+            console.log(`[DEBUG] Predefined reply for Help: "${reply}"`);
         } else if (body === '2') {
             reply = 'We offer the following services:\n- Service 1\n- Service 2\n- Service 3';
+            console.log(`[DEBUG] Predefined reply for Services: "${reply}"`);
         } else if (body === '3') {
             reply = 'You can reach us at support@example.com or call us at +1 234 567 890.';
+            console.log(`[DEBUG] Predefined reply for Contact: "${reply}"`);
         } else {
             // Fallback to ChatGPT for freeform input
             reply = await getChatGPTResponse(body);
+            console.log(`[DEBUG] Reply from ChatGPT for custom input: "${reply}"`);
         }
     } catch (error) {
-        console.error(`[${environment}] Error handling message from ${from}:`, error);
+        console.error(`[ERROR] Error handling message from ${from}:`, error);
         reply = 'Sorry, something went wrong. Please try again later.';
     }
 
@@ -65,10 +76,12 @@ app.post('/webhook', async (req, res) => {
         <Message>${reply}</Message>
       </Response>
     `);
+    console.log(`[DEBUG] Reply sent: "${reply}"`);
 });
 
 // Handle GET requests to the root URL
 app.get('/', (req, res) => {
+    console.log(`[DEBUG] GET request to root URL`);
     res.send('Webhook server is up and running!');
 });
 
@@ -79,6 +92,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
 
