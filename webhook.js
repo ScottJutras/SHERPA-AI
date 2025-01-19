@@ -17,21 +17,34 @@ const environment = process.env.NODE_ENV || 'development';
 
 // Function to get a response from ChatGPT
 async function getChatGPTResponse(prompt) {
+    if (!prompt || prompt.trim() === '') {
+        console.error('[DEBUG] Invalid prompt: Prompt is empty or undefined.');
+        throw new Error('Prompt is empty or undefined');
+    }
+
+    console.log(`[DEBUG] Sending prompt to OpenAI: ${prompt}`);
+
     try {
-        console.log(`[DEBUG] Fetching response from OpenAI for prompt: "${prompt}"`);
-        const response = await openai.completions.create({
-            model: 'gpt-3.5-turbo', // Updated model
+        const response = await openai.chat.completions.create({
+            model: 'gpt-3.5-turbo', // Updated to ChatGPT API model
             messages: [
                 { role: 'system', content: 'You are a helpful assistant.' },
-                { role: 'user', content: prompt }
+                { role: 'user', content: prompt },
             ],
             max_tokens: 100,
             temperature: 0.7,
         });
-        console.log(`[DEBUG] OpenAI response:`, response.data.choices[0].message.content.trim());
-        return response.data.choices[0].message.content.trim();
+
+        console.log(`[DEBUG] OpenAI API response: ${JSON.stringify(response.data)}`);
+
+        if (response.choices && response.choices.length > 0) {
+            return response.choices[0].message.content.trim();
+        } else {
+            console.error('[DEBUG] OpenAI API response is empty or invalid.');
+            throw new Error('OpenAI API response is empty or invalid');
+        }
     } catch (error) {
-        console.error(`[ERROR] OpenAI API call failed:`, error.message);
+        console.error(`[ERROR] OpenAI API call failed: ${error.message}`);
         throw new Error('Failed to fetch response from ChatGPT');
     }
 }
@@ -60,9 +73,9 @@ app.post('/webhook', async (req, res) => {
             reply = 'You can reach us at support@example.com or call us at +1 234 567 890.';
             console.log(`[DEBUG] Predefined reply for Contact: "${reply}"`);
         } else {
-            // Fallback to ChatGPT for freeform input
+            console.log(`[DEBUG] Custom input detected, querying ChatGPT...`);
             reply = await getChatGPTResponse(body);
-            console.log(`[DEBUG] Reply from ChatGPT for custom input: "${reply}"`);
+            console.log(`[DEBUG] Reply from ChatGPT: "${reply}"`);
         }
     } catch (error) {
         console.error(`[ERROR] Error handling message from ${from}:`, error);
@@ -92,7 +105,6 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
-
 
 
 
