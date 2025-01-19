@@ -8,14 +8,13 @@ let sheets;
 // Function to initialize Google Sheets API client using environment variables
 async function getAuthorizedClient() {
     try {
-        // Retrieve and parse credentials from environment variable
+        // Retrieve credentials from environment variable
         const credentials = JSON.parse(process.env.GOOGLE_SHEETS_CREDENTIALS);
 
-        // Initialize GoogleAuth using the parsed credentials
         const auth = new google.auth.GoogleAuth({
             credentials: {
                 client_email: credentials.client_email,
-                private_key: credentials.private_key.replace(/\\n/g, '\n'), // Ensure proper newline parsing in private key
+                private_key: credentials.private_key,
             },
             scopes: SCOPES,
         });
@@ -35,7 +34,16 @@ async function appendToGoogleSheet(data) {
             sheets = await getAuthorizedClient();
         }
 
-        const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID; // Retrieve the spreadsheet ID from environment variables
+        // Retrieve spreadsheet ID from environment variables
+        const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
+
+        // Debugging the retrieval of SPREADSHEET_ID
+        if (!SPREADSHEET_ID) {
+            console.error('[ERROR] GOOGLE_SHEET_ID is not set in environment variables.');
+            throw new Error('GOOGLE_SHEET_ID is missing');
+        }
+        console.log(`[DEBUG] Using Spreadsheet ID: ${SPREADSHEET_ID}`);
+
         const RANGE = 'Sheet1!A:D'; // Adjust the range based on your sheet's structure
 
         const resource = {
