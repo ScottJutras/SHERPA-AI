@@ -9,6 +9,11 @@ const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
+// Debugging: Validate environment variables
+console.log('[DEBUG] OPENAI_API_KEY:', process.env.OPENAI_API_KEY ? 'Loaded' : 'Missing');
+console.log('[DEBUG] GOOGLE_SHEET_ID:', process.env.GOOGLE_SHEET_ID || 'Missing');
+console.log('[DEBUG] GOOGLE_CREDENTIALS:', process.env.GOOGLE_CREDENTIALS ? 'Loaded' : 'Missing');
+
 // Initialize OpenAI
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
@@ -16,6 +21,7 @@ const openai = new OpenAI({
 
 // Determine the environment (production or development)
 const environment = process.env.NODE_ENV || 'development';
+console.log(`[DEBUG] Environment: ${environment}`);
 
 // Function to get a response from ChatGPT
 async function getChatGPTResponse(prompt) {
@@ -127,6 +133,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
 
