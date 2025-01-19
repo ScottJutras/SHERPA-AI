@@ -5,10 +5,12 @@
     "express": "^4.21.2",
     "firebase-admin": "^13.0.2",
     "googleapis": "^144.0.0",
+    "google-auth-library": "^9.0.0",
     "openai": "^4.77.3",
     "twilio": "^5.4.0"
   },
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js", 
+    "dev": "node webhook.js" 
   }
 }
