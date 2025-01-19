@@ -4,6 +4,7 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "firebase-admin": "^13.0.2",
+    "googleapis": "^144.0.0",
     "openai": "^4.77.3",
     "twilio": "^5.4.0"
   },
