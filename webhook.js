@@ -3,6 +3,7 @@ const express = require('express');
 const OpenAI = require('openai');
 const bodyParser = require('body-parser');
 const { parseExpenseMessage } = require('./utils/expenseParser'); // Helper for expense parsing
+const { appendToGoogleSheet } = require('./utils/googleSheets'); // Google Sheets integration
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -27,7 +28,7 @@ async function getChatGPTResponse(prompt) {
 
     try {
         const response = await openai.chat.completions.create({
-            model: 'gpt-3.5-turbo', // Updated to ChatGPT API model
+            model: 'gpt-3.5-turbo',
             messages: [
                 { role: 'system', content: 'You are a helpful assistant.' },
                 { role: 'user', content: prompt },
@@ -67,10 +68,20 @@ app.post('/webhook', async (req, res) => {
         if (expenseData) {
             console.log(`[DEBUG] Parsed Expense Data:`, expenseData);
 
-            // Placeholder for database or storage logic
-            // For now, just echo the parsed data back to the user
-            reply = `Expense logged: ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
-            console.log(`[DEBUG] Expense logging reply: "${reply}"`);
+            try {
+                // Append to Google Sheets
+                await appendToGoogleSheet([
+                    expenseData.date,
+                    expenseData.item,
+                    expenseData.amount,
+                    expenseData.store,
+                ]);
+                reply = `Expense logged successfully: ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
+                console.log(`[DEBUG] Expense logged reply: "${reply}"`);
+            } catch (error) {
+                console.error('[ERROR] Failed to log expense to Google Sheets:', error.message);
+                reply = 'Failed to log your expense. Please try again later.';
+            }
         } else if (body.toLowerCase() === 'hi' || body.toLowerCase() === 'hello') {
             reply = 'Hi! Welcome to our service. Reply with:\n1. Help\n2. Services\n3. Contact\n4. Log an Expense';
             console.log(`[DEBUG] Predefined reply for greeting: "${reply}"`);
