@@ -8,13 +8,14 @@ let sheets;
 // Function to initialize Google Sheets API client using environment variables
 async function getAuthorizedClient() {
     try {
-        // Retrieve credentials from environment variable
+        // Retrieve and parse credentials from environment variable
         const credentials = JSON.parse(process.env.GOOGLE_SHEETS_CREDENTIALS);
 
+        // Initialize GoogleAuth using the parsed credentials
         const auth = new google.auth.GoogleAuth({
             credentials: {
                 client_email: credentials.client_email,
-                private_key: credentials.private_key,
+                private_key: credentials.private_key.replace(/\\n/g, '\n'), // Ensure proper newline parsing in private key
             },
             scopes: SCOPES,
         });
@@ -57,5 +58,6 @@ async function appendToGoogleSheet(data) {
 }
 
 module.exports = { appendToGoogleSheet };
+
 
 
