@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const OpenAI = require('openai');
 const bodyParser = require('body-parser');
+const { parseExpenseMessage } = require('./utils/expenseParser'); // Helper for expense parsing
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -52,7 +53,7 @@ async function getChatGPTResponse(prompt) {
 // Webhook to handle incoming messages
 app.post('/webhook', async (req, res) => {
     const from = req.body.From; // User's phone number
-    const body = req.body.Body?.trim().toLowerCase(); // Normalize input
+    const body = req.body.Body?.trim(); // User message as-is
 
     console.log(`[DEBUG] Incoming POST request to /webhook`);
     console.log(`[${environment}] Incoming message from ${from}: "${body}"`);
@@ -60,8 +61,18 @@ app.post('/webhook', async (req, res) => {
     let reply;
 
     try {
-        if (body === 'hi' || body === 'hello') {
-            reply = 'Hi! Welcome to our service. Reply with:\n1. Help\n2. Services\n3. Contact';
+        // Check if the message is an expense log
+        const expenseData = parseExpenseMessage(body);
+
+        if (expenseData) {
+            console.log(`[DEBUG] Parsed Expense Data:`, expenseData);
+
+            // Placeholder for database or storage logic
+            // For now, just echo the parsed data back to the user
+            reply = `Expense logged: ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
+            console.log(`[DEBUG] Expense logging reply: "${reply}"`);
+        } else if (body.toLowerCase() === 'hi' || body.toLowerCase() === 'hello') {
+            reply = 'Hi! Welcome to our service. Reply with:\n1. Help\n2. Services\n3. Contact\n4. Log an Expense';
             console.log(`[DEBUG] Predefined reply for greeting: "${reply}"`);
         } else if (body === '1') {
             reply = 'How can we assist you today?';
@@ -105,6 +116,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
 
