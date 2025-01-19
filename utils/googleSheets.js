@@ -1,23 +1,28 @@
 const { google } = require('googleapis');
-const path = require('path');
 
-// Path to your credentials file
-const CREDENTIALS_PATH = path.join(__dirname, '../config/credentials.json'); // Ensure your credentials are placed in this path
+// Scopes required for Google Sheets API
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
 
 let sheets;
 
-// Function to initialize Google Sheets API client
+// Function to initialize Google Sheets API client using environment variables
 async function getAuthorizedClient() {
     try {
+        // Retrieve credentials from environment variable
+        const credentials = JSON.parse(process.env.GOOGLE_SHEETS_CREDENTIALS);
+
         const auth = new google.auth.GoogleAuth({
-            keyFile: CREDENTIALS_PATH,
+            credentials: {
+                client_email: credentials.client_email,
+                private_key: credentials.private_key,
+            },
             scopes: SCOPES,
         });
+
         console.log('[DEBUG] Google Sheets client authorized successfully.');
         return google.sheets({ version: 'v4', auth });
     } catch (error) {
-        console.error('[ERROR] Failed to authorize Google Sheets client:', error);
+        console.error('[ERROR] Failed to authorize Google Sheets client:', error.message);
         throw error;
     }
 }
@@ -29,8 +34,8 @@ async function appendToGoogleSheet(data) {
             sheets = await getAuthorizedClient();
         }
 
-        const SPREADSHEET_ID = '1GK4qIe5fQkyKeSST1X9XVL4r018IKnFZKidT8W2QyaM'; // Replace with your Google Sheets ID
-        const RANGE = 'Sheet1!A:D'; // Adjust the range based on your sheet's structure (e.g., columns A to D)
+        const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID; // Retrieve the spreadsheet ID from environment variables
+        const RANGE = 'Sheet1!A:D'; // Adjust the range based on your sheet's structure
 
         const resource = {
             values: [data],
@@ -46,10 +51,11 @@ async function appendToGoogleSheet(data) {
         console.log(`[DEBUG] Data successfully appended to Google Sheets: ${JSON.stringify(data)}`);
         return result.data;
     } catch (error) {
-        console.error('[ERROR] Failed to append data to Google Sheets:', error);
+        console.error('[ERROR] Failed to append data to Google Sheets:', error.message);
         throw error;
     }
 }
 
 module.exports = { appendToGoogleSheet };
+
 
