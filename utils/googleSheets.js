@@ -38,11 +38,12 @@ async function appendToGoogleSheet(data) {
         const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
 
         // Debugging the retrieval of SPREADSHEET_ID
+        console.log(`[DEBUG] Retrieved GOOGLE_SHEET_ID: ${SPREADSHEET_ID}`);
+
         if (!SPREADSHEET_ID) {
             console.error('[ERROR] GOOGLE_SHEET_ID is not set in environment variables.');
             throw new Error('GOOGLE_SHEET_ID is missing');
         }
-        console.log(`[DEBUG] Using Spreadsheet ID: ${SPREADSHEET_ID}`);
 
         const RANGE = 'Sheet1!A:D'; // Adjust the range based on your sheet's structure
 
@@ -66,6 +67,7 @@ async function appendToGoogleSheet(data) {
 }
 
 module.exports = { appendToGoogleSheet };
+
 
 
 
