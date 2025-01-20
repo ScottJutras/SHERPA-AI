@@ -59,17 +59,16 @@ async function shareSpreadsheetWithUser(spreadsheetId, email) {
 
         await drive.permissions.create({
             fileId: spreadsheetId,
-            resource: {
+            requestBody: {
                 role: 'writer',
                 type: 'user',
                 emailAddress: email,
             },
         });
 
-        console.log(`[DEBUG] Shared spreadsheet (${spreadsheetId}) with ${email}`);
+        console.log(`[DEBUG] Spreadsheet (${spreadsheetId}) successfully shared with ${email}`);
     } catch (error) {
         console.error(`[ERROR] Failed to share spreadsheet (${spreadsheetId}) with ${email}:`, error.message);
-        throw error;
     }
 }
 
