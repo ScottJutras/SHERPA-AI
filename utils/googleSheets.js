@@ -4,13 +4,17 @@ const path = require('path');
 
 // Initialize Firebase Admin SDK
 if (!admin.apps.length) {
-    const serviceAccountPath = process.env.FIREBASE_CREDENTIALS; // Path to Firebase credentials JSON
-    if (!serviceAccountPath) {
-        throw new Error('[ERROR] FIREBASE_CREDENTIALS is not set in environment variables.');
+    const serviceAccountPath = process.env.FIREBASE_CREDENTIALS || '../config/firebase_credentials.json'; // Fallback to default path for local testing
+    try {
+        console.log(`[DEBUG] Initializing Firebase with credentials at: ${serviceAccountPath}`);
+        admin.initializeApp({
+            credential: admin.credential.cert(require(path.resolve(__dirname, serviceAccountPath))),
+        });
+        console.log('[DEBUG] Firebase Admin initialized successfully.');
+    } catch (error) {
+        console.error('[ERROR] Failed to initialize Firebase Admin:', error.message);
+        throw error;
     }
-    admin.initializeApp({
-        credential: admin.credential.cert(require(path.join(__dirname, serviceAccountPath))),
-    });
 }
 
 const db = admin.firestore();
