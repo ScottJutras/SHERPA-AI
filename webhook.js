@@ -3,7 +3,7 @@ const express = require('express');
 const OpenAI = require('openai');
 const bodyParser = require('body-parser');
 const { parseExpenseMessage } = require('./utils/expenseParser'); // Helper for expense parsing
-const { appendToGoogleSheet } = require('./utils/googleSheets'); // Google Sheets integration
+const { appendToUserSpreadsheet, getOrCreateUserSpreadsheet } = require('./utils/googleSheets'); // Google Sheets integration
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -11,7 +11,6 @@ app.use(bodyParser.json());
 
 // Debugging: Validate environment variables
 console.log('[DEBUG] OPENAI_API_KEY:', process.env.OPENAI_API_KEY ? 'Loaded' : 'Missing');
-console.log('[DEBUG] GOOGLE_SHEET_ID:', process.env.GOOGLE_SHEET_ID || 'Missing');
 console.log('[DEBUG] GOOGLE_CREDENTIALS:', process.env.GOOGLE_CREDENTIALS ? 'Loaded' : 'Missing');
 
 // Initialize OpenAI
@@ -75,13 +74,15 @@ app.post('/webhook', async (req, res) => {
             console.log(`[DEBUG] Parsed Expense Data:`, expenseData);
 
             try {
-                // Append to Google Sheets
-                await appendToGoogleSheet([
-                    expenseData.date,
-                    expenseData.item,
-                    expenseData.amount,
-                    expenseData.store,
-                ]);
+                // Retrieve or create the user's spreadsheet using their phone number
+                const spreadsheetId = await getOrCreateUserSpreadsheet(from);
+
+                // Append data to the user's spreadsheet
+                await appendToUserSpreadsheet(
+                    [expenseData.date, expenseData.item, expenseData.amount, expenseData.store],
+                    spreadsheetId
+                );
+
                 reply = `Expense logged successfully: ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
                 console.log(`[DEBUG] Expense logged reply: "${reply}"`);
             } catch (error) {
@@ -133,6 +134,8 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
+
 
 
 

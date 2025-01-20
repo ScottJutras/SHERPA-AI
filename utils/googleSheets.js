@@ -1,4 +1,19 @@
 const { google } = require('googleapis');
+const admin = require('firebase-admin');
+const path = require('path');
+
+// Initialize Firebase Admin SDK
+if (!admin.apps.length) {
+    const serviceAccountPath = process.env.FIREBASE_CREDENTIALS; // Path to Firebase credentials JSON
+    if (!serviceAccountPath) {
+        throw new Error('[ERROR] FIREBASE_CREDENTIALS is not set in environment variables.');
+    }
+    admin.initializeApp({
+        credential: admin.credential.cert(require(path.join(__dirname, serviceAccountPath))),
+    });
+}
+
+const db = admin.firestore();
 
 // Scopes required for Google Sheets API
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
@@ -8,7 +23,6 @@ let sheets;
 // Function to initialize Google Sheets API client using environment variables
 async function getAuthorizedClient() {
     try {
-        // Retrieve credentials from environment variable
         const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
 
         const auth = new google.auth.GoogleAuth({
@@ -27,46 +41,91 @@ async function getAuthorizedClient() {
     }
 }
 
-// Function to append data to a Google Sheet
-async function appendToGoogleSheet(data) {
+// Function to create a new spreadsheet for a user
+async function createSpreadsheetForUser(phoneNumber) {
+    try {
+        const auth = await getAuthorizedClient();
+        const request = {
+            resource: {
+                properties: {
+                    title: `Expenses - ${phoneNumber}`, // Name the spreadsheet after the user
+                },
+            },
+        };
+
+        const response = await auth.spreadsheets.create(request);
+        const spreadsheetId = response.data.spreadsheetId;
+
+        console.log(`[DEBUG] New spreadsheet created for user (${phoneNumber}): ${spreadsheetId}`);
+        return spreadsheetId;
+    } catch (error) {
+        console.error('[ERROR] Failed to create a new spreadsheet:', error.message);
+        throw error;
+    }
+}
+
+// Function to append data to a user's spreadsheet
+async function appendToUserSpreadsheet(data, spreadsheetId) {
     try {
         if (!sheets) {
             sheets = await getAuthorizedClient();
         }
 
-        // Retrieve spreadsheet ID from environment variables
-        const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
+        console.log(`[DEBUG] Using Spreadsheet ID: ${spreadsheetId}`);
 
-        // Debugging the retrieval of SPREADSHEET_ID
-        console.log(`[DEBUG] Retrieved GOOGLE_SHEET_ID: ${SPREADSHEET_ID}`);
-
-        if (!SPREADSHEET_ID) {
-            console.error('[ERROR] GOOGLE_SHEET_ID is not set in environment variables.');
-            throw new Error('GOOGLE_SHEET_ID is missing');
-        }
-
-        const RANGE = 'Sheet1!A:D'; // Adjust the range based on your sheet's structure
+        const RANGE = 'Sheet1!A:D'; // Default range in the spreadsheet
 
         const resource = {
             values: [data],
         };
 
         const result = await sheets.spreadsheets.values.append({
-            spreadsheetId: SPREADSHEET_ID,
+            spreadsheetId,
             range: RANGE,
             valueInputOption: 'USER_ENTERED',
             resource,
         });
 
-        console.log(`[DEBUG] Data successfully appended to Google Sheets: ${JSON.stringify(data)}`);
+        console.log(`[DEBUG] Data successfully appended to spreadsheet (${spreadsheetId}): ${JSON.stringify(data)}`);
         return result.data;
     } catch (error) {
-        console.error('[ERROR] Failed to append data to Google Sheets:', error.message);
+        console.error('[ERROR] Failed to append data to spreadsheet:', error.message);
         throw error;
     }
 }
 
-module.exports = { appendToGoogleSheet };
+// Function to retrieve or create a spreadsheet for a user
+async function getOrCreateUserSpreadsheet(phoneNumber) {
+    try {
+        const userDoc = db.collection('users').doc(phoneNumber);
+        const userSnapshot = await userDoc.get();
+
+        // Check if spreadsheet ID exists in Firebase
+        if (userSnapshot.exists && userSnapshot.data().spreadsheetId) {
+            const spreadsheetId = userSnapshot.data().spreadsheetId;
+            console.log(`[DEBUG] Retrieved spreadsheet ID from Firebase for user (${phoneNumber}): ${spreadsheetId}`);
+            return spreadsheetId;
+        }
+
+        // If no spreadsheet exists, create a new one
+        console.log(`[DEBUG] No spreadsheet found for user (${phoneNumber}). Creating a new one.`);
+        const spreadsheetId = await createSpreadsheetForUser(phoneNumber);
+
+        // Save the spreadsheet ID to Firebase
+        await userDoc.set({ spreadsheetId });
+        console.log(`[DEBUG] Spreadsheet created and saved to Firebase for user (${phoneNumber}): ${spreadsheetId}`);
+
+        return spreadsheetId;
+    } catch (error) {
+        console.error(`[ERROR] Failed to retrieve or create spreadsheet for user (${phoneNumber}):`, error.message);
+        throw error;
+    }
+}
+
+module.exports = {
+    appendToUserSpreadsheet,
+    getOrCreateUserSpreadsheet,
+};
 
 
 
