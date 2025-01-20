@@ -26,7 +26,7 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 // Scopes required for Google Sheets API
-const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
+const SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive'];
 
 let sheets;
 
@@ -51,6 +51,28 @@ async function getAuthorizedClient() {
     }
 }
 
+// Function to share the spreadsheet with a user
+async function shareSpreadsheetWithUser(spreadsheetId, email) {
+    try {
+        const auth = await getAuthorizedClient();
+        const drive = google.drive({ version: 'v3', auth });
+
+        await drive.permissions.create({
+            fileId: spreadsheetId,
+            resource: {
+                role: 'writer',
+                type: 'user',
+                emailAddress: email,
+            },
+        });
+
+        console.log(`[DEBUG] Shared spreadsheet (${spreadsheetId}) with ${email}`);
+    } catch (error) {
+        console.error(`[ERROR] Failed to share spreadsheet (${spreadsheetId}) with ${email}:`, error.message);
+        throw error;
+    }
+}
+
 // Function to create a new spreadsheet for a user
 async function createSpreadsheetForUser(phoneNumber) {
     try {
@@ -67,6 +89,15 @@ async function createSpreadsheetForUser(phoneNumber) {
         const spreadsheetId = response.data.spreadsheetId;
 
         console.log(`[DEBUG] New spreadsheet created for user (${phoneNumber}): ${spreadsheetId}`);
+
+        // Share the spreadsheet with your personal email
+        const personalEmail = process.env.PERSONAL_EMAIL; // Ensure your personal email is set in .env
+        if (personalEmail) {
+            await shareSpreadsheetWithUser(spreadsheetId, personalEmail);
+        } else {
+            console.warn('[WARN] PERSONAL_EMAIL is not set. Spreadsheet will not be shared.');
+        }
+
         return spreadsheetId;
     } catch (error) {
         console.error('[ERROR] Failed to create a new spreadsheet:', error.message);
