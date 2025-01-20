@@ -9,7 +9,7 @@ let sheets;
 async function getAuthorizedClient() {
     try {
         // Retrieve credentials from environment variable
-        const credentials = JSON.parse(process.env.GOOGLE_SHEETS_CREDENTIALS);
+        const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
 
         const auth = new google.auth.GoogleAuth({
             credentials: {
