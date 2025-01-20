@@ -1,14 +1,20 @@
 const { google } = require('googleapis');
 const admin = require('firebase-admin');
-const path = require('path');
 
 // Initialize Firebase Admin SDK
 if (!admin.apps.length) {
-    const serviceAccountPath = process.env.FIREBASE_CREDENTIALS || '../config/firebase_credentials.json'; // Fallback to default path for local testing
+    const firebaseCredentialsBase64 = process.env.FIREBASE_CREDENTIALS_BASE64; // Base64 string from environment variable
+    if (!firebaseCredentialsBase64) {
+        throw new Error('[ERROR] FIREBASE_CREDENTIALS_BASE64 is not set in environment variables.');
+    }
     try {
-        console.log(`[DEBUG] Initializing Firebase with credentials at: ${serviceAccountPath}`);
+        const firebaseCredentials = JSON.parse(
+            Buffer.from(firebaseCredentialsBase64, 'base64').toString('utf-8')
+        );
+
+        console.log('[DEBUG] Initializing Firebase with decoded credentials.');
         admin.initializeApp({
-            credential: admin.credential.cert(require(path.resolve(__dirname, serviceAccountPath))),
+            credential: admin.credential.cert(firebaseCredentials),
         });
         console.log('[DEBUG] Firebase Admin initialized successfully.');
     } catch (error) {
@@ -130,7 +136,3 @@ module.exports = {
     appendToUserSpreadsheet,
     getOrCreateUserSpreadsheet,
 };
-
-
-
-
