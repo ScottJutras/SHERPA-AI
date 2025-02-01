@@ -2,7 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const OpenAI = require('openai');
 const bodyParser = require('body-parser');
-const fs = require('fs');
 const { parseExpenseMessage } = require('./utils/expenseParser'); // Helper for expense parsing
 const { appendToUserSpreadsheet, getOrCreateUserSpreadsheet } = require('./utils/googleSheets'); // Google Sheets integration
 const admin = require('firebase-admin');
@@ -11,34 +10,40 @@ const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
-// ✅ Ensure GOOGLE_CREDENTIALS_PATH is set correctly
-if (!process.env.GOOGLE_CREDENTIALS_PATH) {
-    console.error("[ERROR] GOOGLE_CREDENTIALS_PATH is not set in .env.");
-    process.exit(1);
-}
-
-// ✅ Load Google Credentials from the file
-const googleCredentialsPath = process.env.GOOGLE_CREDENTIALS_PATH;
+// ✅ Load Google Credentials from Base64
 let googleCredentials;
-try {
-    googleCredentials = JSON.parse(fs.readFileSync(googleCredentialsPath, 'utf8'));
-    console.log("[DEBUG] Successfully loaded Google Credentials from file.");
-} catch (error) {
-    console.error("[ERROR] Failed to read Google Credentials:", error.message);
+if (process.env.GOOGLE_CREDENTIALS_BASE64) {
+    try {
+        googleCredentials = JSON.parse(
+            Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8')
+        );
+        console.log("[DEBUG] Successfully loaded Google Credentials from Base64.");
+    } catch (error) {
+        console.error("[ERROR] Failed to decode GOOGLE_CREDENTIALS_BASE64:", error.message);
+        process.exit(1);
+    }
+} else {
+    console.error("[ERROR] GOOGLE_CREDENTIALS_BASE64 is not set in environment variables.");
     process.exit(1);
 }
 
 // ✅ Initialize Firebase Admin SDK
 if (!admin.apps.length) {
-    const firebaseCredentialsPath = process.env.FIREBASE_CREDENTIALS;
+    const firebaseCredentialsBase64 = process.env.FIREBASE_CREDENTIALS_BASE64;
+    if (!firebaseCredentialsBase64) {
+        console.error("[ERROR] FIREBASE_CREDENTIALS_BASE64 is not set in environment variables.");
+        process.exit(1);
+    }
+
     try {
-        if (!firebaseCredentialsPath || !fs.existsSync(firebaseCredentialsPath)) {
-            throw new Error(`Firebase credentials file not found at ${firebaseCredentialsPath}`);
-        }
-        const firebaseCredentials = JSON.parse(fs.readFileSync(firebaseCredentialsPath, 'utf8'));
+        const firebaseCredentials = JSON.parse(
+            Buffer.from(firebaseCredentialsBase64, 'base64').toString('utf-8')
+        );
+
         admin.initializeApp({
             credential: admin.credential.cert(firebaseCredentials),
         });
+
         console.log("[DEBUG] Firebase Admin initialized successfully.");
     } catch (error) {
         console.error("[ERROR] Failed to initialize Firebase Admin:", error.message);

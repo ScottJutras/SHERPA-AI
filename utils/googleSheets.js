@@ -1,25 +1,44 @@
 const { google } = require('googleapis');
 const admin = require('firebase-admin');
 
-// Initialize Firebase Admin SDK
+// ✅ Load Google Credentials from Base64
+let googleCredentials;
+if (process.env.GOOGLE_CREDENTIALS_BASE64) {
+    try {
+        googleCredentials = JSON.parse(
+            Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8')
+        );
+        console.log("[DEBUG] Successfully loaded Google Credentials from Base64.");
+    } catch (error) {
+        console.error("[ERROR] Failed to decode GOOGLE_CREDENTIALS_BASE64:", error.message);
+        process.exit(1);
+    }
+} else {
+    console.error("[ERROR] GOOGLE_CREDENTIALS_BASE64 is not set in environment variables.");
+    process.exit(1);
+}
+
+// ✅ Initialize Firebase Admin SDK
 if (!admin.apps.length) {
     const firebaseCredentialsBase64 = process.env.FIREBASE_CREDENTIALS_BASE64;
     if (!firebaseCredentialsBase64) {
-        throw new Error('[ERROR] FIREBASE_CREDENTIALS_BASE64 is not set in environment variables.');
+        console.error("[ERROR] FIREBASE_CREDENTIALS_BASE64 is not set in environment variables.");
+        process.exit(1);
     }
+
     try {
         const firebaseCredentials = JSON.parse(
             Buffer.from(firebaseCredentialsBase64, 'base64').toString('utf-8')
         );
 
-        console.log('[DEBUG] Initializing Firebase with decoded credentials.');
         admin.initializeApp({
             credential: admin.credential.cert(firebaseCredentials),
         });
-        console.log('[DEBUG] Firebase Admin initialized successfully.');
+
+        console.log("[DEBUG] Firebase Admin initialized successfully.");
     } catch (error) {
-        console.error('[ERROR] Failed to initialize Firebase Admin:', error.message);
-        throw error;
+        console.error("[ERROR] Failed to initialize Firebase Admin:", error.message);
+        process.exit(1);
     }
 }
 
@@ -31,13 +50,8 @@ const SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.goo
 // Function to initialize Google API client
 async function getAuthorizedClient() {
     try {
-        const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
-
         const auth = new google.auth.GoogleAuth({
-            credentials: {
-                client_email: credentials.client_email,
-                private_key: credentials.private_key,
-            },
+            credentials: googleCredentials,
             scopes: SCOPES,
         });
 
