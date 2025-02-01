@@ -25,12 +25,10 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-// Scopes required for Google Sheets API
+// Scopes required for Google Sheets and Drive APIs
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive'];
 
-let sheets;
-
-// Function to initialize Google Sheets API client using environment variables
+// Function to initialize Google API client
 async function getAuthorizedClient() {
     try {
         const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
@@ -43,10 +41,10 @@ async function getAuthorizedClient() {
             scopes: SCOPES,
         });
 
-        console.log('[DEBUG] Google Sheets client authorized successfully.');
-        return google.sheets({ version: 'v4', auth });
+        console.log('[DEBUG] Google API client authorized successfully.');
+        return auth;
     } catch (error) {
-        console.error('[ERROR] Failed to authorize Google Sheets client:', error.message);
+        console.error('[ERROR] Failed to authorize Google API client:', error.message);
         throw error;
     }
 }
@@ -60,10 +58,11 @@ async function shareSpreadsheetWithUser(spreadsheetId, email) {
         await drive.permissions.create({
             fileId: spreadsheetId,
             requestBody: {
-                role: 'writer',
+                role: 'writer',  // You can change this to 'reader' for view-only access
                 type: 'user',
                 emailAddress: email,
             },
+            sendNotificationEmail: true, // Sends an email notification
         });
 
         console.log(`[DEBUG] Spreadsheet (${spreadsheetId}) successfully shared with ${email}`);
@@ -72,10 +71,12 @@ async function shareSpreadsheetWithUser(spreadsheetId, email) {
     }
 }
 
-// Function to create a new spreadsheet for a user
+// Function to create a new spreadsheet and share it
 async function createSpreadsheetForUser(phoneNumber) {
     try {
         const auth = await getAuthorizedClient();
+        const sheets = google.sheets({ version: 'v4', auth });
+
         const request = {
             resource: {
                 properties: {
@@ -84,7 +85,7 @@ async function createSpreadsheetForUser(phoneNumber) {
             },
         };
 
-        const response = await auth.spreadsheets.create(request);
+        const response = await sheets.spreadsheets.create(request);
         const spreadsheetId = response.data.spreadsheetId;
 
         console.log(`[DEBUG] New spreadsheet created for user (${phoneNumber}): ${spreadsheetId}`);
@@ -107,9 +108,8 @@ async function createSpreadsheetForUser(phoneNumber) {
 // Function to append data to a user's spreadsheet
 async function appendToUserSpreadsheet(data, spreadsheetId) {
     try {
-        if (!sheets) {
-            sheets = await getAuthorizedClient();
-        }
+        const auth = await getAuthorizedClient();
+        const sheets = google.sheets({ version: 'v4', auth });
 
         console.log(`[DEBUG] Using Spreadsheet ID: ${spreadsheetId}`);
 
