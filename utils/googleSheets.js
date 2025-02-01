@@ -3,7 +3,7 @@ const admin = require('firebase-admin');
 
 // Initialize Firebase Admin SDK
 if (!admin.apps.length) {
-    const firebaseCredentialsBase64 = process.env.FIREBASE_CREDENTIALS_BASE64; // Base64 string from environment variable
+    const firebaseCredentialsBase64 = process.env.FIREBASE_CREDENTIALS_BASE64;
     if (!firebaseCredentialsBase64) {
         throw new Error('[ERROR] FIREBASE_CREDENTIALS_BASE64 is not set in environment variables.');
     }
@@ -58,16 +58,16 @@ async function shareSpreadsheetWithUser(spreadsheetId, email) {
         await drive.permissions.create({
             fileId: spreadsheetId,
             requestBody: {
-                role: 'writer',  // You can change this to 'reader' for view-only access
+                role: 'writer', // Change to 'reader' if you only need view access
                 type: 'user',
                 emailAddress: email,
             },
-            sendNotificationEmail: true, // Sends an email notification
+            sendNotificationEmail: true,
         });
 
-        console.log(`[DEBUG] Spreadsheet (${spreadsheetId}) successfully shared with ${email}`);
+        console.log(`[✅ SUCCESS] Spreadsheet (${spreadsheetId}) successfully shared with ${email}`);
     } catch (error) {
-        console.error(`[ERROR] Failed to share spreadsheet (${spreadsheetId}) with ${email}:`, error.message);
+        console.error(`[❌ ERROR] Failed to share spreadsheet (${spreadsheetId}) with ${email}:`, error.message);
     }
 }
 
@@ -88,19 +88,19 @@ async function createSpreadsheetForUser(phoneNumber) {
         const response = await sheets.spreadsheets.create(request);
         const spreadsheetId = response.data.spreadsheetId;
 
-        console.log(`[DEBUG] New spreadsheet created for user (${phoneNumber}): ${spreadsheetId}`);
+        console.log(`[✅ SUCCESS] New spreadsheet created for user (${phoneNumber}): ${spreadsheetId}`);
 
         // Share the spreadsheet with your personal email
-        const personalEmail = process.env.PERSONAL_EMAIL; // Ensure your personal email is set in .env
+        const personalEmail = process.env.PERSONAL_EMAIL;
         if (personalEmail) {
             await shareSpreadsheetWithUser(spreadsheetId, personalEmail);
         } else {
-            console.warn('[WARN] PERSONAL_EMAIL is not set. Spreadsheet will not be shared.');
+            console.warn('[⚠️ WARN] PERSONAL_EMAIL is not set. Spreadsheet will not be shared.');
         }
 
         return spreadsheetId;
     } catch (error) {
-        console.error('[ERROR] Failed to create a new spreadsheet:', error.message);
+        console.error('[❌ ERROR] Failed to create a new spreadsheet:', error.message);
         throw error;
     }
 }
@@ -113,7 +113,7 @@ async function appendToUserSpreadsheet(data, spreadsheetId) {
 
         console.log(`[DEBUG] Using Spreadsheet ID: ${spreadsheetId}`);
 
-        const RANGE = 'Sheet1!A:D'; // Default range in the spreadsheet
+        const RANGE = 'Sheet1!A:D';
 
         const resource = {
             values: [data],
@@ -126,15 +126,15 @@ async function appendToUserSpreadsheet(data, spreadsheetId) {
             resource,
         });
 
-        console.log(`[DEBUG] Data successfully appended to spreadsheet (${spreadsheetId}): ${JSON.stringify(data)}`);
+        console.log(`[✅ SUCCESS] Data successfully appended to spreadsheet (${spreadsheetId}): ${JSON.stringify(data)}`);
         return result.data;
     } catch (error) {
-        console.error('[ERROR] Failed to append data to spreadsheet:', error.message);
+        console.error('[❌ ERROR] Failed to append data to spreadsheet:', error.message);
         throw error;
     }
 }
 
-// Function to retrieve or create a spreadsheet for a user
+// Function to retrieve or create a spreadsheet for a user and share it
 async function getOrCreateUserSpreadsheet(phoneNumber) {
     try {
         const userDoc = db.collection('users').doc(phoneNumber);
@@ -144,6 +144,16 @@ async function getOrCreateUserSpreadsheet(phoneNumber) {
         if (userSnapshot.exists && userSnapshot.data().spreadsheetId) {
             const spreadsheetId = userSnapshot.data().spreadsheetId;
             console.log(`[DEBUG] Retrieved spreadsheet ID from Firebase for user (${phoneNumber}): ${spreadsheetId}`);
+
+            // 🔹 Ensure the spreadsheet is shared with your personal email
+            const personalEmail = process.env.PERSONAL_EMAIL;
+            if (personalEmail) {
+                console.log(`[DEBUG] Ensuring spreadsheet ${spreadsheetId} is shared with ${personalEmail}`);
+                await shareSpreadsheetWithUser(spreadsheetId, personalEmail);
+            } else {
+                console.warn('[⚠️ WARN] PERSONAL_EMAIL is not set. Cannot ensure access.');
+            }
+
             return spreadsheetId;
         }
 
@@ -151,13 +161,13 @@ async function getOrCreateUserSpreadsheet(phoneNumber) {
         console.log(`[DEBUG] No spreadsheet found for user (${phoneNumber}). Creating a new one.`);
         const spreadsheetId = await createSpreadsheetForUser(phoneNumber);
 
-        // Save the spreadsheet ID to Firebase
-        await userDoc.set({ spreadsheetId });
-        console.log(`[DEBUG] Spreadsheet created and saved to Firebase for user (${phoneNumber}): ${spreadsheetId}`);
+        // ✅ Save the spreadsheet ID to Firebase, ensuring existing data is not lost
+        await userDoc.set({ spreadsheetId }, { merge: true });
+        console.log(`[✅ SUCCESS] Spreadsheet created and saved to Firebase for user (${phoneNumber}): ${spreadsheetId}`);
 
         return spreadsheetId;
     } catch (error) {
-        console.error(`[ERROR] Failed to retrieve or create spreadsheet for user (${phoneNumber}):`, error.message);
+        console.error(`[❌ ERROR] Failed to retrieve or create spreadsheet for user (${phoneNumber}):`, error.message);
         throw error;
     }
 }

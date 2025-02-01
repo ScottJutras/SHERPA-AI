@@ -2,16 +2,54 @@ require('dotenv').config();
 const express = require('express');
 const OpenAI = require('openai');
 const bodyParser = require('body-parser');
+const fs = require('fs');
 const { parseExpenseMessage } = require('./utils/expenseParser'); // Helper for expense parsing
 const { appendToUserSpreadsheet, getOrCreateUserSpreadsheet } = require('./utils/googleSheets'); // Google Sheets integration
+const admin = require('firebase-admin');
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
-// Debugging: Validate environment variables
+// ✅ Ensure GOOGLE_CREDENTIALS_PATH is set correctly
+if (!process.env.GOOGLE_CREDENTIALS_PATH) {
+    console.error("[ERROR] GOOGLE_CREDENTIALS_PATH is not set in .env.");
+    process.exit(1);
+}
+
+// ✅ Load Google Credentials from the file
+const googleCredentialsPath = process.env.GOOGLE_CREDENTIALS_PATH;
+let googleCredentials;
+try {
+    googleCredentials = JSON.parse(fs.readFileSync(googleCredentialsPath, 'utf8'));
+    console.log("[DEBUG] Successfully loaded Google Credentials from file.");
+} catch (error) {
+    console.error("[ERROR] Failed to read Google Credentials:", error.message);
+    process.exit(1);
+}
+
+// ✅ Initialize Firebase Admin SDK
+if (!admin.apps.length) {
+    const firebaseCredentialsPath = process.env.FIREBASE_CREDENTIALS;
+    try {
+        if (!firebaseCredentialsPath || !fs.existsSync(firebaseCredentialsPath)) {
+            throw new Error(`Firebase credentials file not found at ${firebaseCredentialsPath}`);
+        }
+        const firebaseCredentials = JSON.parse(fs.readFileSync(firebaseCredentialsPath, 'utf8'));
+        admin.initializeApp({
+            credential: admin.credential.cert(firebaseCredentials),
+        });
+        console.log("[DEBUG] Firebase Admin initialized successfully.");
+    } catch (error) {
+        console.error("[ERROR] Failed to initialize Firebase Admin:", error.message);
+        process.exit(1);
+    }
+}
+
+const db = admin.firestore();
+
+// ✅ Validate required environment variables
 console.log('[DEBUG] OPENAI_API_KEY:', process.env.OPENAI_API_KEY ? 'Loaded' : 'Missing');
-console.log('[DEBUG] GOOGLE_CREDENTIALS:', process.env.GOOGLE_CREDENTIALS ? 'Loaded' : 'Missing');
 
 // Initialize OpenAI
 const openai = new OpenAI({
@@ -67,17 +105,20 @@ app.post('/webhook', async (req, res) => {
     let reply;
 
     try {
-        // Check if the message is an expense log
+        // ✅ Check if the message is an expense log
         const expenseData = parseExpenseMessage(body);
 
         if (expenseData) {
             console.log(`[DEBUG] Parsed Expense Data:`, expenseData);
 
             try {
-                // Retrieve or create the user's spreadsheet using their phone number
+                // ✅ Retrieve or create the user's spreadsheet using their phone number
                 const spreadsheetId = await getOrCreateUserSpreadsheet(from);
+                if (!spreadsheetId) {
+                    throw new Error("No spreadsheet ID found or created.");
+                }
 
-                // Append data to the user's spreadsheet
+                // ✅ Append data to the user's spreadsheet
                 await appendToUserSpreadsheet(
                     [expenseData.date, expenseData.item, expenseData.amount, expenseData.store],
                     spreadsheetId
@@ -111,7 +152,7 @@ app.post('/webhook', async (req, res) => {
         reply = 'Sorry, something went wrong. Please try again later.';
     }
 
-    // Send Twilio-compatible XML response
+    // ✅ Send Twilio-compatible XML response
     res.set('Content-Type', 'text/xml');
     res.send(`
       <Response>
@@ -127,19 +168,10 @@ app.get('/', (req, res) => {
     res.send('Webhook server is up and running!');
 });
 
-// Start the server
+// ✅ Start the server
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
     console.log(`[${environment}] Webhook server is running on http://localhost:${PORT}`);
 });
 
 module.exports = app;
-
-
-
-
-
-
-
-
-

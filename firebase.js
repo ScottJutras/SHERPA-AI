@@ -1,16 +1,34 @@
 const admin = require('firebase-admin');
-const path = require('path');
+const fs = require('fs');
 
-const serviceAccountPath = process.env.FIREBASE_CREDENTIALS;
+// Load Firebase credentials from JSON file
+const firebaseCredentialsPath = process.env.FIREBASE_CREDENTIALS;
 
-if (!serviceAccountPath) {
-    throw new Error('[ERROR] FIREBASE_CREDENTIALS not set in environment variables.');
+if (!firebaseCredentialsPath || !fs.existsSync(firebaseCredentialsPath)) {
+    console.error("❌ FIREBASE_CREDENTIALS file is missing or incorrect. Check the path in your .env file.");
+    process.exit(1);
 }
 
-admin.initializeApp({
-    credential: admin.credential.cert(require(path.join(__dirname, serviceAccountPath))),
-});
+const firebaseCredentials = JSON.parse(fs.readFileSync(firebaseCredentialsPath, 'utf8'));
+
+if (!admin.apps.length) {
+    admin.initializeApp({
+        credential: admin.credential.cert(firebaseCredentials),
+    });
+}
 
 const db = admin.firestore();
 
-module.exports = db;
+async function updateUserSpreadsheet() {
+    const phoneNumber = "YOUR_PHONE_NUMBER"; // Replace with your actual phone number
+    const spreadsheetId = "1mb83t9mvuJJ68XsHd6nw1nrm4SmgrNkDrgAnizi4iWU"; // ✅ New Spreadsheet ID
+
+    try {
+        await db.collection('users').doc(phoneNumber).set({ spreadsheetId }, { merge: true });
+        console.log(`✅ Successfully updated Firebase with new Spreadsheet ID: ${spreadsheetId}`);
+    } catch (error) {
+        console.error(`❌ Failed to update Firebase: ${error.message}`);
+    }
+}
+
+updateUserSpreadsheet();
