@@ -11,7 +11,6 @@ const {
     setActiveJob,
     getActiveJob
 } = require('./utils/googleSheets');
-const admin = require('firebase-admin');
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -39,7 +38,7 @@ async function getJobExpenseSummary(from, jobName) {
         const spreadsheetId = await getOrCreateUserSpreadsheet(from);
         if (!spreadsheetId) throw new Error("No spreadsheet ID found.");
 
-        const expenseData = await fetchExpenseData(spreadsheetId, jobName);
+        const expenseData = await fetchExpenseData(from, jobName);
         const analytics = calculateExpenseAnalytics(expenseData);
 
         return `
@@ -125,9 +124,17 @@ app.post('/webhook', async (req, res) => {
                 reply = await getJobExpenseSummary(from, jobName);
             }
         } else {
-            const activeJob = await getActiveJob(from);
-            const expenseData = parseExpenseMessage(body);
+            // ✅ Get active job for user
+            let activeJob = await getActiveJob(from);
+            if (!activeJob) {
+                console.log("[DEBUG] No active job found. Assigning to 'Uncategorized'");
+                activeJob = "Uncategorized";
+            } else {
+                console.log(`[DEBUG] Active job found: ${activeJob}`);
+            }
 
+            // ✅ Parse expense message
+            const expenseData = parseExpenseMessage(body);
             if (expenseData) {
                 console.log(`[DEBUG] Parsed Expense Data:`, expenseData);
 
@@ -136,11 +143,11 @@ app.post('/webhook', async (req, res) => {
                     if (!spreadsheetId) throw new Error("No spreadsheet ID found.");
 
                     await appendToUserSpreadsheet(
-                        [expenseData.date, expenseData.item, expenseData.amount, expenseData.store, activeJob || "Uncategorized"],
-                        spreadsheetId
+                        from,
+                        [expenseData.date, expenseData.item, expenseData.amount, expenseData.store, activeJob]
                     );
 
-                    reply = `✅ Expense logged under '${activeJob || "Uncategorized"}': ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
+                    reply = `✅ Expense logged under '${activeJob}': ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
                     console.log(`[DEBUG] Expense logged reply: "${reply}"`);
                 } catch (error) {
                     console.error('[ERROR] Failed to log expense to Google Sheets:', error.message);
