@@ -63,13 +63,63 @@ async function getAuthorizedClient() {
     }
 }
 
-// ✅ Function to fetch all expenses from Google Sheets
-async function fetchExpenseData(spreadsheetId) {
+// ✅ Function to set the active job for a user
+async function setActiveJob(phoneNumber, jobName) {
+    try {
+        await db.collection('users').doc(phoneNumber).set({ activeJob: jobName }, { merge: true });
+        console.log(`[✅ SUCCESS] Active job set for user (${phoneNumber}): ${jobName}`);
+    } catch (error) {
+        console.error('[❌ ERROR] Failed to set active job:', error.message);
+        throw error;
+    }
+}
+
+// ✅ Function to get the active job for a user
+async function getActiveJob(phoneNumber) {
+    try {
+        const userDoc = await db.collection('users').doc(phoneNumber).get();
+        return userDoc.exists ? userDoc.data().activeJob : null;
+    } catch (error) {
+        console.error('[❌ ERROR] Failed to retrieve active job:', error.message);
+        throw error;
+    }
+}
+
+// ✅ Function to append data to a user's spreadsheet, including job name
+async function appendToUserSpreadsheet(data, spreadsheetId) {
     try {
         const auth = await getAuthorizedClient();
         const sheets = google.sheets({ version: 'v4', auth });
 
-        const RANGE = 'Sheet1!A:D'; // Assuming Date, Item, Amount, Store columns
+        console.log(`[DEBUG] Using Spreadsheet ID: ${spreadsheetId}`);
+
+        const RANGE = 'Sheet1!A:E'; // Now includes Job column
+
+        const resource = {
+            values: [data],
+        };
+
+        await sheets.spreadsheets.values.append({
+            spreadsheetId,
+            range: RANGE,
+            valueInputOption: 'USER_ENTERED',
+            resource,
+        });
+
+        console.log(`[✅ SUCCESS] Data successfully appended to spreadsheet (${spreadsheetId}): ${JSON.stringify(data)}`);
+    } catch (error) {
+        console.error('[❌ ERROR] Failed to append data to spreadsheet:', error.message);
+        throw error;
+    }
+}
+
+// ✅ Function to fetch expenses filtered by job
+async function fetchExpenseData(spreadsheetId, jobName) {
+    try {
+        const auth = await getAuthorizedClient();
+        const sheets = google.sheets({ version: 'v4', auth });
+
+        const RANGE = 'Sheet1!A:E'; // Now includes Job column
 
         const response = await sheets.spreadsheets.values.get({
             spreadsheetId,
@@ -82,20 +132,22 @@ async function fetchExpenseData(spreadsheetId) {
             return [];
         }
 
-        // Exclude header row and format data
-        return rows.slice(1).map(row => ({
-            date: row[0],
-            item: row[1],
-            amount: parseFloat(row[2].replace('$', '')) || 0,
-            store: row[3]
-        }));
+        return rows.slice(1)
+            .filter(row => row[4] === jobName) // Filter by job name
+            .map(row => ({
+                date: row[0],
+                item: row[1],
+                amount: parseFloat(row[2].replace('$', '')) || 0,
+                store: row[3],
+                job: row[4]
+            }));
     } catch (error) {
         console.error('[ERROR] Failed to fetch expense data:', error.message);
         throw error;
     }
 }
 
-// ✅ Function to calculate expense analytics
+// ✅ Function to calculate analytics for a job
 function calculateExpenseAnalytics(expenses) {
     if (!expenses.length) {
         return {
@@ -133,52 +185,21 @@ function calculateExpenseAnalytics(expenses) {
     };
 }
 
-// ✅ Function to append data to a user's spreadsheet
-async function appendToUserSpreadsheet(data, spreadsheetId) {
-    try {
-        const auth = await getAuthorizedClient();
-        const sheets = google.sheets({ version: 'v4', auth });
-
-        console.log(`[DEBUG] Using Spreadsheet ID: ${spreadsheetId}`);
-
-        const RANGE = 'Sheet1!A:D';
-
-        const resource = {
-            values: [data],
-        };
-
-        await sheets.spreadsheets.values.append({
-            spreadsheetId,
-            range: RANGE,
-            valueInputOption: 'USER_ENTERED',
-            resource,
-        });
-
-        console.log(`[✅ SUCCESS] Data successfully appended to spreadsheet (${spreadsheetId}): ${JSON.stringify(data)}`);
-    } catch (error) {
-        console.error('[❌ ERROR] Failed to append data to spreadsheet:', error.message);
-        throw error;
-    }
-}
-
-// ✅ Function to retrieve or create a spreadsheet for a user and share it
+// ✅ Function to retrieve or create a spreadsheet for a user
 async function getOrCreateUserSpreadsheet(phoneNumber) {
     try {
         const userDoc = db.collection('users').doc(phoneNumber);
         const userSnapshot = await userDoc.get();
 
-        // Check if spreadsheet ID exists in Firebase
         if (userSnapshot.exists && userSnapshot.data().spreadsheetId) {
             const spreadsheetId = userSnapshot.data().spreadsheetId;
             console.log(`[DEBUG] Retrieved spreadsheet ID from Firebase for user (${phoneNumber}): ${spreadsheetId}`);
             return spreadsheetId;
         }
 
-        // If no spreadsheet exists, create a new one
         console.log(`[DEBUG] No spreadsheet found for user (${phoneNumber}). Creating a new one.`);
         const spreadsheetId = await createSpreadsheetForUser(phoneNumber);
 
-        // ✅ Save the spreadsheet ID to Firebase
         await userDoc.set({ spreadsheetId }, { merge: true });
         console.log(`[✅ SUCCESS] Spreadsheet created and saved to Firebase for user (${phoneNumber}): ${spreadsheetId}`);
 
@@ -191,7 +212,8 @@ async function getOrCreateUserSpreadsheet(phoneNumber) {
 
 module.exports = {
     appendToUserSpreadsheet,
-    getOrCreateUserSpreadsheet,
     fetchExpenseData,
-    calculateExpenseAnalytics
+    calculateExpenseAnalytics,
+    setActiveJob,
+    getActiveJob
 };
