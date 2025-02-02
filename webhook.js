@@ -11,6 +11,7 @@ const {
     setActiveJob,
     getActiveJob
 } = require('./utils/googleSheets');
+const { extractTextFromImage } = require('./utils/visionService');
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -30,70 +31,35 @@ const openai = new OpenAI({
 const environment = process.env.NODE_ENV || 'development';
 console.log(`[DEBUG] Environment: ${environment}`);
 
-// ✅ Function to get job-based expense summary
-async function getJobExpenseSummary(from, jobName) {
+// ✅ Function to handle receipt image processing
+async function handleReceiptImage(from, mediaUrl) {
     try {
-        console.log(`[DEBUG] Fetching expense summary for job: ${jobName}, user: ${from}`);
-
-        const spreadsheetId = await getOrCreateUserSpreadsheet(from);
-        if (!spreadsheetId) throw new Error("No spreadsheet ID found.");
-
-        const expenseData = await fetchExpenseData(from, jobName);
-        const analytics = calculateExpenseAnalytics(expenseData);
-
-        return `
-📊 *Expense Summary for ${jobName}* 📊
-💰 Total Spent: ${analytics.totalSpent}
-🏪 Top Store: ${analytics.topStore}
-📌 Biggest Purchase: ${analytics.biggestPurchase}
-🔄 Most Frequent Expense: ${analytics.mostFrequentItem}
-        `;
-    } catch (error) {
-        console.error('[ERROR] Failed to fetch job expense summary:', error.message);
-        return `⚠️ Unable to generate expense summary for ${jobName}. Please try again later.`;
-    }
-}
-
-// ✅ Function to handle setting a new job
-async function handleStartJob(from, body) {
-    const jobMatch = body.match(/start job (.+)/i);
-    if (!jobMatch) return "⚠️ Please specify a job name. Example: 'Start job 75 Hampton Crt'";
-
-    const jobName = jobMatch[1].trim();
-    await setActiveJob(from, jobName);
-    
-    return `✅ Job '${jobName}' is now active. All expenses will be assigned to this job.`;
-}
-
-// ✅ Function to get response from ChatGPT
-async function getChatGPTResponse(prompt) {
-    console.log(`[DEBUG] ChatGPT Request: "${prompt}"`);
-    if (!prompt || prompt.trim() === '') {
-        console.error("[ERROR] Invalid prompt: Empty or undefined.");
-        throw new Error("Prompt is empty or undefined.");
-    }
-
-    try {
-        const response = await openai.chat.completions.create({
-            model: 'gpt-3.5-turbo',
-            messages: [
-                { role: 'system', content: 'You are a helpful assistant.' },
-                { role: 'user', content: prompt },
-            ],
-            max_tokens: 100,
-            temperature: 0.7,
-        });
-
-        console.log(`[DEBUG] OpenAI API Response: ${JSON.stringify(response.data)}`);
-        if (response.choices?.length > 0) {
-            return response.choices[0].message.content.trim();
-        } else {
-            console.error("[ERROR] OpenAI response was empty.");
-            throw new Error("OpenAI API response is empty.");
+        console.log(`[DEBUG] Processing receipt image from ${from}: ${mediaUrl}`);
+        const extractedText = await extractTextFromImage(mediaUrl);
+        if (!extractedText) {
+            throw new Error("No text extracted from image.");
         }
+        
+        console.log(`[DEBUG] Extracted text: ${extractedText}`);
+        const expenseData = parseExpenseMessage(extractedText);
+        
+        if (!expenseData) {
+            throw new Error("Failed to parse extracted text into expense data.");
+        }
+        
+        console.log(`[DEBUG] Parsed Expense Data:`, expenseData);
+        const activeJob = await getActiveJob(from) || "Uncategorized";
+        
+        const spreadsheetId = await getOrCreateUserSpreadsheet(from);
+        await appendToUserSpreadsheet(
+            from,
+            [expenseData.date, expenseData.item, expenseData.amount, expenseData.store, activeJob]
+        );
+        
+        return `✅ Expense logged under '${activeJob}': ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
     } catch (error) {
-        console.error(`[ERROR] OpenAI API call failed: ${error.message}`);
-        throw new Error("Failed to fetch response from ChatGPT.");
+        console.error("[ERROR] Failed to process receipt image:", error.message);
+        return "❌ Failed to process the receipt image. Please try again later.";
     }
 }
 
@@ -103,17 +69,21 @@ app.post('/webhook', async (req, res) => {
 
     const from = req.body.From;
     const body = req.body.Body?.trim().toLowerCase();
+    const mediaUrl = req.body.MediaUrl0; // WhatsApp image URL
 
-    if (!from || !body) {
-        console.error("[ERROR] Webhook request missing 'From' or 'Body'.");
-        return res.status(400).send("Bad Request: Missing 'From' or 'Body'.");
+    if (!from) {
+        console.error("[ERROR] Webhook request missing 'From'.");
+        return res.status(400).send("Bad Request: Missing 'From'.");
     }
 
-    console.log(`[DEBUG] Incoming message from ${from}: "${body}"`);
+    console.log(`[DEBUG] Incoming message from ${from}: "${body || "(Image received)"}"`);
     let reply;
 
     try {
-        if (body.startsWith("start job ")) {
+        if (mediaUrl) {
+            // ✅ Process receipt image
+            reply = await handleReceiptImage(from, mediaUrl);
+        } else if (body.startsWith("start job ")) {
             reply = await handleStartJob(from, body);
         } else if (body.startsWith("expense summary for ")) {
             const jobMatch = body.match(/expense summary for (.+)/i);
@@ -153,11 +123,8 @@ app.post('/webhook', async (req, res) => {
                     console.error('[ERROR] Failed to log expense to Google Sheets:', error.message);
                     reply = "❌ Failed to log your expense. Please try again later.";
                 }
-            } else if (["hi", "hello"].includes(body)) {
-                reply = "👋 Hi! Welcome to our service. Reply with:\n1️⃣ Help\n2️⃣ Services\n3️⃣ Contact\n4️⃣ Log an Expense\n5️⃣ Expense Summary";
             } else {
-                console.log("[DEBUG] Custom input detected, querying ChatGPT...");
-                reply = await getChatGPTResponse(body);
+                reply = "⚠️ Sorry, I couldn't understand that. Please provide an expense message or send a receipt image.";
             }
         }
     } catch (error) {
@@ -172,12 +139,6 @@ app.post('/webhook', async (req, res) => {
       </Response>
     `);
     console.log(`[DEBUG] Reply sent: "${reply}"`);
-});
-
-// ✅ Handle GET requests to verify the server is running
-app.get('/', (req, res) => {
-    console.log("[DEBUG] GET request received at root URL.");
-    res.send("Webhook server is up and running!");
 });
 
 // ✅ Start the Express server
