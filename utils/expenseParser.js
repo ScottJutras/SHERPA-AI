@@ -1,26 +1,73 @@
+const chrono = require('chrono-node');
+
 function parseExpenseMessage(message) {
-    // Regex patterns to extract data
-    const itemPattern = /bought\s(.*?)\sfor/i; // Captures item after "bought" and before "for"
-    const amountPattern = /\$([0-9,.]+)/; // Captures the dollar amount
-    const storePattern = /from\s(.*?)(?:\son|\.$)/i; // Captures store name after "from" and before "on" or "."
-    const datePattern = /on\s(.*)/i; // Captures date after "on"
+    // Extract amount
+    const amountMatch = message.match(/\$([\d,]+(?:\.\d{1,2})?)/);
+    const amount = amountMatch ? `$${amountMatch[1]}` : null;
 
-    const itemMatch = message.match(itemPattern);
-    const amountMatch = message.match(amountPattern);
-    const storeMatch = message.match(storePattern);
-    const dateMatch = message.match(datePattern);
+    // Extract store name
+    let storeMatch = message.match(/(?:at|from)\s([\w\s&-]+?)(?:\s(today|yesterday|last\s\w+|on\s\w+))?(?:\.$|$)/i);
+    let store = storeMatch ? storeMatch[1].trim() : null;
 
-    if (itemMatch && amountMatch && storeMatch && dateMatch) {
-        return {
-            item: itemMatch[1].trim(),
-            amount: `$${amountMatch[1].trim()}`,
-            store: storeMatch[1].trim(),
-            date: dateMatch[1].trim(),
-        };
+    // Extract date using chrono-node
+    const parsedDate = chrono.parseDate(message);
+    const date = parsedDate ? parsedDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+
+    // Extract item name
+    let item = null;
+
+    // Regex patterns to match different expense phrases
+    const patterns = [
+        /(?:got|bought|spent|paid|purchased)\s(.*?)\s(?:for\s)?\$\d+/i,  // "Bought a coffee for $5"
+        /spent\s\$\d+\son\s(.*?)(?:\sfrom|\sat|$)/i,                      // "Spent $150 on a new chair from Ikea"
+        /(?:just got|picked up|purchased)\s\$[\d,]+(?:\sof|\son)?\s([\w\s&-]+)/i, // "Just got $10 of 2x4"
+        /(?:paid|spent|got)\s(?:\$[\d,]+\s)?(.*?)(?:\sat|from|on|for|$)/i, // "Paid $50 for gas at Shell"
+        /(?:for|on)\s([\w\s&-]+?)\s?(?:at|from|$)/i, // **NEW FINAL FALLBACK**: "Paid $50 for gas at Shell"
+    ];
+
+    for (const pattern of patterns) {
+        const match = message.match(pattern);
+        if (match) {
+            item = match[1].trim();
+            break;
+        }
     }
 
-    // Return null if parsing fails
-    return null;
+    // **Explicit check for common single-word items (gas, food, fuel, groceries, etc.)**
+    if (!item && /\b(paid|spent)\s\$[\d,]+\sfor\s(gas|fuel|groceries|food|coffee|milk|snacks|water|beer)\b/i.test(message)) {
+        item = message.match(/\b(gas|fuel|groceries|food|coffee|milk|snacks|water|beer)\b/i)[1];
+    }
+
+    // **Clean extracted data**
+    if (item) {
+        // Remove unnecessary leading words
+        item = item.replace(/\b(a|an|some|worth of)\b\s*/gi, "").trim();
+
+        // Remove trailing date words from the item (like "today", "yesterday", "last Monday")
+        item = item.replace(/\b(today|yesterday|last\s\w+|on\s\w+)\b/i, "").trim();
+
+        // Remove store name from item if mistakenly included
+        if (store) {
+            item = item.replace(new RegExp(`\\bat\\s*${store}\\b`, 'gi'), "").trim();
+        }
+    }
+
+    if (store) {
+        // Remove words like "today", "yesterday", "last Monday" from store names
+        store = store.replace(/\b(today|yesterday|last\s\w+|on\s\w+)\b/i, "").trim();
+    }
+
+    // If amount or store is missing, return null (invalid data)
+    if (!amount || !store) {
+        return null;
+    }
+
+    return {
+        item: item || "Unknown Item",
+        amount,
+        store,
+        date
+    };
 }
 
 module.exports = { parseExpenseMessage };
