@@ -1,28 +1,29 @@
 const chrono = require('chrono-node');
 
 function parseExpenseMessage(message) {
-    // Extract amount
+    console.log(`[DEBUG] Parsing expense message: "${message}"`);
+
+    // **Extract amount**
     const amountMatch = message.match(/\$([\d,]+(?:\.\d{1,2})?)/);
     const amount = amountMatch ? `$${amountMatch[1]}` : null;
 
-    // Extract store name
+    // **Extract store name**
     let storeMatch = message.match(/(?:at|from)\s([\w\s&-]+?)(?:\s(today|yesterday|last\s\w+|on\s\w+))?(?:\.$|$)/i);
     let store = storeMatch ? storeMatch[1].trim() : null;
 
-    // Extract date using chrono-node
+    // **Extract date using chrono-node**
     const parsedDate = chrono.parseDate(message);
     const date = parsedDate ? parsedDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
 
-    // Extract item name
+    // **Extract item description**
     let item = null;
-
-    // **Improved regex patterns for item extraction**
     const patterns = [
         /(?:got|bought|spent|paid|purchased)\s(.*?)\s(?:for\s)?\$\d+/i,  // "Bought a coffee for $5"
         /spent\s\$\d+\son\s(.*?)(?:\sfrom|\sat|$)/i,                      // "Spent $150 on a new chair from Ikea"
         /(?:just got|picked up|purchased)\s\$[\d,]+(?:\sof|\son)?\s([\w\s&-]+)/i, // "Just got $10 of 2x4"
         /(?:paid|spent|got)\s(?:\$[\d,]+\s)?(.*?)(?:\sat|from|on|for|$)/i, // "Paid $50 for gas at Shell"
         /(?:for|on)\s([\w\s&-]+?)\s?(?:at|from|$)/i, // "Paid $50 for gas at Shell"
+        /(?:bought|picked up)\s([\w\s&-]+?)(?:\sfrom|\sat|$)/i, // "Bought screws from Home Depot"
     ];
 
     for (const pattern of patterns) {
@@ -49,25 +50,20 @@ function parseExpenseMessage(message) {
 
     // **Clean extracted data**
     if (item) {
-        // Remove unnecessary leading words
         item = item.replace(/\b(a|an|some|worth of)\b\s*/gi, "").trim();
-
-        // Remove trailing date words from the item (like "today", "yesterday", "last Monday")
         item = item.replace(/\b(today|yesterday|last\s\w+|on\s\w+)\b/i, "").trim();
-
-        // Remove store name from item if mistakenly included
         if (store) {
             item = item.replace(new RegExp(`\\bat\\s*${store}\\b`, 'gi'), "").trim();
         }
     }
 
     if (store) {
-        // Remove words like "today", "yesterday", "last Monday" from store names
         store = store.replace(/\b(today|yesterday|last\s\w+|on\s\w+)\b/i, "").trim();
     }
 
-    // If amount or store is missing, return null (invalid data)
-    if (!amount || !store) {
+    // **Ensure valid data before returning**
+    if (!amount || !store || !item) {
+        console.log("[DEBUG] Missing essential data, returning null.");
         return null;
     }
 
