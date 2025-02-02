@@ -145,6 +145,17 @@ async function fetchExpenseData(phoneNumber, jobName) {
     }
 }
 
+// ✅ Function to set the active job for a user (RESTORED)
+async function setActiveJob(phoneNumber, jobName) {
+    try {
+        await db.collection('users').doc(phoneNumber).set({ activeJob: jobName }, { merge: true });
+        console.log(`[✅ SUCCESS] Active job set for ${phoneNumber}: ${jobName}`);
+    } catch (error) {
+        console.error('[❌ ERROR] Failed to set active job:', error.message);
+        throw error;
+    }
+}
+
 // ✅ Function to get the active job for a user (RESTORED)
 async function getActiveJob(phoneNumber) {
     try {
@@ -169,17 +180,11 @@ function parseReceiptText(text) {
         let amountMatch = text.match(/\$([\d,]+(?:\.\d{1,2})?)/g);
         let amount = amountMatch ? `$${amountMatch[amountMatch.length - 1]}` : "Unknown Amount";
 
-        let items = [];
-        for (let i = 0; i < lines.length; i++) {
-            if (/total/i.test(lines[i]) || /sub total/i.test(lines[i])) break;
-            if (/\d+ EA @/.test(lines[i]) || /\d+\.\d{2}/.test(lines[i])) {
-                items.push(lines[i].replace(/\d+ EA @/, "").trim());
-            }
-        }
+        let items = lines.slice(1, 5).join(", "); // Taking the first few lines as items
 
         return {
             date,
-            item: items.join(", ") || "Unknown Items",
+            item: items || "Unknown Items",
             amount,
             store
         };
@@ -210,5 +215,6 @@ module.exports = {
     fetchExpenseData,
     logReceiptExpense,
     getOrCreateUserSpreadsheet,
-    getActiveJob,  // RESTORED FUNCTION
+    setActiveJob,  // FIXED & RESTORED
+    getActiveJob,  // FIXED & RESTORED
 };
