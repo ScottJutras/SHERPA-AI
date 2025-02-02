@@ -3,9 +3,9 @@ const chrono = require('chrono-node');
 function parseExpenseMessage(message) {
     console.log(`[DEBUG] Parsing expense message: "${message}"`);
 
-    // ✅ Extract amount (Recognizes numbers with or without `$`)
-    const amountMatch = message.match(/(?:\$\s?|for\s?)?\s?(\d{1,6}(?:\.\d{1,2})?)/i);
-    const amount = amountMatch ? `$${parseFloat(amountMatch[1]).toFixed(2)}` : null; // Ensure formatting as $XX.XX
+    // ✅ Extract amount (Supports "$24.60", "24.60", "1,200.00")
+    const amountMatch = message.match(/(?:\$|for\s?)\s?([\d,]+(?:\.\d{1,2})?)/i);
+    const amount = amountMatch ? `$${parseFloat(amountMatch[1].replace(/,/g, '')).toFixed(2)}` : null;
 
     // ✅ Extract store name
     let storeMatch = message.match(/(?:at|from)\s([\w\s&-]+?)(?:\s(today|yesterday|last\s\w+|on\s\w+))?(?:\.$|$)/i);
@@ -15,7 +15,7 @@ function parseExpenseMessage(message) {
     const parsedDate = chrono.parseDate(message);
     const date = parsedDate ? parsedDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
 
-    // ✅ Extract item name (Handles "nails", "20 2x4", "5 sheets of plywood", etc.)
+    // ✅ Extract item name
     let item = null;
 
     const patterns = [
