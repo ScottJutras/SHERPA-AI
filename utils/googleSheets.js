@@ -111,6 +111,40 @@ async function appendToUserSpreadsheet(phoneNumber, data) {
     }
 }
 
+// ✅ Function to fetch expenses filtered by job
+async function fetchExpenseData(phoneNumber, jobName) {
+    try {
+        const spreadsheetId = await getOrCreateUserSpreadsheet(phoneNumber);
+        const auth = await getAuthorizedClient();
+        const sheets = google.sheets({ version: 'v4', auth });
+
+        const RANGE = 'Sheet1!A:E'; // Columns: Date, Item, Amount, Store, Job
+        const response = await sheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: RANGE,
+        });
+
+        const rows = response.data.values;
+        if (!rows || rows.length <= 1) {
+            console.log('[DEBUG] No expense data found.');
+            return [];
+        }
+
+        return rows.slice(1)
+            .filter(row => row[4] === jobName)
+            .map(row => ({
+                date: row[0],
+                item: row[1],
+                amount: parseFloat(row[2].replace('$', '')) || 0,
+                store: row[3],
+                job: row[4]
+            }));
+    } catch (error) {
+        console.error('[ERROR] Failed to fetch expense data:', error.message);
+        throw error;
+    }
+}
+
 // ✅ Function to parse receipt text from OCR
 function parseReceiptText(text) {
     try {
