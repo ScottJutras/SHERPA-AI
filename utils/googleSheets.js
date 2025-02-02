@@ -145,29 +145,35 @@ async function fetchExpenseData(phoneNumber, jobName) {
     }
 }
 
+// ✅ Function to get the active job for a user (RESTORED)
+async function getActiveJob(phoneNumber) {
+    try {
+        const userDoc = await db.collection('users').doc(phoneNumber).get();
+        return userDoc.exists ? userDoc.data().activeJob : null;
+    } catch (error) {
+        console.error('[❌ ERROR] Failed to retrieve active job:', error.message);
+        throw error;
+    }
+}
+
 // ✅ Function to parse receipt text from OCR
 function parseReceiptText(text) {
     try {
         console.log("[DEBUG] Raw OCR Text:", text);
         const lines = text.split('\n').map(line => line.trim());
 
-        // Extract Store Name (First line usually)
         let store = lines[0] || "Unknown Store";
-
-        // Extract Date (Formats: MM/DD/YY or YYYY-MM-DD)
         let dateMatch = text.match(/(\d{2}\/\d{2}\/\d{2,4})/);
         let date = dateMatch ? dateMatch[1] : new Date().toISOString().split('T')[0];
 
-        // Extract Total Amount (Find the last occurrence of a price)
         let amountMatch = text.match(/\$([\d,]+(?:\.\d{1,2})?)/g);
         let amount = amountMatch ? `$${amountMatch[amountMatch.length - 1]}` : "Unknown Amount";
 
-        // Extract Items (Lines before "TOTAL" or "SUB TOTAL")
         let items = [];
         for (let i = 0; i < lines.length; i++) {
-            if (/total/i.test(lines[i]) || /sub total/i.test(lines[i])) break; // Stop at "TOTAL"
+            if (/total/i.test(lines[i]) || /sub total/i.test(lines[i])) break;
             if (/\d+ EA @/.test(lines[i]) || /\d+\.\d{2}/.test(lines[i])) {
-                items.push(lines[i].replace(/\d+ EA @/, "").trim()); // Remove "2 EA @" quantity part
+                items.push(lines[i].replace(/\d+ EA @/, "").trim());
             }
         }
 
@@ -203,5 +209,6 @@ module.exports = {
     appendToUserSpreadsheet,
     fetchExpenseData,
     logReceiptExpense,
-    getOrCreateUserSpreadsheet
+    getOrCreateUserSpreadsheet,
+    getActiveJob,  // RESTORED FUNCTION
 };
