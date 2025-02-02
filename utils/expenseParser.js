@@ -3,8 +3,8 @@ const chrono = require('chrono-node');
 function parseExpenseMessage(message) {
     console.log(`[DEBUG] Parsing expense message: "${message}"`);
 
-    // ✅ Extract amount
-    const amountMatch = message.match(/(?:\$\s?|for\s?)\s?([\d,]+(?:\.\d{1,2})?)/i);
+    // ✅ Extract amount (Recognizes numbers with or without `$`)
+    const amountMatch = message.match(/(?:\$\s?|for\s?)?\s?([\d]{1,6}(?:\.\d{1,2})?)/i);
     const amount = amountMatch ? `$${amountMatch[1].trim()}` : null;
 
     // ✅ Extract store name
@@ -20,10 +20,10 @@ function parseExpenseMessage(message) {
 
     // **Improved regex patterns for item extraction**
     const patterns = [
-        /(?:bought|purchased|got|spent on|paid for)\s([\w\d\s-]+?)\s(?:for|at|from|\$)/i,  // "Bought 20 2x4's from Home Depot"
-        /(?:just got|picked up|ordered)\s([\w\d\s-]+?)\s(?:for|at|from|\$)/i,              // "Just got 10 bags of cement"
-        /(?:spent\s\$\d+\son\s([\w\d\s-]+?)\s(?:at|from|on|for|$))/i,                     // "Spent $50 on screws at Home Depot"
-        /([\d]+x?[\w\s-]+?)\s(?:for|at|from|\$)/i                                         // "20 2x4's for $24.60"
+        /(?:bought|purchased|got|spent on|paid for)\s([\w\d\s-]+?)\s(?:for|at|from|\$|\d)/i,  // "Bought 20 2x4's from Home Depot"
+        /(?:just got|picked up|ordered)\s([\w\d\s-]+?)\s(?:for|at|from|\$|\d)/i,              // "Just got 10 bags of cement"
+        /(?:spent\s[\d,]+(?:\.\d{1,2})?\son\s([\w\d\s-]+?)\s(?:at|from|on|for|$))/i,        // "Spent 50 on screws at Home Depot"
+        /([\d]+x?[\w\s-]+?)\s(?:for|at|from|\$|\d)/i                                         // "20 2x4's for 24.60"
     ];
 
     for (const pattern of patterns) {
