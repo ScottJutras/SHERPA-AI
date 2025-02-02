@@ -58,13 +58,19 @@ async function getJobExpenseSummary(from, jobName) {
 
 // ✅ Function to handle setting a new job
 async function handleStartJob(from, body) {
-    const jobMatch = body.match(/start job (.+)/i);
-    if (!jobMatch) return "⚠️ Please specify a job name. Example: 'Start job 75 Hampton Crt'";
+    try {
+        const jobMatch = body.match(/start job (.+)/i);
+        if (!jobMatch) return "⚠️ Please specify a job name. Example: 'Start job 75 Hampton Crt'";
 
-    const jobName = jobMatch[1].trim();
-    await setActiveJob(from, jobName);
-    
-    return `✅ Job '${jobName}' is now active. All expenses will be assigned to this job.`;
+        const jobName = jobMatch[1].trim();
+        await setActiveJob(from, jobName);
+
+        console.log(`[✅ SUCCESS] Job set for ${from}: ${jobName}`);
+        return `✅ Job '${jobName}' is now active. All expenses will be assigned to this job.`;
+    } catch (error) {
+        console.error("[ERROR] Failed to start job:", error.message);
+        return "❌ Could not start the job. Please try again.";
+    }
 }
 
 // ✅ Function to handle receipt image processing
