@@ -167,24 +167,44 @@ async function getActiveJob(phoneNumber) {
     }
 }
 
-// ✅ Function to parse receipt text from OCR
+// ✅ Function to parse receipt text from OCR (IMPROVED)
 function parseReceiptText(text) {
     try {
         console.log("[DEBUG] Raw OCR Text:", text);
         const lines = text.split('\n').map(line => line.trim());
 
+        // Extract Store Name (Usually at the top of the receipt)
         let store = lines[0] || "Unknown Store";
-        let dateMatch = text.match(/(\d{2}\/\d{2}\/\d{2,4})/);
+
+        // Extract Date
+        let dateMatch = text.match(/(\d{2}\/\d{2}\/\d{4}|\d{2}\/\d{2}\/\d{2})/);
         let date = dateMatch ? dateMatch[1] : new Date().toISOString().split('T')[0];
 
-        let amountMatch = text.match(/\$([\d,]+(?:\.\d{1,2})?)/g);
+        // Extract Amount (Handles both "$24.60" and "24.60")
+        let amountMatch = text.match(/(?:\$|)(\d{1,6}\.\d{2})/g);
         let amount = amountMatch ? `$${amountMatch[amountMatch.length - 1]}` : "Unknown Amount";
 
-        let items = lines.slice(1, 5).join(", "); // Taking the first few lines as items
+        // Extract Items (Handles "2x4", "nails", "paint", etc.)
+        let items = [];
+        const materialKeywords = [
+            "lumber", "wood", "2x4", "plywood", "screws", "nails", "cement", "gravel", "drywall",
+            "paint", "primer", "tiles", "shingles", "gutters", "insulation", "concrete", "sand",
+            "flooring", "adhesive", "sealant", "tape", "bricks", "mortar", "plumbing", "electrical", "wire"
+        ];
+        let materialMatch = text.match(new RegExp(`\\b(${materialKeywords.join("|")})\\b`, "i"));
+        if (materialMatch) {
+            items.push(materialMatch[1]);
+        }
+
+        // Check for quantity-based items (e.g., "20 2x4s")
+        let quantityItemMatch = text.match(/(\d+)\s+(\w+)/);
+        if (quantityItemMatch) {
+            items.push(`${quantityItemMatch[1]} ${quantityItemMatch[2]}`);
+        }
 
         return {
             date,
-            item: items || "Unknown Items",
+            item: items.join(", ") || "Unknown Items",
             amount,
             store
         };
@@ -193,7 +213,6 @@ function parseReceiptText(text) {
         return null;
     }
 }
-
 // ✅ Function to log receipt-based expenses
 async function logReceiptExpense(phoneNumber, extractedText) {
     const parsedData = parseReceiptText(extractedText);
