@@ -16,13 +16,13 @@ function parseExpenseMessage(message) {
     // Extract item name
     let item = null;
 
-    // Regex patterns to match different expense phrases
+    // **Improved regex patterns for item extraction**
     const patterns = [
         /(?:got|bought|spent|paid|purchased)\s(.*?)\s(?:for\s)?\$\d+/i,  // "Bought a coffee for $5"
         /spent\s\$\d+\son\s(.*?)(?:\sfrom|\sat|$)/i,                      // "Spent $150 on a new chair from Ikea"
         /(?:just got|picked up|purchased)\s\$[\d,]+(?:\sof|\son)?\s([\w\s&-]+)/i, // "Just got $10 of 2x4"
         /(?:paid|spent|got)\s(?:\$[\d,]+\s)?(.*?)(?:\sat|from|on|for|$)/i, // "Paid $50 for gas at Shell"
-        /(?:for|on)\s([\w\s&-]+?)\s?(?:at|from|$)/i, // **NEW FINAL FALLBACK**: "Paid $50 for gas at Shell"
+        /(?:for|on)\s([\w\s&-]+?)\s?(?:at|from|$)/i, // "Paid $50 for gas at Shell"
     ];
 
     for (const pattern of patterns) {
@@ -33,9 +33,18 @@ function parseExpenseMessage(message) {
         }
     }
 
-    // **Explicit check for common single-word items (gas, food, fuel, groceries, etc.)**
-    if (!item && /\b(paid|spent)\s\$[\d,]+\sfor\s(gas|fuel|groceries|food|coffee|milk|snacks|water|beer)\b/i.test(message)) {
-        item = message.match(/\b(gas|fuel|groceries|food|coffee|milk|snacks|water|beer)\b/i)[1];
+    // **Explicit keyword detection for common construction materials**
+    const materialKeywords = [
+        "lumber", "wood", "2x4", "plywood", "screws", "nails", "cement", "gravel", "drywall",
+        "paint", "primer", "tiles", "shingles", "gutters", "insulation", "concrete", "sand",
+        "flooring", "adhesive", "sealant", "tape", "bricks", "mortar", "plumbing", "electrical", "wire"
+    ];
+
+    if (!item) {
+        const materialMatch = message.match(new RegExp(`\\b(${materialKeywords.join("|")})\\b`, "i"));
+        if (materialMatch) {
+            item = materialMatch[1];
+        }
     }
 
     // **Clean extracted data**
