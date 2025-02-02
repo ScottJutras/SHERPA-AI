@@ -31,6 +31,42 @@ const openai = new OpenAI({
 const environment = process.env.NODE_ENV || 'development';
 console.log(`[DEBUG] Environment: ${environment}`);
 
+// ✅ Function to get job-based expense summary
+async function getJobExpenseSummary(from, jobName) {
+    try {
+        console.log(`[DEBUG] Fetching expense summary for job: ${jobName}, user: ${from}`);
+
+        const expenseData = await fetchExpenseData(from, jobName);
+        if (!expenseData.length) {
+            return `⚠️ No expenses found for job: ${jobName}`;
+        }
+
+        const analytics = calculateExpenseAnalytics(expenseData);
+
+        return `
+📊 *Expense Summary for ${jobName}* 📊
+💰 Total Spent: ${analytics.totalSpent}
+🏪 Top Store: ${analytics.topStore}
+📌 Biggest Purchase: ${analytics.biggestPurchase}
+🔄 Most Frequent Expense: ${analytics.mostFrequentItem}
+        `;
+    } catch (error) {
+        console.error('[ERROR] Failed to fetch job expense summary:', error.message);
+        return `⚠️ Unable to generate expense summary for ${jobName}. Please try again later.`;
+    }
+}
+
+// ✅ Function to handle setting a new job
+async function handleStartJob(from, body) {
+    const jobMatch = body.match(/start job (.+)/i);
+    if (!jobMatch) return "⚠️ Please specify a job name. Example: 'Start job 75 Hampton Crt'";
+
+    const jobName = jobMatch[1].trim();
+    await setActiveJob(from, jobName);
+    
+    return `✅ Job '${jobName}' is now active. All expenses will be assigned to this job.`;
+}
+
 // ✅ Function to handle receipt image processing
 async function handleReceiptImage(from, mediaUrl) {
     try {
@@ -39,27 +75,47 @@ async function handleReceiptImage(from, mediaUrl) {
         if (!extractedText) {
             throw new Error("No text extracted from image.");
         }
-        
+
         console.log(`[DEBUG] Extracted text: ${extractedText}`);
         const expenseData = parseExpenseMessage(extractedText);
-        
+
         if (!expenseData) {
             throw new Error("Failed to parse extracted text into expense data.");
         }
-        
+
         console.log(`[DEBUG] Parsed Expense Data:`, expenseData);
         const activeJob = await getActiveJob(from) || "Uncategorized";
-        
-        const spreadsheetId = await getOrCreateUserSpreadsheet(from);
+
         await appendToUserSpreadsheet(
             from,
             [expenseData.date, expenseData.item, expenseData.amount, expenseData.store, activeJob]
         );
-        
+
         return `✅ Expense logged under '${activeJob}': ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
     } catch (error) {
         console.error("[ERROR] Failed to process receipt image:", error.message);
         return "❌ Failed to process the receipt image. Please try again later.";
+    }
+}
+
+// ✅ Function to get response from ChatGPT
+async function getChatGPTResponse(prompt) {
+    try {
+        console.log(`[DEBUG] ChatGPT Request: "${prompt}"`);
+        const response = await openai.chat.completions.create({
+            model: 'gpt-3.5-turbo',
+            messages: [
+                { role: 'system', content: 'You are a helpful assistant.' },
+                { role: 'user', content: prompt },
+            ],
+            max_tokens: 100,
+            temperature: 0.7,
+        });
+
+        return response.choices?.[0]?.message?.content?.trim() || "Sorry, I didn't understand that.";
+    } catch (error) {
+        console.error(`[ERROR] OpenAI API call failed: ${error.message}`);
+        return "❌ Failed to get a response. Please try again.";
     }
 }
 
@@ -81,50 +137,24 @@ app.post('/webhook', async (req, res) => {
 
     try {
         if (mediaUrl) {
-            // ✅ Process receipt image
             reply = await handleReceiptImage(from, mediaUrl);
         } else if (body.startsWith("start job ")) {
             reply = await handleStartJob(from, body);
         } else if (body.startsWith("expense summary for ")) {
             const jobMatch = body.match(/expense summary for (.+)/i);
-            if (!jobMatch) {
-                reply = "⚠️ Please specify a job name. Example: 'Expense summary for 75 Hampton Crt'";
-            } else {
-                const jobName = jobMatch[1].trim();
-                reply = await getJobExpenseSummary(from, jobName);
-            }
+            reply = jobMatch ? await getJobExpenseSummary(from, jobMatch[1].trim()) : "⚠️ Please specify a job name.";
         } else {
-            // ✅ Get active job for user
-            let activeJob = await getActiveJob(from);
-            if (!activeJob) {
-                console.log("[DEBUG] No active job found. Assigning to 'Uncategorized'");
-                activeJob = "Uncategorized";
-            } else {
-                console.log(`[DEBUG] Active job found: ${activeJob}`);
-            }
+            const activeJob = await getActiveJob(from) || "Uncategorized";
 
-            // ✅ Parse expense message
             const expenseData = parseExpenseMessage(body);
             if (expenseData) {
-                console.log(`[DEBUG] Parsed Expense Data:`, expenseData);
-
-                try {
-                    const spreadsheetId = await getOrCreateUserSpreadsheet(from);
-                    if (!spreadsheetId) throw new Error("No spreadsheet ID found.");
-
-                    await appendToUserSpreadsheet(
-                        from,
-                        [expenseData.date, expenseData.item, expenseData.amount, expenseData.store, activeJob]
-                    );
-
-                    reply = `✅ Expense logged under '${activeJob}': ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
-                    console.log(`[DEBUG] Expense logged reply: "${reply}"`);
-                } catch (error) {
-                    console.error('[ERROR] Failed to log expense to Google Sheets:', error.message);
-                    reply = "❌ Failed to log your expense. Please try again later.";
-                }
+                await appendToUserSpreadsheet(
+                    from,
+                    [expenseData.date, expenseData.item, expenseData.amount, expenseData.store, activeJob]
+                );
+                reply = `✅ Expense logged under '${activeJob}': ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
             } else {
-                reply = "⚠️ Sorry, I couldn't understand that. Please provide an expense message or send a receipt image.";
+                reply = await getChatGPTResponse(body);
             }
         }
     } catch (error) {
@@ -133,12 +163,14 @@ app.post('/webhook', async (req, res) => {
     }
 
     res.set('Content-Type', 'text/xml');
-    res.send(`
-      <Response>
-        <Message>${reply}</Message>
-      </Response>
-    `);
+    res.send(`<Response><Message>${reply}</Message></Response>`);
     console.log(`[DEBUG] Reply sent: "${reply}"`);
+});
+
+// ✅ Handle GET requests to verify the server is running
+app.get('/', (req, res) => {
+    console.log("[DEBUG] GET request received at root URL.");
+    res.send("Webhook server is up and running!");
 });
 
 // ✅ Start the Express server
