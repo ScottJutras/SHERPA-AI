@@ -3,27 +3,27 @@ const chrono = require('chrono-node');
 function parseExpenseMessage(message) {
     console.log(`[DEBUG] Parsing expense message: "${message}"`);
 
-    // **Extract amount**
-    const amountMatch = message.match(/\$([\d,]+(?:\.\d{1,2})?)/);
-    const amount = amountMatch ? `$${amountMatch[1]}` : null;
+    // ✅ Extract amount
+    const amountMatch = message.match(/(?:\$\s?|for\s?)\s?([\d,]+(?:\.\d{1,2})?)/i);
+    const amount = amountMatch ? `$${amountMatch[1].trim()}` : null;
 
-    // **Extract store name**
+    // ✅ Extract store name
     let storeMatch = message.match(/(?:at|from)\s([\w\s&-]+?)(?:\s(today|yesterday|last\s\w+|on\s\w+))?(?:\.$|$)/i);
     let store = storeMatch ? storeMatch[1].trim() : null;
 
-    // **Extract date using chrono-node**
+    // ✅ Extract date using chrono-node
     const parsedDate = chrono.parseDate(message);
     const date = parsedDate ? parsedDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
 
-    // **Extract item description**
+    // ✅ Extract item name
     let item = null;
+
+    // **Improved regex patterns for item extraction**
     const patterns = [
-        /(?:got|bought|spent|paid|purchased)\s(.*?)\s(?:for\s)?\$\d+/i,  // "Bought a coffee for $5"
-        /spent\s\$\d+\son\s(.*?)(?:\sfrom|\sat|$)/i,                      // "Spent $150 on a new chair from Ikea"
-        /(?:just got|picked up|purchased)\s\$[\d,]+(?:\sof|\son)?\s([\w\s&-]+)/i, // "Just got $10 of 2x4"
-        /(?:paid|spent|got)\s(?:\$[\d,]+\s)?(.*?)(?:\sat|from|on|for|$)/i, // "Paid $50 for gas at Shell"
-        /(?:for|on)\s([\w\s&-]+?)\s?(?:at|from|$)/i, // "Paid $50 for gas at Shell"
-        /(?:bought|picked up)\s([\w\s&-]+?)(?:\sfrom|\sat|$)/i, // "Bought screws from Home Depot"
+        /(?:bought|purchased|got|spent on|paid for)\s([\w\d\s-]+?)\s(?:for|at|from|\$)/i,  // "Bought 20 2x4's from Home Depot"
+        /(?:just got|picked up|ordered)\s([\w\d\s-]+?)\s(?:for|at|from|\$)/i,              // "Just got 10 bags of cement"
+        /(?:spent\s\$\d+\son\s([\w\d\s-]+?)\s(?:at|from|on|for|$))/i,                     // "Spent $50 on screws at Home Depot"
+        /([\d]+x?[\w\s-]+?)\s(?:for|at|from|\$)/i                                         // "20 2x4's for $24.60"
     ];
 
     for (const pattern of patterns) {
@@ -34,7 +34,7 @@ function parseExpenseMessage(message) {
         }
     }
 
-    // **Explicit keyword detection for common construction materials**
+    // **Fallback: Check for construction material keywords**
     const materialKeywords = [
         "lumber", "wood", "2x4", "plywood", "screws", "nails", "cement", "gravel", "drywall",
         "paint", "primer", "tiles", "shingles", "gutters", "insulation", "concrete", "sand",
@@ -48,10 +48,9 @@ function parseExpenseMessage(message) {
         }
     }
 
-    // **Clean extracted data**
+    // **Final cleaning**
     if (item) {
         item = item.replace(/\b(a|an|some|worth of)\b\s*/gi, "").trim();
-        item = item.replace(/\b(today|yesterday|last\s\w+|on\s\w+)\b/i, "").trim();
         if (store) {
             item = item.replace(new RegExp(`\\bat\\s*${store}\\b`, 'gi'), "").trim();
         }
@@ -61,12 +60,14 @@ function parseExpenseMessage(message) {
         store = store.replace(/\b(today|yesterday|last\s\w+|on\s\w+)\b/i, "").trim();
     }
 
-    // **Ensure valid data before returning**
+    // **Validation: If essential data is missing, return null**
     if (!amount || !store || !item) {
-        console.log("[DEBUG] Missing essential data, returning null.");
+        console.error("[DEBUG] Missing essential data, returning null.");
         return null;
     }
 
+    console.log(`[DEBUG] Successfully parsed expense: Item: ${item}, Amount: ${amount}, Store: ${store}, Date: ${date}`);
+    
     return {
         item: item || "Unknown Item",
         amount,
