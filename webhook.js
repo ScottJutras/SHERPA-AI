@@ -3,12 +3,14 @@ const express = require('express');
 const OpenAI = require('openai');
 const bodyParser = require('body-parser');
 const { parseExpenseMessage } = require('./utils/expenseParser');
-const { 
-    appendToUserSpreadsheet, 
-    getOrCreateUserSpreadsheet, 
-    fetchExpenseData, 
-    calculateExpenseAnalytics 
-} = require('./utils/googleSheets'); 
+const {
+    appendToUserSpreadsheet,
+    getOrCreateUserSpreadsheet,
+    fetchExpenseData,
+    calculateExpenseAnalytics,
+    setActiveJob,
+    getActiveJob
+} = require('./utils/googleSheets');
 const admin = require('firebase-admin');
 
 const app = express();
@@ -21,46 +23,6 @@ console.log("[DEBUG] GOOGLE_CREDENTIALS_BASE64:", process.env.GOOGLE_CREDENTIALS
 console.log("[DEBUG] FIREBASE_CREDENTIALS_BASE64:", process.env.FIREBASE_CREDENTIALS_BASE64 ? "Loaded" : "Missing");
 console.log("[DEBUG] OPENAI_API_KEY:", process.env.OPENAI_API_KEY ? "Loaded" : "Missing");
 
-// ✅ Load Google Credentials from Base64
-let googleCredentials;
-try {
-    if (!process.env.GOOGLE_CREDENTIALS_BASE64) {
-        throw new Error("GOOGLE_CREDENTIALS_BASE64 is not set.");
-    }
-
-    googleCredentials = JSON.parse(
-        Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8')
-    );
-    console.log("[DEBUG] Successfully loaded Google Credentials.");
-} catch (error) {
-    console.error("[ERROR] Failed to decode GOOGLE_CREDENTIALS_BASE64:", error.message);
-    process.exit(1);
-}
-
-// ✅ Initialize Firebase Admin SDK
-if (!admin.apps.length) {
-    try {
-        if (!process.env.FIREBASE_CREDENTIALS_BASE64) {
-            throw new Error("FIREBASE_CREDENTIALS_BASE64 is not set.");
-        }
-
-        const firebaseCredentials = JSON.parse(
-            Buffer.from(process.env.FIREBASE_CREDENTIALS_BASE64, 'base64').toString('utf-8')
-        );
-
-        admin.initializeApp({
-            credential: admin.credential.cert(firebaseCredentials),
-        });
-
-        console.log("[DEBUG] Firebase Admin initialized.");
-    } catch (error) {
-        console.error("[ERROR] Failed to initialize Firebase Admin:", error.message);
-        process.exit(1);
-    }
-}
-
-const db = admin.firestore();
-
 // ✅ Initialize OpenAI
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
@@ -69,28 +31,39 @@ const openai = new OpenAI({
 const environment = process.env.NODE_ENV || 'development';
 console.log(`[DEBUG] Environment: ${environment}`);
 
-// ✅ Function to fetch expense summary
-async function getExpenseSummary(from) {
+// ✅ Function to get job-based expense summary
+async function getJobExpenseSummary(from, jobName) {
     try {
-        console.log(`[DEBUG] Fetching expense summary for: ${from}`);
+        console.log(`[DEBUG] Fetching expense summary for job: ${jobName}, user: ${from}`);
 
         const spreadsheetId = await getOrCreateUserSpreadsheet(from);
         if (!spreadsheetId) throw new Error("No spreadsheet ID found.");
 
-        const expenseData = await fetchExpenseData(spreadsheetId);
+        const expenseData = await fetchExpenseData(spreadsheetId, jobName);
         const analytics = calculateExpenseAnalytics(expenseData);
 
         return `
-📊 *Expense Summary* 📊
+📊 *Expense Summary for ${jobName}* 📊
 💰 Total Spent: ${analytics.totalSpent}
 🏪 Top Store: ${analytics.topStore}
 📌 Biggest Purchase: ${analytics.biggestPurchase}
 🔄 Most Frequent Expense: ${analytics.mostFrequentItem}
         `;
     } catch (error) {
-        console.error('[ERROR] Failed to fetch expense summary:', error.message);
-        return '⚠️ Unable to generate expense summary. Please try again later.';
+        console.error('[ERROR] Failed to fetch job expense summary:', error.message);
+        return `⚠️ Unable to generate expense summary for ${jobName}. Please try again later.`;
     }
+}
+
+// ✅ Function to handle setting a new job
+async function handleStartJob(from, body) {
+    const jobMatch = body.match(/start job (.+)/i);
+    if (!jobMatch) return "⚠️ Please specify a job name. Example: 'Start job 75 Hampton Crt'";
+
+    const jobName = jobMatch[1].trim();
+    await setActiveJob(from, jobName);
+    
+    return `✅ Job '${jobName}' is now active. All expenses will be assigned to this job.`;
 }
 
 // ✅ Function to get response from ChatGPT
@@ -141,10 +114,18 @@ app.post('/webhook', async (req, res) => {
     let reply;
 
     try {
-        if (body === 'expense summary') {
-            console.log(`[DEBUG] User requested expense summary.`);
-            reply = await getExpenseSummary(from);
+        if (body.startsWith("start job ")) {
+            reply = await handleStartJob(from, body);
+        } else if (body.startsWith("expense summary for ")) {
+            const jobMatch = body.match(/expense summary for (.+)/i);
+            if (!jobMatch) {
+                reply = "⚠️ Please specify a job name. Example: 'Expense summary for 75 Hampton Crt'";
+            } else {
+                const jobName = jobMatch[1].trim();
+                reply = await getJobExpenseSummary(from, jobName);
+            }
         } else {
+            const activeJob = await getActiveJob(from);
             const expenseData = parseExpenseMessage(body);
 
             if (expenseData) {
@@ -155,11 +136,11 @@ app.post('/webhook', async (req, res) => {
                     if (!spreadsheetId) throw new Error("No spreadsheet ID found.");
 
                     await appendToUserSpreadsheet(
-                        [expenseData.date, expenseData.item, expenseData.amount, expenseData.store],
+                        [expenseData.date, expenseData.item, expenseData.amount, expenseData.store, activeJob || "Uncategorized"],
                         spreadsheetId
                     );
 
-                    reply = `✅ Expense logged: ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
+                    reply = `✅ Expense logged under '${activeJob || "Uncategorized"}': ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
                     console.log(`[DEBUG] Expense logged reply: "${reply}"`);
                 } catch (error) {
                     console.error('[ERROR] Failed to log expense to Google Sheets:', error.message);
