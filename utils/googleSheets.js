@@ -63,51 +63,49 @@ async function getAuthorizedClient() {
     }
 }
 
-// ✅ Function to create a new spreadsheet for a user
-async function createSpreadsheetForUser(phoneNumber) {
+// ✅ Function to parse receipt text from OCR
+function parseReceiptText(text) {
     try {
-        const auth = await getAuthorizedClient();
-        const sheets = google.sheets({ version: 'v4', auth });
+        console.log("[DEBUG] Raw OCR Text:", text);
+        const lines = text.split('\n').map(line => line.trim());
+        let date = new Date().toISOString().split('T')[0];
+        let amount = null;
+        let store = lines[0] || "Unknown Store";
+        let items = [];
 
-        const request = {
-            resource: {
-                properties: {
-                    title: `Expenses - ${phoneNumber}`,
-                },
-            },
+        lines.forEach(line => {
+            const amountMatch = line.match(/\$([\d,]+(?:\.\d{1,2})?)/);
+            if (amountMatch) amount = `$${amountMatch[1]}`;
+
+            const itemMatch = line.match(/([a-zA-Z\s]+)\s+\$?[\d,]+(?:\.\d{1,2})?/);
+            if (itemMatch) items.push(itemMatch[1].trim());
+        });
+
+        return {
+            date,
+            item: items.join(", ") || "Unknown Items",
+            amount: amount || "Unknown Amount",
+            store
         };
-
-        const response = await sheets.spreadsheets.create(request);
-        const spreadsheetId = response.data.spreadsheetId;
-
-        console.log(`[✅ SUCCESS] New spreadsheet created for user (${phoneNumber}): ${spreadsheetId}`);
-        return spreadsheetId;
     } catch (error) {
-        console.error('[❌ ERROR] Failed to create a new spreadsheet:', error.message);
-        throw error;
+        console.error("[ERROR] Failed to parse receipt text:", error.message);
+        return null;
     }
 }
 
-// ✅ Function to set the active job for a user
-async function setActiveJob(phoneNumber, jobName) {
-    try {
-        await db.collection('users').doc(phoneNumber).set({ activeJob: jobName }, { merge: true });
-        console.log(`[✅ SUCCESS] Active job set for user (${phoneNumber}): ${jobName}`);
-    } catch (error) {
-        console.error('[❌ ERROR] Failed to set active job:', error.message);
-        throw error;
+// ✅ Function to log receipt-based expenses
+async function logReceiptExpense(phoneNumber, extractedText) {
+    const parsedData = parseReceiptText(extractedText);
+    if (!parsedData) {
+        console.error("[ERROR] Failed to parse OCR data.");
+        return;
     }
-}
-
-// ✅ Function to get the active job for a user
-async function getActiveJob(phoneNumber) {
-    try {
-        const userDoc = await db.collection('users').doc(phoneNumber).get();
-        return userDoc.exists ? userDoc.data().activeJob : null;
-    } catch (error) {
-        console.error('[❌ ERROR] Failed to retrieve active job:', error.message);
-        throw error;
-    }
+    return appendToUserSpreadsheet(phoneNumber, [
+        parsedData.date,
+        parsedData.item,
+        parsedData.amount,
+        parsedData.store
+    ]);
 }
 
 // ✅ Function to append data to a user's spreadsheet, including job name
@@ -144,99 +142,6 @@ async function appendToUserSpreadsheet(phoneNumber, data) {
     }
 }
 
-// ✅ Function to fetch expenses filtered by job
-async function fetchExpenseData(phoneNumber, jobName) {
-    try {
-        const spreadsheetId = await getOrCreateUserSpreadsheet(phoneNumber);
-        const auth = await getAuthorizedClient();
-        const sheets = google.sheets({ version: 'v4', auth });
-
-        const RANGE = 'Sheet1!A:E'; // Columns: Date, Item, Amount, Store, Job
-
-        const response = await sheets.spreadsheets.values.get({
-            spreadsheetId,
-            range: RANGE,
-        });
-
-        const rows = response.data.values;
-        if (!rows || rows.length <= 1) {
-            console.log('[DEBUG] No expense data found.');
-            return [];
-        }
-
-        return rows.slice(1)
-            .filter(row => row[4] === jobName) // Filter by job name
-            .map(row => ({
-                date: row[0],
-                item: row[1],
-                amount: parseFloat(row[2].replace('$', '')) || 0,
-                store: row[3],
-                job: row[4]
-            }));
-    } catch (error) {
-        console.error('[ERROR] Failed to fetch expense data:', error.message);
-        throw error;
-    }
-}
-
-// ✅ Function to calculate analytics for a job
-function calculateExpenseAnalytics(expenses) {
-    if (!expenses.length) {
-        return {
-            totalSpent: "$0.00",
-            topStore: "N/A",
-            biggestPurchase: "N/A",
-            mostFrequentItem: "N/A"
-        };
-    }
-
-    let totalSpent = 0;
-    const storeFrequency = {};
-    const itemFrequency = {};
-    let biggestPurchase = { item: null, amount: 0 };
-
-    expenses.forEach(({ item, amount, store }) => {
-        totalSpent += amount;
-
-        storeFrequency[store] = (storeFrequency[store] || 0) + amount;
-        itemFrequency[item] = (itemFrequency[item] || 0) + 1;
-
-        if (amount > biggestPurchase.amount) {
-            biggestPurchase = { item, amount };
-        }
-    });
-
-    const topStore = Object.keys(storeFrequency).reduce((a, b) => storeFrequency[a] > storeFrequency[b] ? a : b, "N/A");
-    const mostFrequentItem = Object.keys(itemFrequency).reduce((a, b) => itemFrequency[a] > itemFrequency[b] ? a : b, "N/A");
-
-    return {
-        totalSpent: `$${totalSpent.toFixed(2)}`,
-        topStore,
-        biggestPurchase: `${biggestPurchase.item} ($${biggestPurchase.amount.toFixed(2)})`,
-        mostFrequentItem
-    };
-}
-
-// ✅ Function to retrieve or create a spreadsheet for a user
-async function getOrCreateUserSpreadsheet(phoneNumber) {
-    try {
-        const userDoc = db.collection('users').doc(phoneNumber);
-        const userSnapshot = await userDoc.get();
-
-        if (userSnapshot.exists && userSnapshot.data().spreadsheetId) {
-            return userSnapshot.data().spreadsheetId;
-        }
-
-        const spreadsheetId = await createSpreadsheetForUser(phoneNumber);
-        await userDoc.set({ spreadsheetId }, { merge: true });
-
-        return spreadsheetId;
-    } catch (error) {
-        console.error(`[❌ ERROR] Failed to retrieve or create spreadsheet for user (${phoneNumber}):`, error.message);
-        throw error;
-    }
-}
-
 // ✅ Exporting all required functions
 module.exports = {
     appendToUserSpreadsheet,
@@ -244,5 +149,6 @@ module.exports = {
     calculateExpenseAnalytics,
     setActiveJob,
     getActiveJob,
-    getOrCreateUserSpreadsheet
+    getOrCreateUserSpreadsheet,
+    logReceiptExpense
 };
