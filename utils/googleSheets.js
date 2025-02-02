@@ -58,6 +58,59 @@ async function getAuthorizedClient() {
     }
 }
 
+// ✅ Function to retrieve or create a spreadsheet for a user
+async function getOrCreateUserSpreadsheet(phoneNumber) {
+    try {
+        const userDoc = db.collection('users').doc(phoneNumber);
+        const userSnapshot = await userDoc.get();
+
+        if (userSnapshot.exists && userSnapshot.data().spreadsheetId) {
+            return userSnapshot.data().spreadsheetId;
+        }
+
+        console.log(`[DEBUG] No spreadsheet found for user (${phoneNumber}). Creating a new one.`);
+        const spreadsheetId = await createSpreadsheetForUser(phoneNumber);
+
+        await userDoc.set({ spreadsheetId }, { merge: true });
+        console.log(`[✅ SUCCESS] Spreadsheet created and saved to Firebase for user (${phoneNumber}): ${spreadsheetId}`);
+
+        return spreadsheetId;
+    } catch (error) {
+        console.error(`[❌ ERROR] Failed to retrieve or create spreadsheet for user (${phoneNumber}):`, error.message);
+        throw error;
+    }
+}
+
+// ✅ Function to append data to a user's spreadsheet
+async function appendToUserSpreadsheet(phoneNumber, data) {
+    try {
+        const auth = await getAuthorizedClient();
+        const sheets = google.sheets({ version: 'v4', auth });
+
+        console.log(`[DEBUG] Retrieving spreadsheet for ${phoneNumber}`);
+        const spreadsheetId = await getOrCreateUserSpreadsheet(phoneNumber);
+        console.log(`[DEBUG] Using Spreadsheet ID: ${spreadsheetId}`);
+
+        const RANGE = 'Sheet1!A:E'; // Columns: Date, Item, Amount, Store, Job
+
+        const resource = {
+            values: [data], // Append data
+        };
+
+        await sheets.spreadsheets.values.append({
+            spreadsheetId,
+            range: RANGE,
+            valueInputOption: 'USER_ENTERED',
+            resource,
+        });
+
+        console.log(`[✅ SUCCESS] Data successfully appended to spreadsheet (${spreadsheetId}): ${JSON.stringify(data)}`);
+    } catch (error) {
+        console.error('[❌ ERROR] Failed to append data to spreadsheet:', error.message);
+        throw error;
+    }
+}
+
 // ✅ Function to fetch expenses filtered by job
 async function fetchExpenseData(phoneNumber, jobName) {
     try {
