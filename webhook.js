@@ -3,14 +3,19 @@ const express = require('express');
 const OpenAI = require('openai');
 const bodyParser = require('body-parser');
 const { parseExpenseMessage } = require('./utils/expenseParser');
-const { appendToUserSpreadsheet, getOrCreateUserSpreadsheet } = require('./utils/googleSheets');
+const { 
+    appendToUserSpreadsheet, 
+    getOrCreateUserSpreadsheet, 
+    fetchExpenseData, 
+    calculateExpenseAnalytics 
+} = require('./utils/googleSheets'); 
 const admin = require('firebase-admin');
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
-// ✅ Debugging: Log Environment Variables Before Use
+// ✅ Debugging: Log Environment Variables
 console.log("[DEBUG] Checking environment variables...");
 console.log("[DEBUG] GOOGLE_CREDENTIALS_BASE64:", process.env.GOOGLE_CREDENTIALS_BASE64 ? "Loaded" : "Missing");
 console.log("[DEBUG] FIREBASE_CREDENTIALS_BASE64:", process.env.FIREBASE_CREDENTIALS_BASE64 ? "Loaded" : "Missing");
@@ -20,13 +25,13 @@ console.log("[DEBUG] OPENAI_API_KEY:", process.env.OPENAI_API_KEY ? "Loaded" : "
 let googleCredentials;
 try {
     if (!process.env.GOOGLE_CREDENTIALS_BASE64) {
-        throw new Error("GOOGLE_CREDENTIALS_BASE64 is not set in environment variables.");
+        throw new Error("GOOGLE_CREDENTIALS_BASE64 is not set.");
     }
 
     googleCredentials = JSON.parse(
         Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8')
     );
-    console.log("[DEBUG] Successfully loaded Google Credentials from Base64.");
+    console.log("[DEBUG] Successfully loaded Google Credentials.");
 } catch (error) {
     console.error("[ERROR] Failed to decode GOOGLE_CREDENTIALS_BASE64:", error.message);
     process.exit(1);
@@ -36,7 +41,7 @@ try {
 if (!admin.apps.length) {
     try {
         if (!process.env.FIREBASE_CREDENTIALS_BASE64) {
-            throw new Error("FIREBASE_CREDENTIALS_BASE64 is not set in environment variables.");
+            throw new Error("FIREBASE_CREDENTIALS_BASE64 is not set.");
         }
 
         const firebaseCredentials = JSON.parse(
@@ -47,7 +52,7 @@ if (!admin.apps.length) {
             credential: admin.credential.cert(firebaseCredentials),
         });
 
-        console.log("[DEBUG] Firebase Admin initialized successfully.");
+        console.log("[DEBUG] Firebase Admin initialized.");
     } catch (error) {
         console.error("[ERROR] Failed to initialize Firebase Admin:", error.message);
         process.exit(1);
@@ -64,7 +69,31 @@ const openai = new OpenAI({
 const environment = process.env.NODE_ENV || 'development';
 console.log(`[DEBUG] Environment: ${environment}`);
 
-// ✅ Function to get a response from ChatGPT
+// ✅ Function to fetch expense summary
+async function getExpenseSummary(from) {
+    try {
+        console.log(`[DEBUG] Fetching expense summary for: ${from}`);
+
+        const spreadsheetId = await getOrCreateUserSpreadsheet(from);
+        if (!spreadsheetId) throw new Error("No spreadsheet ID found.");
+
+        const expenseData = await fetchExpenseData(spreadsheetId);
+        const analytics = calculateExpenseAnalytics(expenseData);
+
+        return `
+📊 *Expense Summary* 📊
+💰 Total Spent: ${analytics.totalSpent}
+🏪 Top Store: ${analytics.topStore}
+📌 Biggest Purchase: ${analytics.biggestPurchase}
+🔄 Most Frequent Expense: ${analytics.mostFrequentItem}
+        `;
+    } catch (error) {
+        console.error('[ERROR] Failed to fetch expense summary:', error.message);
+        return '⚠️ Unable to generate expense summary. Please try again later.';
+    }
+}
+
+// ✅ Function to get response from ChatGPT
 async function getChatGPTResponse(prompt) {
     console.log(`[DEBUG] ChatGPT Request: "${prompt}"`);
     if (!prompt || prompt.trim() === '') {
@@ -87,8 +116,8 @@ async function getChatGPTResponse(prompt) {
         if (response.choices?.length > 0) {
             return response.choices[0].message.content.trim();
         } else {
-            console.error("[ERROR] OpenAI response was empty or invalid.");
-            throw new Error("OpenAI API response is empty or invalid.");
+            console.error("[ERROR] OpenAI response was empty.");
+            throw new Error("OpenAI API response is empty.");
         }
     } catch (error) {
         console.error(`[ERROR] OpenAI API call failed: ${error.message}`);
@@ -101,7 +130,7 @@ app.post('/webhook', async (req, res) => {
     console.log("[DEBUG] Incoming Webhook Request", JSON.stringify(req.body));
 
     const from = req.body.From;
-    const body = req.body.Body?.trim();
+    const body = req.body.Body?.trim().toLowerCase();
 
     if (!from || !body) {
         console.error("[ERROR] Webhook request missing 'From' or 'Body'.");
@@ -112,40 +141,40 @@ app.post('/webhook', async (req, res) => {
     let reply;
 
     try {
-        const expenseData = parseExpenseMessage(body);
-        if (expenseData) {
-            console.log(`[DEBUG] Parsed Expense Data:`, expenseData);
-
-            try {
-                const spreadsheetId = await getOrCreateUserSpreadsheet(from);
-                if (!spreadsheetId) throw new Error("No spreadsheet ID found or created.");
-
-                await appendToUserSpreadsheet(
-                    [expenseData.date, expenseData.item, expenseData.amount, expenseData.store],
-                    spreadsheetId
-                );
-
-                reply = `Expense logged successfully: ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
-                console.log(`[DEBUG] Expense logged reply: "${reply}"`);
-            } catch (error) {
-                console.error('[ERROR] Failed to log expense to Google Sheets:', error.message);
-                reply = "Failed to log your expense. Please try again later.";
-            }
-        } else if (["hi", "hello"].includes(body.toLowerCase())) {
-            reply = "Hi! Welcome to our service. Reply with:\n1. Help\n2. Services\n3. Contact\n4. Log an Expense";
-        } else if (body === "1") {
-            reply = "How can we assist you today?";
-        } else if (body === "2") {
-            reply = "We offer the following services:\n- Service 1\n- Service 2\n- Service 3";
-        } else if (body === "3") {
-            reply = "You can reach us at support@example.com or call us at +1 234 567 890.";
+        if (body === 'expense summary') {
+            console.log(`[DEBUG] User requested expense summary.`);
+            reply = await getExpenseSummary(from);
         } else {
-            console.log("[DEBUG] Custom input detected, querying ChatGPT...");
-            reply = await getChatGPTResponse(body);
+            const expenseData = parseExpenseMessage(body);
+
+            if (expenseData) {
+                console.log(`[DEBUG] Parsed Expense Data:`, expenseData);
+
+                try {
+                    const spreadsheetId = await getOrCreateUserSpreadsheet(from);
+                    if (!spreadsheetId) throw new Error("No spreadsheet ID found.");
+
+                    await appendToUserSpreadsheet(
+                        [expenseData.date, expenseData.item, expenseData.amount, expenseData.store],
+                        spreadsheetId
+                    );
+
+                    reply = `✅ Expense logged: ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
+                    console.log(`[DEBUG] Expense logged reply: "${reply}"`);
+                } catch (error) {
+                    console.error('[ERROR] Failed to log expense to Google Sheets:', error.message);
+                    reply = "❌ Failed to log your expense. Please try again later.";
+                }
+            } else if (["hi", "hello"].includes(body)) {
+                reply = "👋 Hi! Welcome to our service. Reply with:\n1️⃣ Help\n2️⃣ Services\n3️⃣ Contact\n4️⃣ Log an Expense\n5️⃣ Expense Summary";
+            } else {
+                console.log("[DEBUG] Custom input detected, querying ChatGPT...");
+                reply = await getChatGPTResponse(body);
+            }
         }
     } catch (error) {
         console.error(`[ERROR] Error handling message from ${from}:`, error);
-        reply = "Sorry, something went wrong. Please try again later.";
+        reply = "⚠️ Sorry, something went wrong. Please try again later.";
     }
 
     res.set('Content-Type', 'text/xml');
