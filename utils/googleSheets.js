@@ -47,7 +47,7 @@ const db = admin.firestore();
 // Scopes required for Google Sheets and Drive APIs
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive'];
 
-// Function to initialize Google API client
+// ✅ Function to initialize Google API client
 async function getAuthorizedClient() {
     try {
         const auth = new google.auth.GoogleAuth({
@@ -63,63 +63,77 @@ async function getAuthorizedClient() {
     }
 }
 
-// Function to share the spreadsheet with a user
-async function shareSpreadsheetWithUser(spreadsheetId, email) {
-    try {
-        const auth = await getAuthorizedClient();
-        const drive = google.drive({ version: 'v3', auth });
-
-        await drive.permissions.create({
-            fileId: spreadsheetId,
-            requestBody: {
-                role: 'writer', // Change to 'reader' if you only need view access
-                type: 'user',
-                emailAddress: email,
-            },
-            sendNotificationEmail: true,
-        });
-
-        console.log(`[✅ SUCCESS] Spreadsheet (${spreadsheetId}) successfully shared with ${email}`);
-    } catch (error) {
-        console.error(`[❌ ERROR] Failed to share spreadsheet (${spreadsheetId}) with ${email}:`, error.message);
-    }
-}
-
-// Function to create a new spreadsheet and share it
-async function createSpreadsheetForUser(phoneNumber) {
+// ✅ Function to fetch all expenses from Google Sheets
+async function fetchExpenseData(spreadsheetId) {
     try {
         const auth = await getAuthorizedClient();
         const sheets = google.sheets({ version: 'v4', auth });
 
-        const request = {
-            resource: {
-                properties: {
-                    title: `Expenses - ${phoneNumber}`, // Name the spreadsheet after the user
-                },
-            },
-        };
+        const RANGE = 'Sheet1!A:D'; // Assuming Date, Item, Amount, Store columns
 
-        const response = await sheets.spreadsheets.create(request);
-        const spreadsheetId = response.data.spreadsheetId;
+        const response = await sheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: RANGE,
+        });
 
-        console.log(`[✅ SUCCESS] New spreadsheet created for user (${phoneNumber}): ${spreadsheetId}`);
-
-        // Share the spreadsheet with your personal email
-        const personalEmail = process.env.PERSONAL_EMAIL;
-        if (personalEmail) {
-            await shareSpreadsheetWithUser(spreadsheetId, personalEmail);
-        } else {
-            console.warn('[⚠️ WARN] PERSONAL_EMAIL is not set. Spreadsheet will not be shared.');
+        const rows = response.data.values;
+        if (!rows || rows.length <= 1) {
+            console.log('[DEBUG] No expense data found.');
+            return [];
         }
 
-        return spreadsheetId;
+        // Exclude header row and format data
+        return rows.slice(1).map(row => ({
+            date: row[0],
+            item: row[1],
+            amount: parseFloat(row[2].replace('$', '')) || 0,
+            store: row[3]
+        }));
     } catch (error) {
-        console.error('[❌ ERROR] Failed to create a new spreadsheet:', error.message);
+        console.error('[ERROR] Failed to fetch expense data:', error.message);
         throw error;
     }
 }
 
-// Function to append data to a user's spreadsheet
+// ✅ Function to calculate expense analytics
+function calculateExpenseAnalytics(expenses) {
+    if (!expenses.length) {
+        return {
+            totalSpent: "$0.00",
+            topStore: "N/A",
+            biggestPurchase: "N/A",
+            mostFrequentItem: "N/A"
+        };
+    }
+
+    let totalSpent = 0;
+    const storeFrequency = {};
+    const itemFrequency = {};
+    let biggestPurchase = { item: null, amount: 0 };
+
+    expenses.forEach(({ item, amount, store }) => {
+        totalSpent += amount;
+
+        storeFrequency[store] = (storeFrequency[store] || 0) + amount;
+        itemFrequency[item] = (itemFrequency[item] || 0) + 1;
+
+        if (amount > biggestPurchase.amount) {
+            biggestPurchase = { item, amount };
+        }
+    });
+
+    const topStore = Object.keys(storeFrequency).reduce((a, b) => storeFrequency[a] > storeFrequency[b] ? a : b, "N/A");
+    const mostFrequentItem = Object.keys(itemFrequency).reduce((a, b) => itemFrequency[a] > itemFrequency[b] ? a : b, "N/A");
+
+    return {
+        totalSpent: `$${totalSpent.toFixed(2)}`,
+        topStore,
+        biggestPurchase: `${biggestPurchase.item} ($${biggestPurchase.amount.toFixed(2)})`,
+        mostFrequentItem
+    };
+}
+
+// ✅ Function to append data to a user's spreadsheet
 async function appendToUserSpreadsheet(data, spreadsheetId) {
     try {
         const auth = await getAuthorizedClient();
@@ -133,7 +147,7 @@ async function appendToUserSpreadsheet(data, spreadsheetId) {
             values: [data],
         };
 
-        const result = await sheets.spreadsheets.values.append({
+        await sheets.spreadsheets.values.append({
             spreadsheetId,
             range: RANGE,
             valueInputOption: 'USER_ENTERED',
@@ -141,14 +155,13 @@ async function appendToUserSpreadsheet(data, spreadsheetId) {
         });
 
         console.log(`[✅ SUCCESS] Data successfully appended to spreadsheet (${spreadsheetId}): ${JSON.stringify(data)}`);
-        return result.data;
     } catch (error) {
         console.error('[❌ ERROR] Failed to append data to spreadsheet:', error.message);
         throw error;
     }
 }
 
-// Function to retrieve or create a spreadsheet for a user and share it
+// ✅ Function to retrieve or create a spreadsheet for a user and share it
 async function getOrCreateUserSpreadsheet(phoneNumber) {
     try {
         const userDoc = db.collection('users').doc(phoneNumber);
@@ -158,16 +171,6 @@ async function getOrCreateUserSpreadsheet(phoneNumber) {
         if (userSnapshot.exists && userSnapshot.data().spreadsheetId) {
             const spreadsheetId = userSnapshot.data().spreadsheetId;
             console.log(`[DEBUG] Retrieved spreadsheet ID from Firebase for user (${phoneNumber}): ${spreadsheetId}`);
-
-            // 🔹 Ensure the spreadsheet is shared with your personal email
-            const personalEmail = process.env.PERSONAL_EMAIL;
-            if (personalEmail) {
-                console.log(`[DEBUG] Ensuring spreadsheet ${spreadsheetId} is shared with ${personalEmail}`);
-                await shareSpreadsheetWithUser(spreadsheetId, personalEmail);
-            } else {
-                console.warn('[⚠️ WARN] PERSONAL_EMAIL is not set. Cannot ensure access.');
-            }
-
             return spreadsheetId;
         }
 
@@ -175,7 +178,7 @@ async function getOrCreateUserSpreadsheet(phoneNumber) {
         console.log(`[DEBUG] No spreadsheet found for user (${phoneNumber}). Creating a new one.`);
         const spreadsheetId = await createSpreadsheetForUser(phoneNumber);
 
-        // ✅ Save the spreadsheet ID to Firebase, ensuring existing data is not lost
+        // ✅ Save the spreadsheet ID to Firebase
         await userDoc.set({ spreadsheetId }, { merge: true });
         console.log(`[✅ SUCCESS] Spreadsheet created and saved to Firebase for user (${phoneNumber}): ${spreadsheetId}`);
 
@@ -189,4 +192,6 @@ async function getOrCreateUserSpreadsheet(phoneNumber) {
 module.exports = {
     appendToUserSpreadsheet,
     getOrCreateUserSpreadsheet,
+    fetchExpenseData,
+    calculateExpenseAnalytics
 };
