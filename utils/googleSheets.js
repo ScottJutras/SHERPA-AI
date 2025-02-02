@@ -63,6 +63,31 @@ async function getAuthorizedClient() {
     }
 }
 
+// ✅ Function to create a new spreadsheet for a user
+async function createSpreadsheetForUser(phoneNumber) {
+    try {
+        const auth = await getAuthorizedClient();
+        const sheets = google.sheets({ version: 'v4', auth });
+
+        const request = {
+            resource: {
+                properties: {
+                    title: `Expenses - ${phoneNumber}`,
+                },
+            },
+        };
+
+        const response = await sheets.spreadsheets.create(request);
+        const spreadsheetId = response.data.spreadsheetId;
+
+        console.log(`[✅ SUCCESS] New spreadsheet created for user (${phoneNumber}): ${spreadsheetId}`);
+        return spreadsheetId;
+    } catch (error) {
+        console.error('[❌ ERROR] Failed to create a new spreadsheet:', error.message);
+        throw error;
+    }
+}
+
 // ✅ Function to set the active job for a user
 async function setActiveJob(phoneNumber, jobName) {
     try {
@@ -86,17 +111,23 @@ async function getActiveJob(phoneNumber) {
 }
 
 // ✅ Function to append data to a user's spreadsheet, including job name
-async function appendToUserSpreadsheet(data, spreadsheetId) {
+async function appendToUserSpreadsheet(phoneNumber, data) {
     try {
         const auth = await getAuthorizedClient();
         const sheets = google.sheets({ version: 'v4', auth });
 
+        console.log(`[DEBUG] Retrieving active job for ${phoneNumber}`);
+        const jobName = await getActiveJob(phoneNumber) || "Unassigned";
+
+        console.log(`[DEBUG] Active job found: ${jobName}`);
+
+        const spreadsheetId = await getOrCreateUserSpreadsheet(phoneNumber);
         console.log(`[DEBUG] Using Spreadsheet ID: ${spreadsheetId}`);
 
-        const RANGE = 'Sheet1!A:E'; // Now includes Job column
+        const RANGE = 'Sheet1!A:E'; // Columns: Date, Item, Amount, Store, Job
 
         const resource = {
-            values: [data],
+            values: [[...data, jobName]], // Append job name to data
         };
 
         await sheets.spreadsheets.values.append({
@@ -114,12 +145,13 @@ async function appendToUserSpreadsheet(data, spreadsheetId) {
 }
 
 // ✅ Function to fetch expenses filtered by job
-async function fetchExpenseData(spreadsheetId, jobName) {
+async function fetchExpenseData(phoneNumber, jobName) {
     try {
+        const spreadsheetId = await getOrCreateUserSpreadsheet(phoneNumber);
         const auth = await getAuthorizedClient();
         const sheets = google.sheets({ version: 'v4', auth });
 
-        const RANGE = 'Sheet1!A:E'; // Now includes Job column
+        const RANGE = 'Sheet1!A:E'; // Columns: Date, Item, Amount, Store, Job
 
         const response = await sheets.spreadsheets.values.get({
             spreadsheetId,
@@ -147,44 +179,6 @@ async function fetchExpenseData(spreadsheetId, jobName) {
     }
 }
 
-// ✅ Function to calculate analytics for a job
-function calculateExpenseAnalytics(expenses) {
-    if (!expenses.length) {
-        return {
-            totalSpent: "$0.00",
-            topStore: "N/A",
-            biggestPurchase: "N/A",
-            mostFrequentItem: "N/A"
-        };
-    }
-
-    let totalSpent = 0;
-    const storeFrequency = {};
-    const itemFrequency = {};
-    let biggestPurchase = { item: null, amount: 0 };
-
-    expenses.forEach(({ item, amount, store }) => {
-        totalSpent += amount;
-
-        storeFrequency[store] = (storeFrequency[store] || 0) + amount;
-        itemFrequency[item] = (itemFrequency[item] || 0) + 1;
-
-        if (amount > biggestPurchase.amount) {
-            biggestPurchase = { item, amount };
-        }
-    });
-
-    const topStore = Object.keys(storeFrequency).reduce((a, b) => storeFrequency[a] > storeFrequency[b] ? a : b, "N/A");
-    const mostFrequentItem = Object.keys(itemFrequency).reduce((a, b) => itemFrequency[a] > itemFrequency[b] ? a : b, "N/A");
-
-    return {
-        totalSpent: `$${totalSpent.toFixed(2)}`,
-        topStore,
-        biggestPurchase: `${biggestPurchase.item} ($${biggestPurchase.amount.toFixed(2)})`,
-        mostFrequentItem
-    };
-}
-
 // ✅ Function to retrieve or create a spreadsheet for a user
 async function getOrCreateUserSpreadsheet(phoneNumber) {
     try {
@@ -210,10 +204,12 @@ async function getOrCreateUserSpreadsheet(phoneNumber) {
     }
 }
 
+// ✅ Exporting all required functions
 module.exports = {
     appendToUserSpreadsheet,
     fetchExpenseData,
     calculateExpenseAnalytics,
     setActiveJob,
-    getActiveJob
+    getActiveJob,
+    getOrCreateUserSpreadsheet
 };
