@@ -44,7 +44,7 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-// Scopes required for Google Sheets and Drive APIs
+// ✅ Google API Scopes
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive'];
 
 // ✅ Function to initialize Google API client
@@ -179,6 +179,44 @@ async function fetchExpenseData(phoneNumber, jobName) {
     }
 }
 
+// ✅ Function to calculate analytics for a job
+function calculateExpenseAnalytics(expenses) {
+    if (!expenses.length) {
+        return {
+            totalSpent: "$0.00",
+            topStore: "N/A",
+            biggestPurchase: "N/A",
+            mostFrequentItem: "N/A"
+        };
+    }
+
+    let totalSpent = 0;
+    const storeFrequency = {};
+    const itemFrequency = {};
+    let biggestPurchase = { item: null, amount: 0 };
+
+    expenses.forEach(({ item, amount, store }) => {
+        totalSpent += amount;
+
+        storeFrequency[store] = (storeFrequency[store] || 0) + amount;
+        itemFrequency[item] = (itemFrequency[item] || 0) + 1;
+
+        if (amount > biggestPurchase.amount) {
+            biggestPurchase = { item, amount };
+        }
+    });
+
+    const topStore = Object.keys(storeFrequency).reduce((a, b) => storeFrequency[a] > storeFrequency[b] ? a : b, "N/A");
+    const mostFrequentItem = Object.keys(itemFrequency).reduce((a, b) => itemFrequency[a] > itemFrequency[b] ? a : b, "N/A");
+
+    return {
+        totalSpent: `$${totalSpent.toFixed(2)}`,
+        topStore,
+        biggestPurchase: `${biggestPurchase.item} ($${biggestPurchase.amount.toFixed(2)})`,
+        mostFrequentItem
+    };
+}
+
 // ✅ Function to retrieve or create a spreadsheet for a user
 async function getOrCreateUserSpreadsheet(phoneNumber) {
     try {
@@ -186,16 +224,11 @@ async function getOrCreateUserSpreadsheet(phoneNumber) {
         const userSnapshot = await userDoc.get();
 
         if (userSnapshot.exists && userSnapshot.data().spreadsheetId) {
-            const spreadsheetId = userSnapshot.data().spreadsheetId;
-            console.log(`[DEBUG] Retrieved spreadsheet ID from Firebase for user (${phoneNumber}): ${spreadsheetId}`);
-            return spreadsheetId;
+            return userSnapshot.data().spreadsheetId;
         }
 
-        console.log(`[DEBUG] No spreadsheet found for user (${phoneNumber}). Creating a new one.`);
         const spreadsheetId = await createSpreadsheetForUser(phoneNumber);
-
         await userDoc.set({ spreadsheetId }, { merge: true });
-        console.log(`[✅ SUCCESS] Spreadsheet created and saved to Firebase for user (${phoneNumber}): ${spreadsheetId}`);
 
         return spreadsheetId;
     } catch (error) {
