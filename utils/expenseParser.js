@@ -15,7 +15,7 @@ function parseExpenseMessage(message) {
     const parsedDate = chrono.parseDate(message);
     const date = parsedDate ? parsedDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
 
-    // ✅ Extract item name (Handles "20 2x4", "5 sheets of plywood", etc.)
+    // ✅ Extract item name (Handles "nails", "20 2x4", "5 sheets of plywood", etc.)
     let item = null;
 
     const patterns = [
