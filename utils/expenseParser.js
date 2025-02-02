@@ -4,8 +4,8 @@ function parseExpenseMessage(message) {
     console.log(`[DEBUG] Parsing expense message: "${message}"`);
 
     // ✅ Extract amount (Recognizes numbers with or without `$`)
-    const amountMatch = message.match(/(?:\$\s?|for\s?)?\s?([\d]{1,6}(?:\.\d{1,2})?)/i);
-    const amount = amountMatch ? `$${amountMatch[1].trim()}` : null;
+    const amountMatch = message.match(/(?:\$\s?|for\s?)?\s?(\d{1,6}(?:\.\d{1,2})?)/i);
+    const amount = amountMatch ? `$${parseFloat(amountMatch[1]).toFixed(2)}` : null; // Ensure formatting as $XX.XX
 
     // ✅ Extract store name
     let storeMatch = message.match(/(?:at|from)\s([\w\s&-]+?)(?:\s(today|yesterday|last\s\w+|on\s\w+))?(?:\.$|$)/i);
@@ -15,14 +15,14 @@ function parseExpenseMessage(message) {
     const parsedDate = chrono.parseDate(message);
     const date = parsedDate ? parsedDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
 
-    // ✅ Extract item name (Handles "2x4", "4x8 plywood", etc.)
+    // ✅ Extract item name (Handles "20 2x4", "5 sheets of plywood", etc.)
     let item = null;
 
     const patterns = [
         /(?:bought|purchased|got|spent on|paid for)\s([\w\d\s-]+?)\s(?:for|at|from|\$|\d)/i, // "Bought 2x4 from Home Depot"
         /(?:just got|picked up|ordered)\s([\w\d\s-]+?)\s(?:for|at|from|\$|\d)/i,              // "Just got 10 bags of cement"
         /(?:spent\s[\d,]+(?:\.\d{1,2})?\son\s([\w\d\s-]+?)\s(?:at|from|on|for|$))/i,         // "Spent 50 on screws at Home Depot"
-        /([\d]+x[\d]+(?:\s\w+)?)\s(?:for|at|from|\$|\d)/i                                    // "2x4 for $24.60"
+        /([\d]+x[\d]+(?:\s\w+)?)\s(?:for|at|from|\$|\d)/i                                    // "20 2x4 for 24.60"
     ];
 
     for (const pattern of patterns) {
@@ -59,16 +59,16 @@ function parseExpenseMessage(message) {
         store = store.replace(/\b(today|yesterday|last\s\w+|on\s\w+)\b/i, "").trim();
     }
 
-    // ✅ Validation: Ensure required fields are present
+    // ✅ Ensure all required fields exist
     if (!amount || !store || !item) {
-        console.error("[DEBUG] Missing essential data, returning null.");
+        console.log("[DEBUG] Missing essential data, returning null.");
         return null;
     }
 
-    console.log(`[DEBUG] Successfully parsed expense: Item: ${item}, Amount: ${amount}, Store: ${store}, Date: ${date}`);
-
+    console.log(`[DEBUG] Parsed Expense Data: item="${item}", amount="${amount}", store="${store}", date="${date}"`);
+    
     return {
-        item: item || "Unknown Item",
+        item,
         amount,
         store,
         date
