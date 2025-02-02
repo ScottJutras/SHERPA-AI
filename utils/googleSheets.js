@@ -25,23 +25,19 @@ if (!admin.apps.length) {
         console.error("[ERROR] FIREBASE_CREDENTIALS_BASE64 is not set in environment variables.");
         process.exit(1);
     }
-
     try {
         const firebaseCredentials = JSON.parse(
             Buffer.from(firebaseCredentialsBase64, 'base64').toString('utf-8')
         );
-
         admin.initializeApp({
             credential: admin.credential.cert(firebaseCredentials),
         });
-
         console.log("[DEBUG] Firebase Admin initialized successfully.");
     } catch (error) {
         console.error("[ERROR] Failed to initialize Firebase Admin:", error.message);
         process.exit(1);
     }
 }
-
 const db = admin.firestore();
 
 // ✅ Google API Scopes
@@ -54,11 +50,44 @@ async function getAuthorizedClient() {
             credentials: googleCredentials,
             scopes: SCOPES,
         });
-
         console.log('[DEBUG] Google API client authorized successfully.');
         return auth;
     } catch (error) {
         console.error('[ERROR] Failed to authorize Google API client:', error.message);
+        throw error;
+    }
+}
+
+// ✅ Function to fetch expenses filtered by job
+async function fetchExpenseData(phoneNumber, jobName) {
+    try {
+        const spreadsheetId = await getOrCreateUserSpreadsheet(phoneNumber);
+        const auth = await getAuthorizedClient();
+        const sheets = google.sheets({ version: 'v4', auth });
+        
+        const RANGE = 'Sheet1!A:E'; // Columns: Date, Item, Amount, Store, Job
+        const response = await sheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: RANGE,
+        });
+        
+        const rows = response.data.values;
+        if (!rows || rows.length <= 1) {
+            console.log('[DEBUG] No expense data found.');
+            return [];
+        }
+        
+        return rows.slice(1)
+            .filter(row => row[4] === jobName)
+            .map(row => ({
+                date: row[0],
+                item: row[1],
+                amount: parseFloat(row[2].replace('$', '')) || 0,
+                store: row[3],
+                job: row[4]
+            }));
+    } catch (error) {
+        console.error('[ERROR] Failed to fetch expense data:', error.message);
         throw error;
     }
 }
@@ -72,7 +101,7 @@ function parseReceiptText(text) {
         let amount = null;
         let store = lines[0] || "Unknown Store";
         let items = [];
-
+        
         lines.forEach(line => {
             const amountMatch = line.match(/\$([\d,]+(?:\.\d{1,2})?)/);
             if (amountMatch) amount = `$${amountMatch[1]}`;
@@ -108,47 +137,10 @@ async function logReceiptExpense(phoneNumber, extractedText) {
     ]);
 }
 
-// ✅ Function to append data to a user's spreadsheet, including job name
-async function appendToUserSpreadsheet(phoneNumber, data) {
-    try {
-        const auth = await getAuthorizedClient();
-        const sheets = google.sheets({ version: 'v4', auth });
-
-        console.log(`[DEBUG] Retrieving active job for ${phoneNumber}`);
-        const jobName = await getActiveJob(phoneNumber) || "Unassigned";
-
-        console.log(`[DEBUG] Active job found: ${jobName}`);
-
-        const spreadsheetId = await getOrCreateUserSpreadsheet(phoneNumber);
-        console.log(`[DEBUG] Using Spreadsheet ID: ${spreadsheetId}`);
-
-        const RANGE = 'Sheet1!A:E'; // Columns: Date, Item, Amount, Store, Job
-
-        const resource = {
-            values: [[...data, jobName]], // Append job name to data
-        };
-
-        await sheets.spreadsheets.values.append({
-            spreadsheetId,
-            range: RANGE,
-            valueInputOption: 'USER_ENTERED',
-            resource,
-        });
-
-        console.log(`[✅ SUCCESS] Data successfully appended to spreadsheet (${spreadsheetId}): ${JSON.stringify(data)}`);
-    } catch (error) {
-        console.error('[❌ ERROR] Failed to append data to spreadsheet:', error.message);
-        throw error;
-    }
-}
-
 // ✅ Exporting all required functions
 module.exports = {
     appendToUserSpreadsheet,
     fetchExpenseData,
-    calculateExpenseAnalytics,
-    setActiveJob,
-    getActiveJob,
-    getOrCreateUserSpreadsheet,
-    logReceiptExpense
+    logReceiptExpense,
+    getOrCreateUserSpreadsheet
 };
