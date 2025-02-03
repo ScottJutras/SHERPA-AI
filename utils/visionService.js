@@ -1,6 +1,20 @@
 const vision = require('@google-cloud/vision');
 
 // Initialize Cloud Vision API client using Environment Variable
+const path = require('path');
+const fs = require('fs');
+
+// ✅ Set the path to the credentials file
+const credentialsPath = path.join(__dirname, '../config/google-credentials.json');
+
+if (fs.existsSync(credentialsPath)) {
+    console.log(`[DEBUG] Using credentials from: ${credentialsPath}`);
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = credentialsPath;
+} else {
+    throw new Error("[ERROR] Google Vision credentials file not found in config folder.");
+}
+
+// ✅ Initialize Google Vision API client
 const client = new vision.ImageAnnotatorClient();
 
 /**
