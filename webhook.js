@@ -31,21 +31,40 @@ const openai = new OpenAI({
 const environment = process.env.NODE_ENV || 'development';
 console.log(`[DEBUG] Environment: ${environment}`);
 
+// ✅ Function to get job-based expense summary
+async function getJobExpenseSummary(from, jobName) {
+    try {
+        console.log(`[DEBUG] Fetching expense summary for job: ${jobName}, user: ${from}`);
+
+        const expenseData = await fetchExpenseData(from, jobName);
+        if (!expenseData.length) {
+            return `⚠️ No expenses found for job: ${jobName}`;
+        }
+
+        const analytics = calculateExpenseAnalytics(expenseData);
+
+        return `
+📊 *Expense Summary for ${jobName}* 📊
+💰 Total Spent: ${analytics.totalSpent}
+🏪 Top Store: ${analytics.topStore}
+📌 Biggest Purchase: ${analytics.biggestPurchase}
+🔄 Most Frequent Expense: ${analytics.mostFrequentItem}
+        `;
+    } catch (error) {
+        console.error('[ERROR] Failed to fetch job expense summary:', error.message);
+        return `⚠️ Unable to generate expense summary for ${jobName}. Please try again later.`;
+    }
+}
+
 // ✅ Function to handle setting a new job
 async function handleStartJob(from, body) {
-    try {
-        const jobMatch = body.match(/start job (.+)/i);
-        if (!jobMatch) return "⚠️ Please specify a job name. Example: 'Start job 75 Hampton Crt'";
+    const jobMatch = body.match(/start job (.+)/i);
+    if (!jobMatch) return "⚠️ Please specify a job name. Example: 'Start job 75 Hampton Crt'";
 
-        const jobName = jobMatch[1].trim();
-        await setActiveJob(from, jobName);
-
-        console.log(`[✅ SUCCESS] Job set for ${from}: ${jobName}`);
-        return `✅ Job '${jobName}' is now active. All expenses will be assigned to this job.`;
-    } catch (error) {
-        console.error("[ERROR] Failed to start job:", error.message);
-        return "❌ Could not start the job. Please try again.";
-    }
+    const jobName = jobMatch[1].trim();
+    await setActiveJob(from, jobName);
+    
+    return `✅ Job '${jobName}' is now active. All expenses will be assigned to this job.`;
 }
 
 // ✅ Function to handle receipt image processing
@@ -61,8 +80,7 @@ async function handleReceiptImage(from, mediaUrl) {
         const expenseData = parseExpenseMessage(extractedText);
 
         if (!expenseData) {
-            console.error("[ERROR] Failed to parse extracted text into expense data.");
-            return "❌ Unable to process receipt. Try entering details manually.";
+            throw new Error("Failed to parse extracted text into expense data.");
         }
 
         console.log(`[DEBUG] Parsed Expense Data:`, expenseData);
@@ -77,6 +95,27 @@ async function handleReceiptImage(from, mediaUrl) {
     } catch (error) {
         console.error("[ERROR] Failed to process receipt image:", error.message);
         return "❌ Failed to process the receipt image. Please try again later.";
+    }
+}
+
+// ✅ Function to get response from ChatGPT
+async function getChatGPTResponse(prompt) {
+    try {
+        console.log(`[DEBUG] ChatGPT Request: "${prompt}"`);
+        const response = await openai.chat.completions.create({
+            model: 'gpt-3.5-turbo',
+            messages: [
+                { role: 'system', content: 'You are a helpful assistant.' },
+                { role: 'user', content: prompt },
+            ],
+            max_tokens: 100,
+            temperature: 0.7,
+        });
+
+        return response.choices?.[0]?.message?.content?.trim() || "Sorry, I didn't understand that.";
+    } catch (error) {
+        console.error(`[ERROR] OpenAI API call failed: ${error.message}`);
+        return "❌ Failed to get a response. Please try again.";
     }
 }
 
@@ -101,35 +140,21 @@ app.post('/webhook', async (req, res) => {
             reply = await handleReceiptImage(from, mediaUrl);
         } else if (body.startsWith("start job ")) {
             reply = await handleStartJob(from, body);
+        } else if (body.startsWith("expense summary for ")) {
+            const jobMatch = body.match(/expense summary for (.+)/i);
+            reply = jobMatch ? await getJobExpenseSummary(from, jobMatch[1].trim()) : "⚠️ Please specify a job name.";
         } else {
             const activeJob = await getActiveJob(from) || "Uncategorized";
-            console.log(`[DEBUG] Active job for ${from}: ${activeJob}`);
 
-            // ✅ Parse expense message
             const expenseData = parseExpenseMessage(body);
-            console.log(`[DEBUG] Parsed Expense Data:`, expenseData);
-
             if (expenseData) {
-                console.log(`[✅ SUCCESS] Expense detected:`, expenseData);
-
-                try {
-                    const spreadsheetId = await getOrCreateUserSpreadsheet(from);
-                    if (!spreadsheetId) throw new Error("No spreadsheet ID found.");
-
-                    await appendToUserSpreadsheet(
-                        from,
-                        [expenseData.date, expenseData.item, expenseData.amount, expenseData.store, activeJob]
-                    );
-
-                    reply = `✅ Expense logged under '${activeJob}': ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
-                    console.log(`[DEBUG] Expense logged reply: "${reply}"`);
-                } catch (error) {
-                    console.error('[ERROR] Failed to log expense to Google Sheets:', error.message);
-                    reply = "❌ Failed to log your expense. Please try again later.";
-                }
+                await appendToUserSpreadsheet(
+                    from,
+                    [expenseData.date, expenseData.item, expenseData.amount, expenseData.store, activeJob]
+                );
+                reply = `✅ Expense logged under '${activeJob}': ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
             } else {
-                console.error(`[ERROR] Message could not be parsed: "${body}"`);
-                reply = "⚠️ I couldn't understand that. Try something like: 'Bought $50 of lumber at Home Depot today'.";
+                reply = await getChatGPTResponse(body);
             }
         }
     } catch (error) {
