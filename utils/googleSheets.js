@@ -41,7 +41,7 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 // ✅ Google API Scopes
-const SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive'];
+const SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.file'];
 
 // ✅ Function to initialize Google API client
 async function getAuthorizedClient() {
