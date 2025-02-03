@@ -252,6 +252,7 @@ function calculateExpenseAnalytics(expenseData) {
     };
 }
 // ✅ Function to parse receipt text from OCR (IMPROVED)
+// ✅ Function to parse receipt text from OCR (IMPROVED)
 function parseReceiptText(text) {
     try {
         console.log("[DEBUG] Raw OCR Text:", text);
@@ -316,6 +317,7 @@ function parseReceiptText(text) {
         return null;
     }
 }
+
 // ✅ Function to log receipt-based expenses
 async function logReceiptExpense(phoneNumber, extractedText) {
     const parsedData = parseReceiptText(extractedText);
@@ -330,7 +332,6 @@ async function logReceiptExpense(phoneNumber, extractedText) {
         parsedData.store
     ]);
 }
-
 // ✅ Exporting all required functions
 module.exports = {
     appendToUserSpreadsheet,
