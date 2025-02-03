@@ -37,11 +37,14 @@ async function getJobExpenseSummary(from, jobName) {
         console.log(`[DEBUG] Fetching expense summary for job: ${jobName}, user: ${from}`);
 
         const expenseData = await fetchExpenseData(from, jobName);
+        console.log(`[DEBUG] Retrieved expense data:`, JSON.stringify(expenseData, null, 2));
+
         if (!expenseData.length) {
             return `⚠️ No expenses found for job: ${jobName}`;
         }
 
         const analytics = calculateExpenseAnalytics(expenseData);
+        console.log(`[DEBUG] Expense Analytics:`, JSON.stringify(analytics, null, 2));
 
         return `
 📊 *Expense Summary for ${jobName}* 📊
