@@ -39,7 +39,9 @@ async function extractTextFromImage(imageSource) {
 
         // Perform text detection
         const [result] = await client.textDetection(request);
-        const detections = result.textAnnotations;
+console.log("[DEBUG] Google Vision API Response:", JSON.stringify(result, null, 2));
+
+const detections = result.textAnnotations;
 
         if (!detections || detections.length === 0) {
             console.log("[DEBUG] No text found in image.");
