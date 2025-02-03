@@ -255,37 +255,42 @@ function calculateExpenseAnalytics(expenseData) {
 function parseReceiptText(text) {
     try {
         console.log("[DEBUG] Raw OCR Text:", text);
+
+        // ✅ Step 1: Split the text into an array of non-empty lines
         const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
 
-        // ✅ Extract Store Name
+        // ✅ Step 2: Extract Store Name (Look at header & footer)
         let store = "Unknown Store";
-        for (let line of lines) {
-            if (/thank you for shopping at/i.test(line)) {
-                store = line.replace(/thank you for shopping at/i, '').trim();
+        for (let i = 0; i < lines.length; i++) {
+            if (/thank you for shopping at/i.test(lines[i])) {
+                store = lines[i].replace(/thank you for shopping at/i, '').trim();
                 break;
-            } else if (line.length > 4 && line.length < 40 && store === "Unknown Store") {
-                store = line;
+            } else if (i < 4 && lines[i].length > 4 && lines[i].length < 40) {
+                store = lines[i]; // Prioritize first few lines for store name
             }
         }
 
-        // ✅ Extract Date (handles MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD)
+        // ✅ Step 3: Extract Date (MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD)
         let dateMatch = text.match(/(\d{2}\/\d{2}\/\d{4}|\d{2}\/\d{2}\/\d{2}|\d{4}-\d{2}-\d{2})/);
         let date = dateMatch ? dateMatch[1] : new Date().toISOString().split('T')[0];
 
-        // ✅ Extract Amount (handles "$27.10", "TOTAL 27.10", "PURCHASE: 27.10")
-        let amountMatch = text.match(/(?:TOTAL|PURCHASE|AMOUNT TENDERED|CARD|SUB TOTAL)?\s*\$?(\d{1,6}\.\d{2})/i);
-        let amount = amountMatch ? `$${amountMatch[1]}` : "Unknown Amount";
+        // ✅ Step 4: Extract Amount (Handles "$27.10" and "27.10")
+        let amountMatch = text.match(/(?:TOTAL|PURCHASE|AMOUNT TENDERED|CARD|SUB TOTAL)?\s*\$?(\d{1,6}\.\d{2})/gi);
+        let amount = amountMatch ? `$${amountMatch[amountMatch.length - 1]}` : "Unknown Amount"; // Use last detected amount
 
-        // ✅ Extract Item Description
+        // ✅ Step 5: Extract Items (Handles multi-line item descriptions)
         let item = "Unknown Item";
         for (let i = 0; i < lines.length; i++) {
             if (/\d+\s*EA\s*@/.test(lines[i])) {
                 item = lines[i].replace(/(\d+\s*EA\s*@\s*\d+\.\d+)/, '').trim();
+                if (i + 1 < lines.length && lines[i + 1].length < 50) {
+                    item += ` ${lines[i + 1]}`; // Capture multi-line descriptions
+                }
                 break;
             }
         }
 
-        // ✅ Handle item extraction failures by checking keywords
+        // ✅ Step 6: Handle Common Construction Material Keywords
         if (!item || item.length < 3) {
             let materialKeywords = [
                 "lumber", "wood", "2x4", "plywood", "screws", "nails", "cement", "gravel", "drywall",
