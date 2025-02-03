@@ -257,22 +257,35 @@ function parseReceiptText(text) {
         console.log("[DEBUG] Raw OCR Text:", text);
         const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
 
-        // Extract Store Name (first non-empty line)
-        let store = lines[0] || "Unknown Store";
+        // ✅ Extract Store Name
+        let store = "Unknown Store";
+        for (let line of lines) {
+            if (/thank you for shopping at/i.test(line)) {
+                store = line.replace(/thank you for shopping at/i, '').trim();
+                break;
+            } else if (line.length > 4 && line.length < 40 && store === "Unknown Store") {
+                store = line;
+            }
+        }
 
-        // Extract Date (handles different date formats like MM/DD/YY or YYYY-MM-DD)
+        // ✅ Extract Date (handles MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD)
         let dateMatch = text.match(/(\d{2}\/\d{2}\/\d{4}|\d{2}\/\d{2}\/\d{2}|\d{4}-\d{2}-\d{2})/);
         let date = dateMatch ? dateMatch[1] : new Date().toISOString().split('T')[0];
 
-        // Extract Amount (handles "$27.10", "27.10", or "TOTAL 27.10")
+        // ✅ Extract Amount (handles "$27.10", "TOTAL 27.10", "PURCHASE: 27.10")
         let amountMatch = text.match(/(?:TOTAL|PURCHASE|AMOUNT TENDERED|CARD|SUB TOTAL)?\s*\$?(\d{1,6}\.\d{2})/i);
         let amount = amountMatch ? `$${amountMatch[1]}` : "Unknown Amount";
 
-        // Extract Items (Handles "2 EA @ 11.990 TAPE, SHEATHING POLY")
-        let itemLine = lines.find(line => /\d+\s*EA\s*@/.test(line));
-        let item = itemLine ? itemLine.replace(/(\d+\s*EA\s*@\s*\d+\.\d+)/, '').trim() : "Unknown Item";
+        // ✅ Extract Item Description
+        let item = "Unknown Item";
+        for (let i = 0; i < lines.length; i++) {
+            if (/\d+\s*EA\s*@/.test(lines[i])) {
+                item = lines[i].replace(/(\d+\s*EA\s*@\s*\d+\.\d+)/, '').trim();
+                break;
+            }
+        }
 
-        // Handle cases where item descriptions have extra numbers
+        // ✅ Handle item extraction failures by checking keywords
         if (!item || item.length < 3) {
             let materialKeywords = [
                 "lumber", "wood", "2x4", "plywood", "screws", "nails", "cement", "gravel", "drywall",
