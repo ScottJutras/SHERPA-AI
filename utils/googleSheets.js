@@ -255,40 +255,41 @@ function calculateExpenseAnalytics(expenseData) {
 function parseReceiptText(text) {
     try {
         console.log("[DEBUG] Raw OCR Text:", text);
-        const lines = text.split('\n').map(line => line.trim());
+        const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
 
-        // Extract Store Name (Usually at the top of the receipt)
+        // Extract Store Name (first non-empty line)
         let store = lines[0] || "Unknown Store";
 
-        // Extract Date
-        let dateMatch = text.match(/(\d{2}\/\d{2}\/\d{4}|\d{2}\/\d{2}\/\d{2})/);
+        // Extract Date (handles different date formats like MM/DD/YY or YYYY-MM-DD)
+        let dateMatch = text.match(/(\d{2}\/\d{2}\/\d{4}|\d{2}\/\d{2}\/\d{2}|\d{4}-\d{2}-\d{2})/);
         let date = dateMatch ? dateMatch[1] : new Date().toISOString().split('T')[0];
 
-        // Extract Amount (Handles both "$24.60" and "24.60")
-        let amountMatch = text.match(/(?:\$|)(\d{1,6}\.\d{2})/g);
-        let amount = amountMatch ? `$${amountMatch[amountMatch.length - 1]}` : "Unknown Amount";
+        // Extract Amount (handles "$27.10", "27.10", or "TOTAL 27.10")
+        let amountMatch = text.match(/(?:TOTAL|PURCHASE|AMOUNT TENDERED|CARD|SUB TOTAL)?\s*\$?(\d{1,6}\.\d{2})/i);
+        let amount = amountMatch ? `$${amountMatch[1]}` : "Unknown Amount";
 
-        // Extract Items (Handles "2x4", "nails", "paint", etc.)
-        let items = [];
-        const materialKeywords = [
-            "lumber", "wood", "2x4", "plywood", "screws", "nails", "cement", "gravel", "drywall",
-            "paint", "primer", "tiles", "shingles", "gutters", "insulation", "concrete", "sand",
-            "flooring", "adhesive", "sealant", "tape", "bricks", "mortar", "plumbing", "electrical", "wire"
-        ];
-        let materialMatch = text.match(new RegExp(`\\b(${materialKeywords.join("|")})\\b`, "i"));
-        if (materialMatch) {
-            items.push(materialMatch[1]);
+        // Extract Items (Handles "2 EA @ 11.990 TAPE, SHEATHING POLY")
+        let itemLine = lines.find(line => /\d+\s*EA\s*@/.test(line));
+        let item = itemLine ? itemLine.replace(/(\d+\s*EA\s*@\s*\d+\.\d+)/, '').trim() : "Unknown Item";
+
+        // Handle cases where item descriptions have extra numbers
+        if (!item || item.length < 3) {
+            let materialKeywords = [
+                "lumber", "wood", "2x4", "plywood", "screws", "nails", "cement", "gravel", "drywall",
+                "paint", "primer", "tiles", "shingles", "gutters", "insulation", "concrete", "sand",
+                "flooring", "adhesive", "sealant", "tape", "bricks", "mortar", "plumbing", "electrical", "wire"
+            ];
+            let materialMatch = text.match(new RegExp(`\\b(${materialKeywords.join("|")})\\b`, "i"));
+            if (materialMatch) {
+                item = materialMatch[1];
+            }
         }
 
-        // Check for quantity-based items (e.g., "20 2x4s")
-        let quantityItemMatch = text.match(/(\d+)\s+(\w+)/);
-        if (quantityItemMatch) {
-            items.push(`${quantityItemMatch[1]} ${quantityItemMatch[2]}`);
-        }
+        console.log(`[DEBUG] Parsed Receipt: Date: ${date}, Item: ${item}, Amount: ${amount}, Store: ${store}`);
 
         return {
             date,
-            item: items.join(", ") || "Unknown Items",
+            item,
             amount,
             store
         };
