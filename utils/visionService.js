@@ -1,9 +1,9 @@
 const vision = require('@google-cloud/vision');
+const axios = require('axios');
 
-// Initialize Cloud Vision API client using Environment Variable
+// ✅ Initialize Cloud Vision API client using Environment Variable
 const { GoogleAuth } = require('google-auth-library');
 
-// ✅ Check if running in Vercel and load credentials from environment
 if (process.env.GOOGLE_CREDENTIALS_BASE64) {
     console.log("[DEBUG] Loading Google Vision credentials from environment variable.");
     const googleCredentials = JSON.parse(
@@ -19,7 +19,7 @@ if (process.env.GOOGLE_CREDENTIALS_BASE64) {
 
 /**
  * Extract text from an image using Google Cloud Vision API.
- * Supports both local image paths and URLs.
+ * Supports URLs (downloads first), Buffers, and local paths.
  *
  * @param {string|Buffer} imageSource - Path, URL, or Buffer of an image.
  * @returns {Promise<string|null>} Extracted text or null if no text is found.
@@ -28,20 +28,31 @@ async function extractTextFromImage(imageSource) {
     try {
         let request = {};
 
-        // Determine if the input is a URL, local path, or a Buffer
-        if (Buffer.isBuffer(imageSource)) {
+        // ✅ If the image is a URL, download it first
+        if (typeof imageSource === 'string' && imageSource.startsWith('http')) {
+            console.log(`[DEBUG] Downloading image from: ${imageSource}`);
+
+            // Authenticate with Twilio (use Twilio credentials)
+            const response = await axios.get(imageSource, {
+                responseType: 'arraybuffer',
+                headers: {
+                    'Authorization': 'Basic ' + Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')
+                }
+            });
+
+            console.log("[DEBUG] Image downloaded successfully. Sending to Google Vision...");
+            request.image = { content: Buffer.from(response.data).toString('base64') };
+        } else if (Buffer.isBuffer(imageSource)) {
             request.image = { content: imageSource.toString('base64') };
-        } else if (imageSource.startsWith('http')) {
-            request.image = { source: { imageUri: imageSource } };
         } else {
             request.image = { source: { filename: imageSource } };
         }
 
         // Perform text detection
         const [result] = await client.textDetection(request);
-console.log("[DEBUG] Google Vision API Response:", JSON.stringify(result, null, 2));
+        console.log("[DEBUG] Google Vision API Response:", JSON.stringify(result, null, 2));
 
-const detections = result.textAnnotations;
+        const detections = result.textAnnotations;
 
         if (!detections || detections.length === 0) {
             console.log("[DEBUG] No text found in image.");
