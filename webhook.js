@@ -71,14 +71,22 @@ async function handleStartJob(from, body) {
 async function handleReceiptImage(from, mediaUrl) {
     try {
         console.log(`[DEBUG] Processing receipt image from ${from}: ${mediaUrl}`);
+
+        if (!mediaUrl) {
+            throw new Error("Media URL is missing or invalid.");
+        }
+
+        // Extract text from the image
         const extractedText = await extractTextFromImage(mediaUrl);
+
         if (!extractedText) {
             throw new Error("No text extracted from image.");
         }
 
         console.log(`[DEBUG] Extracted text: ${extractedText}`);
-        const expenseData = parseExpenseMessage(extractedText);
 
+        // Parse receipt text
+        const expenseData = parseExpenseMessage(extractedText);
         if (!expenseData) {
             throw new Error("Failed to parse extracted text into expense data.");
         }
@@ -86,6 +94,7 @@ async function handleReceiptImage(from, mediaUrl) {
         console.log(`[DEBUG] Parsed Expense Data:`, expenseData);
         const activeJob = await getActiveJob(from) || "Uncategorized";
 
+        // Append data to Google Sheets
         await appendToUserSpreadsheet(
             from,
             [expenseData.date, expenseData.item, expenseData.amount, expenseData.store, activeJob]

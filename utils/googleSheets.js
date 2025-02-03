@@ -58,6 +58,46 @@ async function getAuthorizedClient() {
     }
 }
 
+// ✅ Function to create a new Google Spreadsheet for a user
+async function createSpreadsheetForUser(phoneNumber) {
+    try {
+        console.log(`[DEBUG] Creating a new spreadsheet for user: ${phoneNumber}`);
+
+        const auth = await getAuthorizedClient();
+        const sheets = google.sheets({ version: 'v4', auth });
+
+        const response = await sheets.spreadsheets.create({
+            resource: {
+                properties: { title: `Expenses - ${phoneNumber}` },
+                sheets: [
+                    {
+                        properties: { title: 'Sheet1' },
+                        data: {
+                            rowData: [
+                                {
+                                    values: [
+                                        { userEnteredValue: { stringValue: 'Date' } },
+                                        { userEnteredValue: { stringValue: 'Item' } },
+                                        { userEnteredValue: { stringValue: 'Amount' } },
+                                        { userEnteredValue: { stringValue: 'Store' } },
+                                        { userEnteredValue: { stringValue: 'Job' } }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        });
+
+        console.log(`[✅ SUCCESS] Spreadsheet created: ${response.data.spreadsheetId}`);
+        return response.data.spreadsheetId;
+    } catch (error) {
+        console.error(`[❌ ERROR] Failed to create spreadsheet for ${phoneNumber}:`, error.message);
+        throw error;
+    }
+}
+
 // ✅ Function to retrieve or create a spreadsheet for a user
 async function getOrCreateUserSpreadsheet(phoneNumber) {
     try {
@@ -236,4 +276,5 @@ module.exports = {
     getOrCreateUserSpreadsheet,
     setActiveJob,  // FIXED & RESTORED
     getActiveJob,  // FIXED & RESTORED
+    createSpreadsheetForUser,
 };

@@ -12,19 +12,25 @@ const client = new vision.ImageAnnotatorClient();
  */
 async function extractTextFromImage(imageSource) {
     try {
+        console.log(`[DEBUG] Received image source: ${imageSource}`);
         let request = {};
 
         // Determine if the input is a URL, local path, or a Buffer
         if (Buffer.isBuffer(imageSource)) {
             request.image = { content: imageSource.toString('base64') };
+            console.log("[DEBUG] Processing image from Buffer.");
         } else if (imageSource.startsWith('http')) {
             request.image = { source: { imageUri: imageSource } };
+            console.log(`[DEBUG] Processing image from URL: ${imageSource}`);
         } else {
             request.image = { source: { filename: imageSource } };
+            console.log(`[DEBUG] Processing local image file: ${imageSource}`);
         }
 
         // Perform text detection
+        console.log("[DEBUG] Sending image to Google Vision API...");
         const [result] = await client.textDetection(request);
+        console.log("[DEBUG] Received response from Google Vision API.");
         const detections = result.textAnnotations;
 
         if (!detections || detections.length === 0) {
