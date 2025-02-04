@@ -1,20 +1,26 @@
 const axios = require('axios');
-
-// ✅ Document AI Configuration
-const PROJECT_ID = "YOUR_PROJECT_ID";  // Replace with your actual Google Cloud project ID
-const LOCATION = "us";  // Keep "us" unless your processor is in a different region
-const PROCESSOR_ID = "8fe848506d8e86c6";  // Your Document AI processor ID
-
-// ✅ Google Authentication
 const { GoogleAuth } = require('google-auth-library');
+
+// Ensure Document AI credentials are loaded.
 if (!process.env.GOOGLE_CREDENTIALS_BASE64) {
     throw new Error("[ERROR] GOOGLE_CREDENTIALS_BASE64 is missing. Cannot authenticate Document AI.");
 }
+
 console.log("[DEBUG] Loading Google Document AI credentials from environment variable.");
 const googleCredentials = JSON.parse(
-    Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8')
+  Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8')
 );
-const authClient = new GoogleAuth({ credentials: googleCredentials }).fromJSON(googleCredentials);
+
+// Use environment variables for configuration.
+const PROJECT_ID = process.env.GCP_PROJECT_ID;  // your actual project ID
+const LOCATION = process.env.GCP_LOCATION || "us";  // defaults to 'us'
+const PROCESSOR_ID = process.env.DOCUMENTAI_PROCESSOR_ID;  // your Document AI processor ID
+
+// Create a GoogleAuth client with the Cloud Platform scope.
+const authClient = new GoogleAuth({
+    credentials: googleCredentials,
+    scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+});
 
 /**
  * Process receipt image with Google Document AI (Receipts Processor).
@@ -26,29 +32,32 @@ async function extractTextFromImage(imageSource) {
     try {
         console.log(`[DEBUG] Downloading image from: ${imageSource}`);
 
-        // Download the image using Twilio credentials
+        // Download the image using Twilio credentials.
         const response = await axios.get(imageSource, {
             responseType: 'arraybuffer',
             auth: {
                 username: process.env.TWILIO_ACCOUNT_SID,
-                password: process.env.TWILIO_AUTH_TOKEN
-            }
+                password: process.env.TWILIO_AUTH_TOKEN,
+            },
         });
 
         console.log("[DEBUG] Image downloaded successfully. Sending to Google Document AI...");
 
+        // Construct the Document AI endpoint using environment variables.
         const endpoint = `https://${LOCATION}-documentai.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/processors/${PROCESSOR_ID}:process`;
 
         const requestPayload = {
             rawDocument: {
                 content: Buffer.from(response.data).toString('base64'),
-                mimeType: "image/jpeg"
-            }
+                mimeType: "image/jpeg",
+            },
         };
 
+        // Get an access token from the auth client.
+        const accessToken = await authClient.getAccessToken();
         const headers = {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${await authClient.getAccessToken()}`
+            "Authorization": `Bearer ${accessToken}`,
         };
 
         const { data } = await axios.post(endpoint, requestPayload, { headers });
@@ -60,10 +69,10 @@ async function extractTextFromImage(imageSource) {
             return null;
         }
 
-        let fields = data.document.entities;
-        let store = fields.find(f => f.type === "store_name")?.mentionText || "Unknown Store";
-        let date = fields.find(f => f.type === "date")?.mentionText || new Date().toISOString().split('T')[0];
-        let total = fields.find(f => f.type === "total_amount")?.mentionText || "Unknown Amount";
+        const fields = data.document.entities;
+        const store = fields.find(f => f.type === "store_name")?.mentionText || "Unknown Store";
+        const date = fields.find(f => f.type === "date")?.mentionText || new Date().toISOString().split('T')[0];
+        const total = fields.find(f => f.type === "total_amount")?.mentionText || "Unknown Amount";
 
         console.log(`[DEBUG] Parsed Receipt - Store: ${store}, Date: ${date}, Amount: ${total}`);
         return { store, date, amount: total };
