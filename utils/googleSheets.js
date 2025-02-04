@@ -255,11 +255,12 @@ function calculateExpenseAnalytics(expenseData) {
 function parseReceiptText(text) {
     try {
         console.log("[DEBUG] Raw OCR Text:", text);
-        
+
         const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
 
-        // ✅ Fix Store Name Detection
-        let store = lines.find(line => /^[A-Za-z\s&-]+$/.test(line) && !/survey|contest|gift|rules|invoice|transaction|total|receipt|cash|approval/i.test(line));
+        // ✅ Fix Store Name Extraction
+        let store = lines.find(line => /^[A-Za-z\s&-]+$/.test(line) && 
+            !/survey|contest|gift|rules|invoice|transaction|total|receipt|cash|approval|tax/i.test(line));
         if (!store) {
             store = "Unknown Store";
         }
@@ -268,14 +269,14 @@ function parseReceiptText(text) {
         let dateMatch = text.match(/(\d{2}\/\d{2}\/\d{4}|\d{2}\/\d{2}\/\d{2}|\d{4}-\d{2}-\d{2})/);
         let date = dateMatch ? dateMatch[1] : new Date().toISOString().split('T')[0];
 
-        // ✅ Fix Amount Extraction (Pick the LAST amount, which is likely the total)
+        // ✅ Fix Amount Extraction (Pick the LAST amount, assuming it's the total)
         let amountMatch = text.match(/(?:TOTAL|PURCHASE|AMOUNT TENDERED|CARD|SUB TOTAL)?\s*\$?(\d{1,6}\.\d{2})/gi);
         let amount = amountMatch ? `$${amountMatch[amountMatch.length - 1]}` : "Unknown Amount";
 
-        // ✅ Fix Item Description (Pick first non-empty line with product-like text)
+        // ✅ Fix Item Extraction (Allow fallback to "Miscellaneous" if no clear item is found)
         let item = lines.find(line => /\d+\s*(L|EA|KG|X|x|@)/.test(line));
         if (!item) {
-            item = lines.find(line => /[a-zA-Z]{3,}/.test(line) && !/store|total|receipt|card|cash|change|approval/i.test(line)) || "Unknown Item";
+            item = lines.find(line => /[a-zA-Z]{3,}/.test(line) && !/store|total|receipt|card|cash|change|approval|tax/i.test(line)) || "Miscellaneous";
         }
 
         // ✅ Debugging Output
@@ -299,10 +300,9 @@ async function logReceiptExpense(phoneNumber, extractedText) {
 
     console.log(`[DEBUG] Parsed Data: ${JSON.stringify(parsedData)}`);
 
-    // ✅ Check for missing fields and log exactly what's missing
+    // ✅ Check for missing fields (Only block if Store, Date, or Amount is missing)
     let missingFields = [];
     if (!parsedData.date) missingFields.push("Date");
-    if (!parsedData.item) missingFields.push("Item");
     if (!parsedData.amount) missingFields.push("Amount");
     if (!parsedData.store) missingFields.push("Store");
 
@@ -315,7 +315,7 @@ async function logReceiptExpense(phoneNumber, extractedText) {
 
     return appendToUserSpreadsheet(phoneNumber, [
         parsedData.date,
-        parsedData.item,
+        parsedData.item || "Miscellaneous",
         parsedData.amount,
         parsedData.store
     ]);
