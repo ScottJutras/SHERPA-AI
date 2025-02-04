@@ -257,22 +257,26 @@ function parseReceiptText(text) {
         console.log("[DEBUG] Raw OCR Text:", text);
         const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
 
-        // ✅ Extract Store Name (First non-empty line that isn't a transaction header)
-        let store = lines.find(line => !/transaction|record|receipt|invoice|total/i.test(line)) || "Unknown Store";
+        // ✅ Extract Store Name (Prioritize the first valid store name)
+        let store = lines.find(line => /^[A-Za-z\s]+$/.test(line) && !/survey|contest|gift|rules|invoice|transaction|total/i.test(line));
+        if (!store) store = "Unknown Store";  // Fallback
 
-        // ✅ Extract Date (Format: MM/DD/YY, MM/DD/YYYY, YYYY-MM-DD)
+        // ✅ Extract Date (Handle different formats)
         let dateMatch = text.match(/(\d{2}\/\d{2}\/\d{4}|\d{2}\/\d{2}\/\d{2}|\d{4}-\d{2}-\d{2})/);
         let date = dateMatch ? dateMatch[1] : new Date().toISOString().split('T')[0];
 
-        // ✅ Extract Amount (Matches "TOTAL 100.00", "PURCHASE 100.00")
-        let amountMatch = text.match(/(?:TOTAL|PURCHASE|AMOUNT TENDERED|CARD|SUB TOTAL)?\s*\$?(\d{1,6}\.\d{2})/i);
-        let amount = amountMatch ? `$${amountMatch[1]}` : "Unknown Amount";
+        // ✅ Extract Amount (Find TOTAL/PURCHASE price)
+        let amountMatch = text.match(/(?:TOTAL|PURCHASE|AMOUNT TENDERED|CARD|SUB TOTAL)?\s*\$?(\d{1,6}\.\d{2})/gi);
+        let amount = amountMatch ? `$${amountMatch[amountMatch.length - 1]}` : "Unknown Amount"; // Pick last detected amount
 
-        // ✅ Extract Items (Handles descriptions like "Regular 76.395L AT $1.309/L")
-        let item = lines.find(line => /\d+\s*(L|EA|KG|X|x|@)/.test(line)) || "Unknown Item";
+        // ✅ Extract Item Description (Gas, groceries, construction items)
+        let item = lines.find(line => /\d+\s*(L|EA|KG|X|x|@)/.test(line));
+        if (!item) {
+            item = lines.find(line => /[a-zA-Z]{3,}/.test(line)) || "Unknown Item";
+        }
 
-        // Debug Output
-        console.log(`[DEBUG] Parsed Receipt: Store: ${store}, Date: ${date}, Item: ${item}, Amount: ${amount}`);
+        // ✅ Debugging output
+        console.log(`[DEBUG] Parsed Receipt - Store: ${store}, Date: ${date}, Item: ${item}, Amount: ${amount}`);
 
         return { date, item, amount, store };
     } catch (error) {
@@ -283,7 +287,7 @@ function parseReceiptText(text) {
 // ✅ Function to log receipt-based expenses
 async function logReceiptExpense(phoneNumber, extractedText) {
     console.log("[DEBUG] Logging receipt expense...");
-    
+
     const parsedData = parseReceiptText(extractedText);
     if (!parsedData) {
         console.error("[ERROR] Failed to parse OCR data:", extractedText);
@@ -292,11 +296,13 @@ async function logReceiptExpense(phoneNumber, extractedText) {
 
     console.log(`[DEBUG] Parsed Data: ${JSON.stringify(parsedData)}`);
 
-    // ✅ Ensure all fields are present before appending to Google Sheets
+    // ✅ Check for missing fields
     if (!parsedData.date || !parsedData.item || !parsedData.amount || !parsedData.store) {
         console.error("[ERROR] Missing required fields:", parsedData);
         return;
     }
+
+    console.log("[DEBUG] Attempting to log to Google Sheets...");
 
     return appendToUserSpreadsheet(phoneNumber, [
         parsedData.date,
