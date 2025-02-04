@@ -258,28 +258,28 @@ function parseReceiptText(text) {
 
         const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
 
-        // ✅ Fix Store Name Extraction
-        let store = lines.find(line => /^[A-Za-z\s&-]+$/.test(line) && 
+        // ✅ Extract Store Name (First meaningful text line)
+        let store = lines.find(line => /^[A-Za-z\s&-]+$/.test(line) &&
             !/survey|contest|gift|rules|invoice|transaction|total|receipt|cash|approval|tax/i.test(line));
+
         if (!store) {
             store = "Unknown Store";
         }
 
-        // ✅ Fix Date Extraction
+        // ✅ Extract Date (MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD)
         let dateMatch = text.match(/(\d{2}\/\d{2}\/\d{4}|\d{2}\/\d{2}\/\d{2}|\d{4}-\d{2}-\d{2})/);
         let date = dateMatch ? dateMatch[1] : new Date().toISOString().split('T')[0];
 
-        // ✅ Fix Amount Extraction (Pick the LAST amount, assuming it's the total)
-        let amountMatch = text.match(/(?:TOTAL|PURCHASE|AMOUNT TENDERED|CARD|SUB TOTAL)?\s*\$?(\d{1,6}\.\d{2})/gi);
+        // ✅ Extract Amount (Pick the LAST amount, assuming it's the total)
+        let amountMatch = text.match(/\$?(\d{1,6}\.\d{2})/gi);
         let amount = amountMatch ? `$${amountMatch[amountMatch.length - 1]}` : "Unknown Amount";
 
-        // ✅ Fix Item Extraction (Allow fallback to "Miscellaneous" if no clear item is found)
-        let item = lines.find(line => /\d+\s*(L|EA|KG|X|x|@)/.test(line));
+        // ✅ Extract Items (Allow fallback to "Miscellaneous")
+        let item = lines.find(line => /\d+\s*(L|EA|KG|X|x|@|\$)/.test(line));
         if (!item) {
             item = lines.find(line => /[a-zA-Z]{3,}/.test(line) && !/store|total|receipt|card|cash|change|approval|tax/i.test(line)) || "Miscellaneous";
         }
 
-        // ✅ Debugging Output
         console.log(`[DEBUG] Parsed Receipt - Store: ${store}, Date: ${date}, Item: ${item}, Amount: ${amount}`);
 
         return { date, item, amount, store };
@@ -300,7 +300,7 @@ async function logReceiptExpense(phoneNumber, extractedText) {
 
     console.log(`[DEBUG] Parsed Data: ${JSON.stringify(parsedData)}`);
 
-    // ✅ Check for missing fields (Only block if Store, Date, or Amount is missing)
+    // ✅ Check for missing required fields
     let missingFields = [];
     if (!parsedData.date) missingFields.push("Date");
     if (!parsedData.amount) missingFields.push("Amount");
