@@ -1,22 +1,21 @@
 const axios = require('axios');
 const { GoogleAuth } = require('google-auth-library');
 
-// Ensure Document AI credentials are loaded.
+// ✅ Document AI Configuration
+const PROJECT_ID = process.env.GCP_PROJECT_ID;  // Your actual project ID
+const LOCATION = process.env.GCP_LOCATION || "us";  // Defaults to 'us'
+const PROCESSOR_ID = process.env.DOCUMENTAI_PROCESSOR_ID;  // Your Document AI processor ID
+
+// ✅ Google Authentication
 if (!process.env.GOOGLE_CREDENTIALS_BASE64) {
     throw new Error("[ERROR] GOOGLE_CREDENTIALS_BASE64 is missing. Cannot authenticate Document AI.");
 }
-
 console.log("[DEBUG] Loading Google Document AI credentials from environment variable.");
 const googleCredentials = JSON.parse(
-  Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8')
+    Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8')
 );
 
-// Use environment variables for configuration.
-const PROJECT_ID = process.env.GCP_PROJECT_ID;  // your actual project ID
-const LOCATION = process.env.GCP_LOCATION || "us";  // defaults to 'us'
-const PROCESSOR_ID = process.env.DOCUMENTAI_PROCESSOR_ID;  // your Document AI processor ID
-
-// Create a GoogleAuth client with the Cloud Platform scope.
+// Create a GoogleAuth client with the cloud-platform scope.
 const authClient = new GoogleAuth({
     credentials: googleCredentials,
     scopes: ["https://www.googleapis.com/auth/cloud-platform"],
@@ -43,7 +42,7 @@ async function extractTextFromImage(imageSource) {
 
         console.log("[DEBUG] Image downloaded successfully. Sending to Google Document AI...");
 
-        // Construct the Document AI endpoint using environment variables.
+        // Construct the Document AI endpoint dynamically.
         const endpoint = `https://${LOCATION}-documentai.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/processors/${PROCESSOR_ID}:process`;
 
         const requestPayload = {
@@ -54,7 +53,8 @@ async function extractTextFromImage(imageSource) {
         };
 
         // Get an access token from the auth client.
-        const accessToken = await authClient.getAccessToken();
+        const accessTokenResponse = await authClient.getAccessToken();
+        const accessToken = accessTokenResponse.token || accessTokenResponse;
         const headers = {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${accessToken}`,
@@ -78,7 +78,12 @@ async function extractTextFromImage(imageSource) {
         return { store, date, amount: total };
 
     } catch (error) {
-        console.error("[ERROR] Document AI Failed:", error.message);
+        // Log the complete error response if available.
+        if (error.response && error.response.data) {
+            console.error("[ERROR] Document AI Failed:", JSON.stringify(error.response.data, null, 2));
+        } else {
+            console.error("[ERROR] Document AI Failed:", error.message);
+        }
         return null;
     }
 }
