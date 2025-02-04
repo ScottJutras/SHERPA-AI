@@ -11,11 +11,17 @@ const googleCredentials = JSON.parse(
 );
 
 /**
- * Returns an authenticated Document AI client.
+ * Returns an authenticated Document AI client using the proper regional endpoint.
  */
 function getDocumentAIClient() {
+  // Use the environment variable for location or default to 'us'
+  const location = process.env.GCP_LOCATION || 'us';
+  // Construct the endpoint. For example, for 'us' it becomes 'us-documentai.googleapis.com'
+  const apiEndpoint = `${location}-documentai.googleapis.com`;
+  
   return new DocumentProcessorServiceClient({
     credentials: googleCredentials,
+    apiEndpoint, // Use the regional endpoint for Document AI.
   });
 }
 
@@ -26,10 +32,10 @@ function getDocumentAIClient() {
  * @returns {Promise<string>} The OCR text extracted by Document AI.
  */
 async function processDocumentAI(imageContent) {
-  // Replace these with your actual project, location, and processor ID.
-  const projectId = process.env.GCP_PROJECT_ID; 
-  const location = 'us'; // Or your processor's location.
-  const processorId = process.env.DOCUMENTAI_PROCESSOR_ID; 
+  const projectId = process.env.GCP_PROJECT_ID;
+  // Use location from env or default to 'us'
+  const location = process.env.GCP_LOCATION || 'us';
+  const processorId = process.env.DOCUMENTAI_PROCESSOR_ID;
 
   // Construct the full resource name.
   const name = `projects/${projectId}/locations/${location}/processors/${processorId}`;
