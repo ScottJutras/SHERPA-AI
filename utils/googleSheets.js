@@ -123,8 +123,8 @@ async function getOrCreateUserSpreadsheet(phoneNumber) {
         const doc = new GoogleSpreadsheet(spreadsheetId);
         // Authenticate using an object with client_email and private_key.
         await doc.useServiceAccountAuth({
-          client_email: googleCredentials.client_email,
-          private_key: googleCredentials.private_key.replace(/\\n/g, '\n'),
+            client_email: googleCredentials.client_email,
+            private_key: googleCredentials.private_key.replace(/\\n/g, '\n'),
         });
         await doc.loadInfo();
         return doc;
@@ -133,6 +133,7 @@ async function getOrCreateUserSpreadsheet(phoneNumber) {
         throw error;
     }
 }
+
 // ─── SPREADSHEET OPERATIONS ───────────────────────────────────────────────────
 /**
  * Append an expense entry to the user's spreadsheet.
