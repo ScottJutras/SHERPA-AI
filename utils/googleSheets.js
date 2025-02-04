@@ -108,32 +108,31 @@ async function createSpreadsheetForUser(phoneNumber) {
  */
 async function getOrCreateUserSpreadsheet(phoneNumber) {
     try {
-        const userDoc = db.collection('users').doc(phoneNumber);
-        const userSnapshot = await userDoc.get();
-        let spreadsheetId;
-        if (userSnapshot.exists && userSnapshot.data().spreadsheetId) {
-            spreadsheetId = userSnapshot.data().spreadsheetId;
-        } else {
-            console.log(`[DEBUG] No spreadsheet found for user (${phoneNumber}). Creating a new one.`);
-            spreadsheetId = await createSpreadsheetForUser(phoneNumber);
-            await userDoc.set({ spreadsheetId }, { merge: true });
-            console.log(`[✅ SUCCESS] Spreadsheet created and saved to Firebase for user (${phoneNumber}): ${spreadsheetId}`);
-        }
-        // Open the spreadsheet using the google-spreadsheet library.
-        const doc = new GoogleSpreadsheet(spreadsheetId);
-        // Authenticate using an object with client_email and private_key.
-        await doc.useServiceAccountAuthRaw({
-            client_email: googleCredentials.client_email,
-            private_key: googleCredentials.private_key.replace(/\\n/g, '\n'),
-        });
-        await doc.loadInfo();
-        return doc;
+      const userDoc = db.collection('users').doc(phoneNumber);
+      const userSnapshot = await userDoc.get();
+      let spreadsheetId;
+      if (userSnapshot.exists && userSnapshot.data().spreadsheetId) {
+        spreadsheetId = userSnapshot.data().spreadsheetId;
+      } else {
+        console.log(`[DEBUG] No spreadsheet found for user (${phoneNumber}). Creating a new one.`);
+        spreadsheetId = await createSpreadsheetForUser(phoneNumber);
+        await userDoc.set({ spreadsheetId }, { merge: true });
+        console.log(`[✅ SUCCESS] Spreadsheet created and saved to Firebase for user (${phoneNumber}): ${spreadsheetId}`);
+      }
+      // Open the spreadsheet using the google-spreadsheet library.
+      const doc = new GoogleSpreadsheet(spreadsheetId);
+      // Instead of using useServiceAccountAuth, set the auth object directly:
+      doc.auth = {
+        client_email: googleCredentials.client_email,
+        private_key: googleCredentials.private_key.replace(/\\n/g, '\n'),
+      };
+      await doc.loadInfo();
+      return doc;
     } catch (error) {
-        console.error(`[❌ ERROR] Failed to retrieve or create spreadsheet for user (${phoneNumber}):`, error.message);
-        throw error;
+      console.error(`[❌ ERROR] Failed to retrieve or create spreadsheet for user (${phoneNumber}):`, error.message);
+      throw error;
     }
-}
-
+  }  
 // ─── SPREADSHEET OPERATIONS ───────────────────────────────────────────────────
 /**
  * Append an expense entry to the user's spreadsheet.
