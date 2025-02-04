@@ -260,10 +260,10 @@ function parseReceiptText(text) {
 
         // ✅ Extract Store Name (First meaningful text line)
         let store = lines.find(line => /^[A-Za-z\s&-]+$/.test(line) &&
-            !/survey|contest|gift|rules|invoice|transaction|total|receipt|cash|approval|tax/i.test(line));
+            !/survey|contest|gift|rules|invoice|transaction|total|receipt|cash|approval|tax|change/i.test(line));
 
         if (!store) {
-            store = "Unknown Store";
+            store = lines[0] || "Unknown Store"; // Fallback to the first line
         }
 
         // ✅ Extract Date (MM/DD/YY, MM/DD/YYYY, or YYYY-MM-DD)
@@ -303,8 +303,8 @@ async function logReceiptExpense(phoneNumber, extractedText) {
     // ✅ Check for missing required fields
     let missingFields = [];
     if (!parsedData.date) missingFields.push("Date");
-    if (!parsedData.amount) missingFields.push("Amount");
-    if (!parsedData.store) missingFields.push("Store");
+    if (!parsedData.amount || parsedData.amount === "Unknown Amount") missingFields.push("Amount");
+    if (!parsedData.store || parsedData.store === "Unknown Store") missingFields.push("Store");
 
     if (missingFields.length > 0) {
         console.error(`[ERROR] Missing required fields: ${missingFields.join(", ")}`, parsedData);
