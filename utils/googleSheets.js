@@ -254,70 +254,55 @@ function calculateExpenseAnalytics(expenseData) {
 // Improved parseReceiptText function
 function parseReceiptText(text) {
     try {
-      console.log("[DEBUG] Raw OCR Text:", text);
-  
-      // Split into lines, trim, and drop empty lines
-      const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-  
-      // Remove lines that are likely to be marketing or survey fluff
-      const filteredLines = lines.filter(line =>
-        !/(survey|contest|win|gift|rules|terms|conditions|receipt|card|cash|change|approval)/i.test(line)
-      );
-  
-      // 1. Extract Store Name  
-      // Use the first meaningful line from the filtered set.
-      // (Allow numbers too – many stores include a number.)
-      let store = filteredLines[0] || "Unknown Store";
-      // Optionally, if the store name looks “off,” fall back to the very first line.
-      if (!/^[A-Za-z0-9\s&-]+$/.test(store)) {
-        store = lines[0] || "Unknown Store";
-      }
-  
-      // 2. Extract Date  
-      // Try first for MM/DD/YYYY, then MM/DD/YY.
-      let dateMatch = text.match(/(\d{2}\/\d{2}\/\d{4})/);
-      if (!dateMatch) {
-        dateMatch = text.match(/(\d{2}\/\d{2}\/\d{2})/);
-      }
-      // If nothing is found, default to today’s date.
-      let date = dateMatch ? dateMatch[0] : new Date().toISOString().split('T')[0];
-  
-      // 3. Extract Amount  
-      // First, look for a line containing the word "total"
-      let amount;
-      for (let i = 0; i < lines.length; i++) {
-        if (/total/i.test(lines[i])) {
-          const amtMatch = lines[i].match(/\$?(\d{1,6}\.\d{2})/);
-          if (amtMatch) {
-            amount = `$${amtMatch[1]}`;
-            break;
-          }
+        console.log("[DEBUG] Raw OCR Text:", text);
+
+        // Remove extra spaces & split into lines
+        const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+
+        // 🔍 1. Store Name (Take first meaningful line)
+        let store = lines.find(line => /^[A-Za-z0-9\s&-]+$/.test(line) && !/survey|contest|gift|rules|terms|conditions|receipt|transaction/i.test(line));
+        if (!store) {
+            store = lines[0] || "Unknown Store";  // Fallback
         }
-      }
-      // Fallback: get the last matched amount in the entire text.
-      if (!amount) {
-        const amountMatches = text.match(/\$?(\d{1,6}\.\d{2})/gi);
-        if (amountMatches && amountMatches.length > 0) {
-          // Ensure we have a consistent format (strip any duplicate '$')
-          amount = `$${amountMatches[amountMatches.length - 1].replace('$','')}`;
-        } else {
-          amount = "Unknown Amount";
+
+        // 🔍 2. Date Extraction (Look for MM/DD/YYYY or similar)
+        let dateMatch = text.match(/(\d{2}\/\d{2}\/\d{4}|\d{2}\/\d{2}\/\d{2}|\d{4}-\d{2}-\d{2})/);
+        let date = dateMatch ? dateMatch[1] : new Date().toISOString().split('T')[0];
+
+        // 🔍 3. Amount Extraction (Look for "TOTAL" first)
+        let amount;
+        for (let i = 0; i < lines.length; i++) {
+            if (/total/i.test(lines[i])) {
+                const amtMatch = lines[i].match(/\$?(\d{1,6}\.\d{2})/);
+                if (amtMatch) {
+                    amount = `$${amtMatch[1]}`;
+                    break;
+                }
+            }
         }
-      }
-  
-      // 4. Extract Item Description  
-      // As receipts vary a lot, you can choose to take the second meaningful line,
-      // or just use a default description.
-      let item = filteredLines[1] || "Miscellaneous";
-  
-      console.log(`[DEBUG] Parsed Receipt - Store: ${store}, Date: ${date}, Item: ${item}, Amount: ${amount}`);
-      return { date, item, amount, store };
+        if (!amount) {
+            const amountMatches = text.match(/\$?(\d{1,6}\.\d{2})/gi);
+            if (amountMatches) {
+                amount = `$${amountMatches[amountMatches.length - 1].replace('$', '')}`;
+            } else {
+                amount = "Unknown Amount";
+            }
+        }
+
+        // 🔍 4. Item Extraction (Take the second meaningful line)
+        let item = lines.find(line => /\d+\s*(L|EA|KG|X|x|@|\$)/.test(line));
+        if (!item) {
+            item = lines.find(line => /[a-zA-Z]{3,}/.test(line) && !/store|total|receipt|cash|change|approval|tax/i.test(line)) || "Miscellaneous Purchase";
+        }
+
+        console.log(`[DEBUG] Parsed - Store: ${store}, Date: ${date}, Item: ${item}, Amount: ${amount}`);
+        return { date, item, amount, store };
+
     } catch (error) {
-      console.error("[ERROR] Failed to parse receipt text:", error.message);
-      return null;
+        console.error("[ERROR] Parsing failed:", error.message);
+        return null;
     }
-  }
-  
+}
   // Improved logReceiptExpense function (includes active job)
   async function logReceiptExpense(phoneNumber, extractedText) {
     console.log("[DEBUG] Logging receipt expense...");
