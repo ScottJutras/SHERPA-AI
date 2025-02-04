@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 // documentAI.js
 
 // Import the Document AI client library.
