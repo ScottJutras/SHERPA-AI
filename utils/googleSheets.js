@@ -122,7 +122,7 @@ async function getOrCreateUserSpreadsheet(phoneNumber) {
         // Open the spreadsheet using the google-spreadsheet library.
         const doc = new GoogleSpreadsheet(spreadsheetId);
         // Authenticate using an object with client_email and private_key.
-        await doc.useServiceAccountAuth({
+        await doc.useServiceAccountAuthRaw({
             client_email: googleCredentials.client_email,
             private_key: googleCredentials.private_key.replace(/\\n/g, '\n'),
         });
