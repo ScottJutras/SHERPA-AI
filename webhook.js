@@ -57,6 +57,50 @@ async function getJobExpenseSummary(from, jobName) {
         console.error('[ERROR] Failed to fetch job expense summary:', error.message);
         return `⚠️ Unable to generate expense summary for ${jobName}. Please try again later.`;
     }
+    function calculateExpenseAnalytics(expenseData) {
+    if (!expenseData || expenseData.length === 0) {
+        return null;
+    }
+
+    let totalSpent = 0;
+    let storeCount = {};
+    let itemCount = {};
+    let biggestPurchase = { item: null, amount: 0 };
+
+    for (const expense of expenseData) {
+        totalSpent += expense.amount;
+
+        // Track store frequency
+        if (storeCount[expense.store]) {
+            storeCount[expense.store]++;
+        } else {
+            storeCount[expense.store] = 1;
+        }
+
+        // Track item frequency
+        if (itemCount[expense.item]) {
+            itemCount[expense.item]++;
+        } else {
+            itemCount[expense.item] = 1;
+        }
+
+        // Find the biggest purchase
+        if (expense.amount > biggestPurchase.amount) {
+            biggestPurchase = { item: expense.item, amount: expense.amount };
+        }
+    }
+
+    // Find most frequent store & item
+    let topStore = Object.keys(storeCount).reduce((a, b) => (storeCount[a] > storeCount[b] ? a : b));
+    let mostFrequentItem = Object.keys(itemCount).reduce((a, b) => (itemCount[a] > itemCount[b] ? a : b));
+
+    return {
+        totalSpent: `$${totalSpent.toFixed(2)}`,
+        topStore,
+        biggestPurchase: `${biggestPurchase.item} for $${biggestPurchase.amount.toFixed(2)}`,
+        mostFrequentItem
+    };
+}
 }
 
 // ✅ Function to handle setting a new job

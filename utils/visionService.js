@@ -35,10 +35,12 @@ async function extractTextFromImage(imageSource) {
             // Authenticate with Twilio (use Twilio credentials)
             const response = await axios.get(imageSource, {
                 responseType: 'arraybuffer',
-                headers: {
-                    'Authorization': 'Basic ' + Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')
+                auth: {
+                    username: process.env.TWILIO_ACCOUNT_SID,
+                    password: process.env.TWILIO_AUTH_TOKEN
                 }
             });
+            
 
             console.log("[DEBUG] Image downloaded successfully. Sending to Google Vision...");
             request.image = { content: Buffer.from(response.data).toString('base64') };
