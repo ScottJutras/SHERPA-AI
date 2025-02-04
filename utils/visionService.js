@@ -1,73 +1,75 @@
-const vision = require('@google-cloud/vision');
 const axios = require('axios');
 
-// ✅ Initialize Cloud Vision API client using Environment Variable
+// ✅ Document AI Configuration
+const PROJECT_ID = "YOUR_PROJECT_ID";  // Replace with your actual Google Cloud project ID
+const LOCATION = "us";  // Keep "us" unless your processor is in a different region
+const PROCESSOR_ID = "8fe848506d8e86c6";  // Your Document AI processor ID
+
+// ✅ Google Authentication
 const { GoogleAuth } = require('google-auth-library');
-
-if (process.env.GOOGLE_CREDENTIALS_BASE64) {
-    console.log("[DEBUG] Loading Google Vision credentials from environment variable.");
-    const googleCredentials = JSON.parse(
-        Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8')
-    );
-
-    var client = new vision.ImageAnnotatorClient({
-        credentials: googleCredentials
-    });
-} else {
-    throw new Error("[ERROR] GOOGLE_CREDENTIALS_BASE64 is missing. Cannot authenticate Google Vision API.");
+if (!process.env.GOOGLE_CREDENTIALS_BASE64) {
+    throw new Error("[ERROR] GOOGLE_CREDENTIALS_BASE64 is missing. Cannot authenticate Document AI.");
 }
+console.log("[DEBUG] Loading Google Document AI credentials from environment variable.");
+const googleCredentials = JSON.parse(
+    Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8')
+);
+const authClient = new GoogleAuth({ credentials: googleCredentials }).fromJSON(googleCredentials);
 
 /**
- * Extract text from an image using Google Cloud Vision API.
- * Supports URLs (downloads first), Buffers, and local paths.
+ * Process receipt image with Google Document AI (Receipts Processor).
  *
- * @param {string|Buffer} imageSource - Path, URL, or Buffer of an image.
- * @returns {Promise<string|null>} Extracted text or null if no text is found.
+ * @param {string} imageSource - URL of the receipt image.
+ * @returns {Promise<Object|null>} Parsed receipt data or null if failed.
  */
 async function extractTextFromImage(imageSource) {
     try {
-        let request = {};
+        console.log(`[DEBUG] Downloading image from: ${imageSource}`);
 
-        // ✅ If the image is a URL, download it first
-        if (typeof imageSource === 'string' && imageSource.startsWith('http')) {
-            console.log(`[DEBUG] Downloading image from: ${imageSource}`);
+        // Download the image using Twilio credentials
+        const response = await axios.get(imageSource, {
+            responseType: 'arraybuffer',
+            auth: {
+                username: process.env.TWILIO_ACCOUNT_SID,
+                password: process.env.TWILIO_AUTH_TOKEN
+            }
+        });
 
-            // Authenticate with Twilio (use Twilio credentials)
-            const response = await axios.get(imageSource, {
-                responseType: 'arraybuffer',
-                auth: {
-                    username: process.env.TWILIO_ACCOUNT_SID,
-                    password: process.env.TWILIO_AUTH_TOKEN
-                }
-            });
-            
+        console.log("[DEBUG] Image downloaded successfully. Sending to Google Document AI...");
 
-            console.log("[DEBUG] Image downloaded successfully. Sending to Google Vision...");
-            request.image = { content: Buffer.from(response.data).toString('base64') };
-        } else if (Buffer.isBuffer(imageSource)) {
-            request.image = { content: imageSource.toString('base64') };
-        } else {
-            request.image = { source: { filename: imageSource } };
-        }
+        const endpoint = `https://${LOCATION}-documentai.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/processors/${PROCESSOR_ID}:process`;
 
-        // Perform text detection
-        const [result] = await client.textDetection(request);
-        console.log("[DEBUG] Google Vision API Response:", JSON.stringify(result, null, 2));
+        const requestPayload = {
+            rawDocument: {
+                content: Buffer.from(response.data).toString('base64'),
+                mimeType: "image/jpeg"
+            }
+        };
 
-        const detections = result.textAnnotations;
+        const headers = {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${await authClient.getAccessToken()}`
+        };
 
-        if (!detections || detections.length === 0) {
-            console.log("[DEBUG] No text found in image.");
+        const { data } = await axios.post(endpoint, requestPayload, { headers });
+
+        console.log("[DEBUG] Document AI Response:", JSON.stringify(data, null, 2));
+
+        if (!data.document || !data.document.entities) {
+            console.log("[DEBUG] No structured data found in Document AI response.");
             return null;
         }
 
-        // Extracted text
-        const extractedText = detections[0].description.trim();
-        console.log(`[DEBUG] Extracted text:\n${extractedText}`);
+        let fields = data.document.entities;
+        let store = fields.find(f => f.type === "store_name")?.mentionText || "Unknown Store";
+        let date = fields.find(f => f.type === "date")?.mentionText || new Date().toISOString().split('T')[0];
+        let total = fields.find(f => f.type === "total_amount")?.mentionText || "Unknown Amount";
 
-        return extractedText;
+        console.log(`[DEBUG] Parsed Receipt - Store: ${store}, Date: ${date}, Amount: ${total}`);
+        return { store, date, amount: total };
+
     } catch (error) {
-        console.error("[ERROR] Failed to process image:", error.message);
+        console.error("[ERROR] Document AI Failed:", error.message);
         return null;
     }
 }

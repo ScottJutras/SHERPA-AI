@@ -114,7 +114,7 @@ async function handleStartJob(from, body) {
     return `✅ Job '${jobName}' is now active. All expenses will be assigned to this job.`;
 }
 
-// ✅ Function to handle receipt image processing
+// ✅ Function to handle receipt image processing (Now Uses Document AI)
 async function handleReceiptImage(from, mediaUrl) {
     try {
         console.log(`[DEBUG] Processing receipt image from ${from}: ${mediaUrl}`);
@@ -123,37 +123,28 @@ async function handleReceiptImage(from, mediaUrl) {
             throw new Error("Media URL is missing or invalid.");
         }
 
-        // Extract text from the image
-        const extractedText = await extractTextFromImage(mediaUrl);
+        // Extract structured receipt data using Document AI
+        const parsedReceipt = await extractTextFromImage(mediaUrl);
 
-        if (!extractedText) {
-            throw new Error("No text extracted from image.");
+        if (!parsedReceipt) {
+            throw new Error("Failed to parse receipt data.");
         }
 
-        console.log(`[DEBUG] Extracted text: ${extractedText}`);
-
-        // Parse receipt text
-        const expenseData = parseExpenseMessage(extractedText);
-        if (!expenseData) {
-            throw new Error("Failed to parse extracted text into expense data.");
-        }
-
-        console.log(`[DEBUG] Parsed Expense Data:`, expenseData);
+        console.log(`[DEBUG] Parsed Receipt Data:`, parsedReceipt);
         const activeJob = await getActiveJob(from) || "Uncategorized";
 
         // Append data to Google Sheets
         await appendToUserSpreadsheet(
             from,
-            [expenseData.date, expenseData.item, expenseData.amount, expenseData.store, activeJob]
+            [parsedReceipt.date, "Miscellaneous", parsedReceipt.amount, parsedReceipt.store, activeJob]
         );
 
-        return `✅ Expense logged under '${activeJob}': ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
+        return `✅ Expense logged under '${activeJob}': ${parsedReceipt.amount} at ${parsedReceipt.store} on ${parsedReceipt.date}`;
     } catch (error) {
         console.error("[ERROR] Failed to process receipt image:", error.message);
         return "❌ Failed to process the receipt image. Please try again later.";
     }
 }
-
 // ✅ Function to get response from ChatGPT
 async function getChatGPTResponse(prompt) {
     try {
