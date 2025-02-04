@@ -3,7 +3,8 @@ const { GoogleAuth } = require('google-auth-library');
 
 // ✅ Document AI Configuration
 const PROJECT_ID = process.env.GCP_PROJECT_ID;  // Your actual project ID
-const LOCATION = process.env.GCP_LOCATION || "us";  // Defaults to 'us'
+// Force the location to lowercase; defaults to "us" if not provided.
+const LOCATION = (process.env.GCP_LOCATION || "us").toLowerCase();  
 const PROCESSOR_ID = process.env.DOCUMENTAI_PROCESSOR_ID;  // Your Document AI processor ID
 
 // ✅ Google Authentication
@@ -42,7 +43,7 @@ async function extractTextFromImage(imageSource) {
 
         console.log("[DEBUG] Image downloaded successfully. Sending to Google Document AI...");
 
-        // Construct the Document AI endpoint dynamically.
+        // Construct the Document AI endpoint dynamically using the lowercase LOCATION.
         const endpoint = `https://${LOCATION}-documentai.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/processors/${PROCESSOR_ID}:process`;
 
         const requestPayload = {
