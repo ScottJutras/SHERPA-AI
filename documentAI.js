@@ -11,17 +11,19 @@ const googleCredentials = JSON.parse(
 );
 
 /**
- * Returns an authenticated Document AI client using the proper regional endpoint.
+ * Returns an authenticated Document AI client using the proper regional endpoint
+ * and explicitly including the cloud-platform scope.
  */
 function getDocumentAIClient() {
   // Use the environment variable for location or default to 'us'
   const location = process.env.GCP_LOCATION || 'us';
   // Construct the endpoint. For example, for 'us' it becomes 'us-documentai.googleapis.com'
   const apiEndpoint = `${location}-documentai.googleapis.com`;
-  
+
   return new DocumentProcessorServiceClient({
     credentials: googleCredentials,
     apiEndpoint, // Use the regional endpoint for Document AI.
+    scopes: ['https://www.googleapis.com/auth/cloud-platform'], // Explicitly include the required scope.
   });
 }
 
