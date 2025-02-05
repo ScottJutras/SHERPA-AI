@@ -53,8 +53,9 @@ async function convertOggToFlac(audioBuffer) {
 
         ffmpeg()
             .input(inputStream)
-            .toFormat('flac')
-            .pipe(outputStream);
+            .audioCodec('flac')
+            .format('flac') // ✅ Ensuring FLAC output format
+            .pipe(outputStream, { end: true }); // ✅ Fix: Allow correct stream ending
     });
 }
 
