@@ -2,9 +2,23 @@
 
 const speech = require('@google-cloud/speech');
 const ffmpeg = require('fluent-ffmpeg');
-const { Readable } = require('stream');
+const { Readable, PassThrough } = require('stream'); // ✅ Added PassThrough
 const client = new speech.SpeechClient();
 const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
+const fs = require('fs');
+
+const speechBase64 = process.env.GOOGLE_SPEECH_CREDENTIALS_BASE64;
+if (!speechBase64) {
+    throw new Error("[ERROR] Missing GOOGLE_SPEECH_CREDENTIALS_BASE64 in environment variables.");
+}
+
+// ✅ Decode Base64 and write to a temporary file
+const speechCredentialsPath = "/tmp/google-speech-key.json";
+fs.writeFileSync(speechCredentialsPath, Buffer.from(speechBase64, 'base64'));
+
+// ✅ Set GOOGLE_APPLICATION_CREDENTIALS dynamically for Speech-to-Text API
+process.env.GOOGLE_APPLICATION_CREDENTIALS = speechCredentialsPath;
+console.log("[DEBUG] Google Speech-to-Text Application Credentials set successfully.");
 
 // Tell fluent-ffmpeg where to find ffmpeg binary
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
@@ -20,23 +34,27 @@ async function convertOggToFlac(audioBuffer) {
         inputStream.push(audioBuffer);
         inputStream.push(null);
 
+        const outputStream = new PassThrough(); // ✅ Fix: Use PassThrough Stream
         let outputBuffer = Buffer.alloc(0);
-        const ffmpegProcess = ffmpeg()
+
+        outputStream.on('data', (chunk) => {
+            outputBuffer = Buffer.concat([outputBuffer, chunk]);
+        });
+
+        outputStream.on('finish', () => {
+            console.log('[DEBUG] Audio conversion to FLAC complete.');
+            resolve(outputBuffer);
+        });
+
+        outputStream.on('error', (err) => {
+            console.error('[ERROR] Audio conversion failed:', err);
+            reject(err);
+        });
+
+        ffmpeg()
             .input(inputStream)
             .toFormat('flac')
-            .on('data', (chunk) => {
-                outputBuffer = Buffer.concat([outputBuffer, chunk]);
-            })
-            .on('end', () => {
-                console.log('[DEBUG] Audio conversion to FLAC complete.');
-                resolve(outputBuffer);
-            })
-            .on('error', (err) => {
-                console.error('[ERROR] Audio conversion failed:', err);
-                reject(err);
-            });
-
-        ffmpegProcess.pipe();
+            .pipe(outputStream);
     });
 }
 
