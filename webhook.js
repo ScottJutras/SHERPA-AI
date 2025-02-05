@@ -21,6 +21,122 @@ const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
+const onboardingSteps = [
+    "Which country are you in? (Canada/USA)",
+    "Which province or state are you in?",
+    "What industry do you work in? (Construction, Real Estate, Retail, Freelancer, Other)",
+    "Do you want to track personal expenses too? (Yes/No)",
+    "Do you want to track mileage or home office deductions? (Yes/No)",
+    "Do you want to track home office deductions? (Yes/No)"
+];
+
+const userOnboardingState = {};
+
+app.post('/webhook', async (req, res) => {
+    const from = req.body.From;
+    const body = req.body.Body?.trim();
+    const mediaUrl = req.body.MediaUrl0;
+    const mediaType = req.body.MediaContentType0;
+
+    if (!from) {
+        return res.status(400).send("Bad Request: Missing 'From'.");
+    }
+
+    let userProfile;
+    try {
+        userProfile = await getUserProfile(from);
+    } catch (error) {
+        console.error("[ERROR] Failed to fetch user profile:", error);
+        return res.send(`<Response><Message>⚠️ Sorry, something went wrong. Please try again.</Message></Response>`);
+    }
+
+    // ✅ Onboarding Flow
+    if (!userProfile) {
+        if (!userOnboardingState[from]) {
+            userOnboardingState[from] = { step: 0, responses: {} };
+        }
+        const state = userOnboardingState[from];
+        
+        if (state.step < onboardingSteps.length) {
+            state.responses[`step_${state.step}`] = body;
+            const nextStep = state.step + 1;
+
+            if (nextStep < onboardingSteps.length) {
+                state.step++;
+                return res.send(`<Response><Message>${onboardingSteps[nextStep]}</Message></Response>`);
+            } else {
+// ✅ Save completed onboarding profile
+        userProfile = {
+            user_id: from,
+            country: state.responses.step_0,
+            province: state.responses.step_1,
+            industry: state.responses.step_2,
+            personal_expenses_enabled: state.responses.step_3.toLowerCase() === "yes",
+            track_mileage: state.responses.step_4.toLowerCase() === "yes",
+            track_home_office: state.responses.step_4.toLowerCase() === "yes",
+            created_at: new Date().toISOString()
+        };
+
+        await saveUserProfile(userProfile);
+        delete userOnboardingState[from];
+        return res.send(`<Response><Message>✅ Onboarding complete! You can now start logging expenses.</Message></Response>`);
+    }
+}
+}
+    let reply;
+    try {
+        if (mediaUrl && mediaType?.includes("audio")) {
+             // 🎤 Voice Note Handling
+            const audioResponse = await axios.get(mediaUrl, { responseType: 'arraybuffer' });
+            const audioBuffer = Buffer.from(audioResponse.data, 'binary');
+            const transcription = await transcribeAudio(audioBuffer);
+            reply = transcription ? `🎤 Transcription: "${transcription}"` : "⚠️ Sorry, I couldn't understand the voice note.";
+        } else if (mediaUrl && mediaType?.includes("image")) {
+             // 🧾 Receipt Image Handling
+             reply = await handleReceiptImage(from, mediaUrl);
+            } else if (body.toLowerCase().startsWith("start job ")) {
+             // 🏗️ Job Tracking Feature 
+             const jobName = body.slice(10).trim();
+            await setActiveJob(from, jobName);
+            reply = `✅ Job '${jobName}' is now active. All expenses will be assigned to this job.`;
+        } else if (body.toLowerCase().startsWith("expense summary")) {
+            // 📊 Fetch Expense Analytics  
+            const activeJob = await getActiveJob(from) || "Uncategorized";
+            const expenseData = await fetchExpenseData(from, activeJob);
+            const analytics = calculateExpenseAnalytics(expenseData);
+            
+                reply = `
+📊 *Expense Summary for ${activeJob}* 📊
+💰 Total Spent: ${analytics.totalSpent}
+🏪 Top Store: ${analytics.topStore}
+📌 Biggest Purchase: ${analytics.biggestPurchase}
+🔄 Most Frequent Expense: ${analytics.mostFrequentItem}
+            `;
+            } else {
+                            // 💬 Expense Logging via Text Message
+            const activeJob = await getActiveJob(from) || "Uncategorized";
+            const expenseData = parseExpenseMessage(body);
+            if (expenseData) {
+                await appendToUserSpreadsheet(from, [
+                    expenseData.date,
+                    expenseData.item,
+                    expenseData.amount,
+                    expenseData.store,
+                    activeJob
+                ]);
+                reply = `✅ Expense logged: ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
+            } else {
+                reply = "⚠️ Could not understand your request. Please provide a valid expense message.";
+            }
+        }
+    } catch (error) {
+        console.error("[ERROR]", error);
+        reply = "⚠️ Sorry, something went wrong. Please try again later.";
+    }
+
+    res.send(`<Response><Message>${reply}</Message></Response>`);
+});
+
 // ✅ Debugging: Log Environment Variables
 console.log("[DEBUG] Checking environment variables...");
 console.log("[DEBUG] GOOGLE_CREDENTIALS_BASE64:", process.env.GOOGLE_CREDENTIALS_BASE64 ? "Loaded" : "Missing");
