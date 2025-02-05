@@ -1,5 +1,11 @@
 {
   "version": 2,
+  "builds": [
+    {
+      "src": "webhook.js",
+      "use": "@vercel/node"
+    }
+  ],
   "routes": [
     {
       "src": "/webhook",
@@ -9,10 +15,5 @@
       "src": "/",
       "dest": "webhook.js"
     }
-  ],
-  "functions": {
-    "webhook.js": {
-      "maxDuration": 60
-    }
-  }
+  ]
 }
