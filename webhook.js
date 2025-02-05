@@ -14,6 +14,8 @@ const {
 } = require('./utils/googleSheets');
 const { extractTextFromImage, handleReceiptImage } = require('./utils/visionService');
 const { transcribeAudio } = require('./utils/transcriptionService'); // New function
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -24,6 +26,21 @@ console.log("[DEBUG] Checking environment variables...");
 console.log("[DEBUG] GOOGLE_CREDENTIALS_BASE64:", process.env.GOOGLE_CREDENTIALS_BASE64 ? "Loaded" : "Missing");
 console.log("[DEBUG] FIREBASE_CREDENTIALS_BASE64:", process.env.FIREBASE_CREDENTIALS_BASE64 ? "Loaded" : "Missing");
 console.log("[DEBUG] OPENAI_API_KEY:", process.env.OPENAI_API_KEY ? "Loaded" : "Missing");
+
+// ✅ Load Google Vision Credentials from ENV
+const googleVisionBase64 = process.env.GOOGLE_VISION_CREDENTIALS_BASE64;
+
+if (!googleVisionBase64) {
+    throw new Error("[ERROR] Missing GOOGLE_VISION_CREDENTIALS_BASE64 in environment variables.");
+}
+
+// ✅ Decode Base64 and write it to a temporary file in /tmp (since /var/task is read-only in Vercel)
+const visionCredentialsPath = "/tmp/google-vision-key.json";
+fs.writeFileSync(visionCredentialsPath, Buffer.from(googleVisionBase64, 'base64'));
+
+// ✅ Set GOOGLE_APPLICATION_CREDENTIALS dynamically for Vision API
+process.env.GOOGLE_APPLICATION_CREDENTIALS = visionCredentialsPath;
+console.log("[DEBUG] Google Vision Application Credentials set successfully.");
 
 // ✅ Initialize OpenAI
 const openai = new OpenAI({

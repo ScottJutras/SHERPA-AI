@@ -15,5 +15,11 @@
       "src": "/",
       "dest": "webhook.js"
     }
-  ]
+  ],
+  "functions": {
+    "api/*": {
+      "maxDuration": 60
+    }
+  }
 }
+
