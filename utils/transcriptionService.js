@@ -1,52 +1,42 @@
-// transcriptionService.js - Google Cloud Speech-to-Text Integration
+// transcriptionService.js - Google Cloud Speech-to-Text Integration (Vercel-Compatible)
 
 const speech = require('@google-cloud/speech');
-const ffmpeg = require('fluent-ffmpeg'); // ✅ Audio conversion
-const fs = require('fs');
-const path = require('path');
+const ffmpeg = require('fluent-ffmpeg');
+const { Readable } = require('stream');
+const client = new speech.SpeechClient();
 const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
 
-// ✅ Tell fluent-ffmpeg where to find ffmpeg binary
+// Tell fluent-ffmpeg where to find ffmpeg binary
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
 /**
- * Converts OGG_OPUS audio to FLAC format for Google Speech-to-Text
+ * Converts OGG_OPUS audio to FLAC **in memory** (No File System)
  * @param {Buffer} audioBuffer - OGG_OPUS audio buffer
  * @returns {Promise<Buffer>} - FLAC audio buffer
  */
 async function convertOggToFlac(audioBuffer) {
     return new Promise((resolve, reject) => {
-        const tempInput = path.join(__dirname, 'temp_input.ogg');
-        const tempOutput = path.join(__dirname, 'temp_output.flac');
+        const inputStream = new Readable();
+        inputStream.push(audioBuffer);
+        inputStream.push(null);
 
-        // Write the OGG audio to a temporary file
-        fs.writeFileSync(tempInput, audioBuffer);
-
-        ffmpeg(tempInput)
-            .output(tempOutput)
-            .toFormat('flac') // ✅ Convert to FLAC for Google STT
+        let outputBuffer = Buffer.alloc(0);
+        const ffmpegProcess = ffmpeg()
+            .input(inputStream)
+            .toFormat('flac')
+            .on('data', (chunk) => {
+                outputBuffer = Buffer.concat([outputBuffer, chunk]);
+            })
             .on('end', () => {
                 console.log('[DEBUG] Audio conversion to FLAC complete.');
-                
-                try {
-                    // ✅ Read file **before deleting**
-                    const convertedAudio = fs.readFileSync(tempOutput);
-                    
-                    // ✅ Cleanup temp files
-                    fs.unlinkSync(tempInput);
-                    fs.unlinkSync(tempOutput);
-                    
-                    resolve(convertedAudio);
-                } catch (err) {
-                    console.error('[ERROR] Failed to read converted audio:', err);
-                    reject(err);
-                }
+                resolve(outputBuffer);
             })
             .on('error', (err) => {
                 console.error('[ERROR] Audio conversion failed:', err);
                 reject(err);
-            })
-            .run();
+            });
+
+        ffmpegProcess.pipe();
     });
 }
 
