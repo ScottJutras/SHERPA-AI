@@ -2,9 +2,12 @@
 
 const speech = require('@google-cloud/speech');
 const ffmpeg = require('fluent-ffmpeg'); // ✅ Audio conversion
-const client = new speech.SpeechClient();
 const fs = require('fs');
 const path = require('path');
+const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
+
+// ✅ Tell fluent-ffmpeg where to find ffmpeg binary
+ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
 /**
  * Converts OGG_OPUS audio to FLAC format for Google Speech-to-Text
@@ -25,17 +28,19 @@ async function convertOggToFlac(audioBuffer) {
             .on('end', () => {
                 console.log('[DEBUG] Audio conversion to FLAC complete.');
                 
-                // ✅ Ensure file is read before deleting
-                fs.readFile(tempOutput, (err, data) => {
-                    if (err) {
-                        console.error('[ERROR] Failed to read converted audio:', err);
-                        reject(err);
-                    } else {
-                        fs.unlinkSync(tempInput); // Cleanup
-                        fs.unlinkSync(tempOutput);
-                        resolve(data);
-                    }
-                });
+                try {
+                    // ✅ Read file **before deleting**
+                    const convertedAudio = fs.readFileSync(tempOutput);
+                    
+                    // ✅ Cleanup temp files
+                    fs.unlinkSync(tempInput);
+                    fs.unlinkSync(tempOutput);
+                    
+                    resolve(convertedAudio);
+                } catch (err) {
+                    console.error('[ERROR] Failed to read converted audio:', err);
+                    reject(err);
+                }
             })
             .on('error', (err) => {
                 console.error('[ERROR] Audio conversion failed:', err);
