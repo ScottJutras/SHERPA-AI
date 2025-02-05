@@ -93,30 +93,19 @@ app.post('/webhook', async (req, res) => {
     console.log(`[DEBUG] Incoming message from ${from}: "${body || "(Media received)"}"`);
 
     let reply;
-
+    
     try {
         if (mediaUrl && mediaType?.includes("audio")) {
             // 🎤 Voice note received - process transcription
-            console.log(`[DEBUG] Processing audio message from ${from}`);
-
-            // ✅ Twilio Credentials (Ensure they are stored in environment variables)
-            const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
-            const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
-
-            if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
-                console.error("[ERROR] Twilio credentials are missing. Check environment variables.");
-                return res.status(500).send("Server Error: Twilio credentials not found.");
-            }
-
             try {
                 console.log(`[DEBUG] Downloading audio file from ${mediaUrl}`);
 
-                // ✅ Fetch the audio file with Twilio authentication
+                // ✅ Twilio authentication for fetching audio
                 const audioResponse = await axios.get(mediaUrl, {
                     responseType: 'arraybuffer',
                     auth: {
-                        username: TWILIO_ACCOUNT_SID,
-                        password: TWILIO_AUTH_TOKEN
+                        username: process.env.TWILIO_ACCOUNT_SID,
+                        password: process.env.TWILIO_AUTH_TOKEN
                     }
                 });
 
@@ -125,24 +114,47 @@ app.post('/webhook', async (req, res) => {
 
                 // ✅ Transcribe the voice note
                 const transcription = await transcribeAudio(audioBuffer);
-                reply = transcription 
-                    ? `🎤 Transcription: "${transcription}"`
-                    : "⚠️ Sorry, I couldn't understand the voice note.";
 
+                if (transcription) {
+                    console.log(`[DEBUG] Transcription successful: "${transcription}"`);
+
+                    // ✅ Check if transcription contains "start job [job name]"
+                    const jobMatch = transcription.match(/start job (.+)/i);
+
+                    if (jobMatch) {
+                        // ✅ Start a new job if detected
+                        const newJob = jobMatch[1].trim();
+                        await setActiveJob(from, newJob);
+
+                        reply = `✅ New job '${newJob}' started. You can now log expenses under this job.`;
+                    } else {
+                        // ✅ Log transcription as an expense under active job
+                        const activeJob = await getActiveJob(from) || "Uncategorized";
+
+                        await appendToUserSpreadsheet(
+                            from,
+                            [new Date().toISOString(), "Voice Note", transcription, "N/A", activeJob]
+                        );
+
+                        reply = `✅ Transcription logged under '${activeJob}': "${transcription}"`;
+                    }
+                } else {
+                    reply = "⚠️ Sorry, I couldn't understand the voice note.";
+                }
             } catch (error) {
-                console.error(`[ERROR] Failed to fetch Twilio audio file:`, error.response?.data || error);
+                console.error(`[ERROR] Failed to process voice note:`, error);
                 reply = "⚠️ Failed to transcribe voice note. Please try again.";
             }
-
-        } else if (mediaUrl && mediaType?.includes("image")) {
+        } 
+        else if (mediaUrl && mediaType?.includes("image")) {
             // 🧾 Receipt image received - process image OCR
             reply = await handleReceiptImage(from, mediaUrl);
-
-        } else if (body.startsWith("start job ")) {
+        } 
+        else if (body.startsWith("start job ")) {
             // 🏗️ Handle job start request
             reply = await handleStartJob(from, body);
-
-        } else {
+        } 
+        else {
             // 💬 Normal text message (expense logging)
             try {
                 const activeJob = await getActiveJob(from) || "Uncategorized";
@@ -157,7 +169,6 @@ app.post('/webhook', async (req, res) => {
                 } else {
                     reply = "⚠️ Could not understand your request. Please provide a valid expense message.";
                 }
-
             } catch (error) {
                 console.error(`[ERROR] Failed to process text message:`, error);
                 reply = "⚠️ Something went wrong while processing your message.";
