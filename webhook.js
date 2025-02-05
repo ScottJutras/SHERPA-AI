@@ -76,41 +76,56 @@ app.post('/webhook', async (req, res) => {
     console.log(`[DEBUG] Incoming message from ${from}: "${body || "(Media received)"}"`);
 
     let reply;
-    
+
     try {
         if (mediaUrl && mediaType?.includes("audio")) {
             // 🎤 Voice note received - process transcription
+            console.log(`[DEBUG] Processing audio message from ${from}`);
+
+            // ✅ Twilio Credentials (Ensure they are stored in environment variables)
+            const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
+            const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
+
+            if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
+                console.error("[ERROR] Twilio credentials are missing. Check environment variables.");
+                return res.status(500).send("Server Error: Twilio credentials not found.");
+            }
+
             try {
                 console.log(`[DEBUG] Downloading audio file from ${mediaUrl}`);
 
-                // Fetch the audio file as a buffer
-                const audioResponse = await axios.get(mediaUrl, { responseType: 'arraybuffer' });
-                const audioBuffer = Buffer.from(audioResponse.data, 'binary');
+                // ✅ Fetch the audio file with Twilio authentication
+                const audioResponse = await axios.get(mediaUrl, {
+                    responseType: 'arraybuffer',
+                    auth: {
+                        username: TWILIO_ACCOUNT_SID,
+                        password: TWILIO_AUTH_TOKEN
+                    }
+                });
 
+                const audioBuffer = Buffer.from(audioResponse.data, 'binary');
                 console.log(`[DEBUG] Audio file downloaded, size: ${audioBuffer.length} bytes`);
 
-                // Transcribe the voice note
+                // ✅ Transcribe the voice note
                 const transcription = await transcribeAudio(audioBuffer);
+                reply = transcription 
+                    ? `🎤 Transcription: "${transcription}"`
+                    : "⚠️ Sorry, I couldn't understand the voice note.";
 
-                if (transcription) {
-                    reply = `🎤 Transcription: "${transcription}"`;
-                } else {
-                    reply = "⚠️ Sorry, I couldn't understand the voice note.";
-                }
             } catch (error) {
-                console.error(`[ERROR] Failed to process voice note:`, error);
+                console.error(`[ERROR] Failed to fetch Twilio audio file:`, error.response?.data || error);
                 reply = "⚠️ Failed to transcribe voice note. Please try again.";
             }
-        } 
-        else if (mediaUrl && mediaType?.includes("image")) {
+
+        } else if (mediaUrl && mediaType?.includes("image")) {
             // 🧾 Receipt image received - process image OCR
             reply = await handleReceiptImage(from, mediaUrl);
-        } 
-        else if (body.startsWith("start job ")) {
+
+        } else if (body.startsWith("start job ")) {
             // 🏗️ Handle job start request
             reply = await handleStartJob(from, body);
-        } 
-        else {
+
+        } else {
             // 💬 Normal text message (expense logging)
             try {
                 const activeJob = await getActiveJob(from) || "Uncategorized";
@@ -125,6 +140,7 @@ app.post('/webhook', async (req, res) => {
                 } else {
                     reply = "⚠️ Could not understand your request. Please provide a valid expense message.";
                 }
+
             } catch (error) {
                 console.error(`[ERROR] Failed to process text message:`, error);
                 reply = "⚠️ Something went wrong while processing your message.";
@@ -139,7 +155,6 @@ app.post('/webhook', async (req, res) => {
     res.send(`<Response><Message>${reply}</Message></Response>`);
     console.log(`[DEBUG] Reply sent: "${reply}"`);
 });
-
 // ✅ Function to handle setting a new job
 async function handleStartJob(from, body) {
     const jobMatch = body.match(/start job (.+)/i);
