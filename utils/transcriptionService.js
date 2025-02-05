@@ -9,9 +9,9 @@ const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
 ffmpeg.setFfmpegPath(ffmpegInstaller.path); // ✅ Ensure ffmpeg binary is found
 
 /**
- * Converts OGG_OPUS audio to FLAC **without temporary files**
+ * Converts OGG_OPUS audio to FLAC and extracts sample rate.
  * @param {Buffer} audioBuffer - OGG_OPUS audio buffer
- * @returns {Promise<Buffer>} - FLAC audio buffer
+ * @returns {Promise<{ flacBuffer: Buffer, sampleRate: number }>} - FLAC buffer and sample rate
  */
 async function convertOggToFlac(audioBuffer) {
     return new Promise((resolve, reject) => {
@@ -20,14 +20,15 @@ async function convertOggToFlac(audioBuffer) {
 
         const outputStream = new PassThrough();
         let outputBuffer = Buffer.alloc(0);
+        let detectedSampleRate = 48000; // Default to WhatsApp's sample rate
 
         outputStream.on('data', (chunk) => {
             outputBuffer = Buffer.concat([outputBuffer, chunk]);
         });
 
         outputStream.on('finish', () => {
-            console.log('[DEBUG] Audio conversion to FLAC complete.');
-            resolve(outputBuffer);
+            console.log(`[DEBUG] Audio conversion to FLAC complete. Detected sample rate: ${detectedSampleRate}`);
+            resolve({ flacBuffer: outputBuffer, sampleRate: detectedSampleRate });
         });
 
         outputStream.on('error', (err) => {
@@ -35,12 +36,18 @@ async function convertOggToFlac(audioBuffer) {
             reject(err);
         });
 
-        // ✅ Correctly use ffmpeg without unnecessary pipes
+        // ✅ Extract sample rate and convert to FLAC
         ffmpeg()
             .input(inputStream)
             .inputFormat('ogg')
             .audioCodec('flac')
             .format('flac')
+            .on('stderr', (line) => {
+                const match = line.match(/(\d+) Hz/);
+                if (match) {
+                    detectedSampleRate = parseInt(match[1], 10);
+                }
+            })
             .on('end', () => outputStream.end()) // ✅ Ensure stream closes correctly
             .on('error', (err) => reject(err))
             .pipe(outputStream);
@@ -55,17 +62,17 @@ async function convertOggToFlac(audioBuffer) {
 async function transcribeAudio(audioBuffer) {
     try {
         console.log("[DEBUG] Converting OGG_OPUS to FLAC...");
-        const flacBuffer = await convertOggToFlac(audioBuffer);
+        const { flacBuffer, sampleRate } = await convertOggToFlac(audioBuffer);
 
-        console.log("[DEBUG] Sending FLAC audio for transcription...");
+        console.log(`[DEBUG] Sending FLAC audio for transcription (Sample Rate: ${sampleRate})...`);
         
         const request = {
             audio: {
                 content: flacBuffer.toString('base64'),
             },
             config: {
-                encoding: 'FLAC',  
-                sampleRateHertz: 16000,
+                encoding: 'FLAC',
+                sampleRateHertz: sampleRate,  // ✅ Use detected sample rate
                 languageCode: 'en-US',
                 enableAutomaticPunctuation: true,
                 enableWordTimeOffsets: true,
