@@ -2,39 +2,23 @@
 
 const speech = require('@google-cloud/speech');
 const ffmpeg = require('fluent-ffmpeg');
-const { Readable, PassThrough } = require('stream'); // ✅ Added PassThrough
+const { PassThrough } = require('stream');
 const client = new speech.SpeechClient();
 const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
-const fs = require('fs');
 
-const speechBase64 = process.env.GOOGLE_SPEECH_CREDENTIALS_BASE64;
-if (!speechBase64) {
-    throw new Error("[ERROR] Missing GOOGLE_SPEECH_CREDENTIALS_BASE64 in environment variables.");
-}
-
-// ✅ Decode Base64 and write to a temporary file
-const speechCredentialsPath = "/tmp/google-speech-key.json";
-fs.writeFileSync(speechCredentialsPath, Buffer.from(speechBase64, 'base64'));
-
-// ✅ Set GOOGLE_APPLICATION_CREDENTIALS dynamically for Speech-to-Text API
-process.env.GOOGLE_APPLICATION_CREDENTIALS = speechCredentialsPath;
-console.log("[DEBUG] Google Speech-to-Text Application Credentials set successfully.");
-
-// Tell fluent-ffmpeg where to find ffmpeg binary
-ffmpeg.setFfmpegPath(ffmpegInstaller.path);
+ffmpeg.setFfmpegPath(ffmpegInstaller.path); // ✅ Ensure ffmpeg binary is found
 
 /**
- * Converts OGG_OPUS audio to FLAC **in memory** (No File System)
+ * Converts OGG_OPUS audio to FLAC **without temporary files**
  * @param {Buffer} audioBuffer - OGG_OPUS audio buffer
  * @returns {Promise<Buffer>} - FLAC audio buffer
  */
 async function convertOggToFlac(audioBuffer) {
     return new Promise((resolve, reject) => {
-        const inputStream = new Readable();
-        inputStream.push(audioBuffer);
-        inputStream.push(null);
+        const inputStream = new PassThrough(); 
+        inputStream.end(audioBuffer); // ✅ Fix: Properly pass buffer
 
-        const outputStream = new PassThrough(); // ✅ Fix: Use PassThrough Stream
+        const outputStream = new PassThrough();
         let outputBuffer = Buffer.alloc(0);
 
         outputStream.on('data', (chunk) => {
@@ -51,11 +35,15 @@ async function convertOggToFlac(audioBuffer) {
             reject(err);
         });
 
+        // ✅ Correctly use ffmpeg without unnecessary pipes
         ffmpeg()
             .input(inputStream)
+            .inputFormat('ogg')
             .audioCodec('flac')
-            .format('flac') // ✅ Ensuring FLAC output format
-            .pipe(outputStream, { end: true }); // ✅ Fix: Allow correct stream ending
+            .format('flac')
+            .on('end', () => outputStream.end()) // ✅ Ensure stream closes correctly
+            .on('error', (err) => reject(err))
+            .pipe(outputStream);
     });
 }
 
@@ -76,11 +64,11 @@ async function transcribeAudio(audioBuffer) {
                 content: flacBuffer.toString('base64'),
             },
             config: {
-                encoding: 'FLAC',  // ✅ Using FLAC instead of OGG_OPUS
-                sampleRateHertz: 16000,  // ✅ Google's STT prefers 16kHz
+                encoding: 'FLAC',  
+                sampleRateHertz: 16000,
                 languageCode: 'en-US',
-                enableAutomaticPunctuation: true,  // ✅ Improves readability
-                enableWordTimeOffsets: true,  // ✅ Adds timestamps if needed
+                enableAutomaticPunctuation: true,
+                enableWordTimeOffsets: true,
             },
         };
 
