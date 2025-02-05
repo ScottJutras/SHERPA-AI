@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const OpenAI = require('openai');
 const bodyParser = require('body-parser');
+const axios = require('axios');
 const { parseExpenseMessage } = require('./utils/expenseParser');
 const {
     appendToUserSpreadsheet,
@@ -11,7 +12,8 @@ const {
     setActiveJob,
     getActiveJob
 } = require('./utils/googleSheets');
-const { extractTextFromImage } = require('./utils/visionService');
+const { extractTextFromImage, handleReceiptImage } = require('./utils/visionService');
+const { transcribeAudio } = require('./utils/transcriptionService'); // New function
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -44,8 +46,6 @@ async function getJobExpenseSummary(from, jobName) {
         }
 
         const analytics = calculateExpenseAnalytics(expenseData);
-        console.log(`[DEBUG] Expense Analytics:`, JSON.stringify(analytics, null, 2));
-
         return `
 📊 *Expense Summary for ${jobName}* 📊
 💰 Total Spent: ${analytics.totalSpent}
@@ -57,51 +57,88 @@ async function getJobExpenseSummary(from, jobName) {
         console.error('[ERROR] Failed to fetch job expense summary:', error.message);
         return `⚠️ Unable to generate expense summary for ${jobName}. Please try again later.`;
     }
-    function calculateExpenseAnalytics(expenseData) {
-    if (!expenseData || expenseData.length === 0) {
-        return null;
+}
+
+// ✅ Webhook Route Handling (Voice Notes, Images, and Messages)
+app.post('/webhook', async (req, res) => {
+    console.log("[DEBUG] Incoming Webhook Request", JSON.stringify(req.body));
+
+    const from = req.body.From;
+    const body = req.body.Body?.trim().toLowerCase();
+    const mediaUrl = req.body.MediaUrl0; // WhatsApp image/audio URL
+    const mediaType = req.body.MediaContentType0; // Detect audio/image type
+
+    if (!from) {
+        console.error("[ERROR] Webhook request missing 'From'.");
+        return res.status(400).send("Bad Request: Missing 'From'.");
     }
 
-    let totalSpent = 0;
-    let storeCount = {};
-    let itemCount = {};
-    let biggestPurchase = { item: null, amount: 0 };
+    console.log(`[DEBUG] Incoming message from ${from}: "${body || "(Media received)"}"`);
 
-    for (const expense of expenseData) {
-        totalSpent += expense.amount;
+    let reply;
+    
+    try {
+        if (mediaUrl && mediaType?.includes("audio")) {
+            // 🎤 Voice note received - process transcription
+            try {
+                console.log(`[DEBUG] Downloading audio file from ${mediaUrl}`);
 
-        // Track store frequency
-        if (storeCount[expense.store]) {
-            storeCount[expense.store]++;
-        } else {
-            storeCount[expense.store] = 1;
+                // Fetch the audio file as a buffer
+                const audioResponse = await axios.get(mediaUrl, { responseType: 'arraybuffer' });
+                const audioBuffer = Buffer.from(audioResponse.data, 'binary');
+
+                console.log(`[DEBUG] Audio file downloaded, size: ${audioBuffer.length} bytes`);
+
+                // Transcribe the voice note
+                const transcription = await transcribeAudio(audioBuffer);
+
+                if (transcription) {
+                    reply = `🎤 Transcription: "${transcription}"`;
+                } else {
+                    reply = "⚠️ Sorry, I couldn't understand the voice note.";
+                }
+            } catch (error) {
+                console.error(`[ERROR] Failed to process voice note:`, error);
+                reply = "⚠️ Failed to transcribe voice note. Please try again.";
+            }
+        } 
+        else if (mediaUrl && mediaType?.includes("image")) {
+            // 🧾 Receipt image received - process image OCR
+            reply = await handleReceiptImage(from, mediaUrl);
+        } 
+        else if (body.startsWith("start job ")) {
+            // 🏗️ Handle job start request
+            reply = await handleStartJob(from, body);
+        } 
+        else {
+            // 💬 Normal text message (expense logging)
+            try {
+                const activeJob = await getActiveJob(from) || "Uncategorized";
+                const expenseData = parseExpenseMessage(body);
+
+                if (expenseData) {
+                    await appendToUserSpreadsheet(
+                        from,
+                        [expenseData.date, expenseData.item, expenseData.amount, expenseData.store, activeJob]
+                    );
+                    reply = `✅ Expense logged under '${activeJob}': ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
+                } else {
+                    reply = "⚠️ Could not understand your request. Please provide a valid expense message.";
+                }
+            } catch (error) {
+                console.error(`[ERROR] Failed to process text message:`, error);
+                reply = "⚠️ Something went wrong while processing your message.";
+            }
         }
-
-        // Track item frequency
-        if (itemCount[expense.item]) {
-            itemCount[expense.item]++;
-        } else {
-            itemCount[expense.item] = 1;
-        }
-
-        // Find the biggest purchase
-        if (expense.amount > biggestPurchase.amount) {
-            biggestPurchase = { item: expense.item, amount: expense.amount };
-        }
+    } catch (error) {
+        console.error(`[ERROR] Error handling message from ${from}:`, error);
+        reply = "⚠️ Sorry, something went wrong. Please try again later.";
     }
 
-    // Find most frequent store & item
-    let topStore = Object.keys(storeCount).reduce((a, b) => (storeCount[a] > storeCount[b] ? a : b));
-    let mostFrequentItem = Object.keys(itemCount).reduce((a, b) => (itemCount[a] > itemCount[b] ? a : b));
-
-    return {
-        totalSpent: `$${totalSpent.toFixed(2)}`,
-        topStore,
-        biggestPurchase: `${biggestPurchase.item} for $${biggestPurchase.amount.toFixed(2)}`,
-        mostFrequentItem
-    };
-}
-}
+    res.set('Content-Type', 'text/xml');
+    res.send(`<Response><Message>${reply}</Message></Response>`);
+    console.log(`[DEBUG] Reply sent: "${reply}"`);
+});
 
 // ✅ Function to handle setting a new job
 async function handleStartJob(from, body) {
@@ -165,54 +202,6 @@ async function getChatGPTResponse(prompt) {
         return "❌ Failed to get a response. Please try again.";
     }
 }
-
-// ✅ Webhook to handle incoming messages
-app.post('/webhook', async (req, res) => {
-    console.log("[DEBUG] Incoming Webhook Request", JSON.stringify(req.body));
-
-    const from = req.body.From;
-    const body = req.body.Body?.trim().toLowerCase();
-    const mediaUrl = req.body.MediaUrl0; // WhatsApp image URL
-
-    if (!from) {
-        console.error("[ERROR] Webhook request missing 'From'.");
-        return res.status(400).send("Bad Request: Missing 'From'.");
-    }
-
-    console.log(`[DEBUG] Incoming message from ${from}: "${body || "(Image received)"}"`);
-    let reply;
-
-    try {
-        if (mediaUrl) {
-            reply = await handleReceiptImage(from, mediaUrl);
-        } else if (body.startsWith("start job ")) {
-            reply = await handleStartJob(from, body);
-        } else if (body.startsWith("expense summary for ")) {
-            const jobMatch = body.match(/expense summary for (.+)/i);
-            reply = jobMatch ? await getJobExpenseSummary(from, jobMatch[1].trim()) : "⚠️ Please specify a job name.";
-        } else {
-            const activeJob = await getActiveJob(from) || "Uncategorized";
-
-            const expenseData = parseExpenseMessage(body);
-            if (expenseData) {
-                await appendToUserSpreadsheet(
-                    from,
-                    [expenseData.date, expenseData.item, expenseData.amount, expenseData.store, activeJob]
-                );
-                reply = `✅ Expense logged under '${activeJob}': ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
-            } else {
-                reply = await getChatGPTResponse(body);
-            }
-        }
-    } catch (error) {
-        console.error(`[ERROR] Error handling message from ${from}:`, error);
-        reply = "⚠️ Sorry, something went wrong. Please try again later.";
-    }
-
-    res.set('Content-Type', 'text/xml');
-    res.send(`<Response><Message>${reply}</Message></Response>`);
-    console.log(`[DEBUG] Reply sent: "${reply}"`);
-});
 
 // ✅ Handle GET requests to verify the server is running
 app.get('/', (req, res) => {
