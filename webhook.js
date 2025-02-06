@@ -4,6 +4,7 @@ const OpenAI = require('openai');
 const bodyParser = require('body-parser');
 const axios = require('axios');
 const { parseExpenseMessage } = require('./utils/expenseParser');
+const { getUserProfile } = require('./utils/googleSheets'); 
 const {
     appendToUserSpreadsheet,
     getOrCreateUserSpreadsheet,
@@ -16,6 +17,30 @@ const { extractTextFromImage, handleReceiptImage } = require('./utils/visionServ
 const { transcribeAudio } = require('./utils/transcriptionService'); // New function
 const fs = require('fs');
 const path = require('path');
+
+const admin = require("firebase-admin");
+
+if (!admin.apps.length) {
+    const firebaseCredentialsBase64 = process.env.FIREBASE_CREDENTIALS_BASE64;
+    if (!firebaseCredentialsBase64) {
+        console.error("[ERROR] FIREBASE_CREDENTIALS_BASE64 is not set in environment variables.");
+        process.exit(1);
+    }
+    try {
+        const firebaseCredentials = JSON.parse(
+            Buffer.from(firebaseCredentialsBase64, 'base64').toString('utf-8')
+        );
+        admin.initializeApp({
+            credential: admin.credential.cert(firebaseCredentials),
+        });
+        console.log("[✅] Firebase Admin initialized successfully.");
+    } catch (error) {
+        console.error("[ERROR] Failed to initialize Firebase Admin:", error.message);
+        process.exit(1);
+    }
+}
+
+const db = admin.firestore();
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));

@@ -364,9 +364,33 @@ async function logReceiptExpense(phoneNumber, extractedText) {
     activeJob,
   ]);
 }
+/**
+ * Retrieves the user's profile from Firestore.
+ *
+ * @param {string} phoneNumber - The user's WhatsApp number.
+ * @returns {Promise<Object|null>} The user profile data or null if not found.
+ */
+async function getUserProfile(phoneNumber) {
+  try {
+    const userRef = db.collection("users").doc(phoneNumber);
+    const doc = await userRef.get();
+
+    if (doc.exists) {
+      console.log(`[✅] Retrieved user profile for ${phoneNumber}`);
+      return doc.data(); // Return user profile data
+    } else {
+      console.log(`[ℹ️] No user profile found for ${phoneNumber}`);
+      return null; // User profile does not exist
+    }
+  } catch (error) {
+    console.error("[❌] Error fetching user profile:", error);
+    return null;
+  }
+}
 
 // ─── MODULE EXPORTS ───────────────────────────────────────────────────────────
 module.exports = {
+  getUserProfile,
   appendToUserSpreadsheet,
   fetchExpenseData,
   logReceiptExpense,
