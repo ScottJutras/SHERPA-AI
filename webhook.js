@@ -95,7 +95,7 @@ app.post('/webhook', async (req, res) => {
             return res.send(`<Response><Message>${nextStep}</Message></Response>`);
         } else {
             state.responses[`step_${state.step - 1}`] = body;
-            
+            try{
             // ✅ Save completed onboarding profile
             userProfile = {
                 user_id: from,
@@ -115,10 +115,15 @@ app.post('/webhook', async (req, res) => {
             await saveUserProfile(userProfile);
             delete userOnboardingState[from];
             return res.send(`<Response><Message>✅ Onboarding complete, ${userProfile.name}! You can now start logging expenses.</Message></Response>`);
+        } catch (error) {
+            console.error("[ERROR] Failed to save user profile:", error);
+            return res.send(`<Response><Message>⚠️ Sorry, something went wrong while saving your profile. Please try again later.</Message></Response>`);
         }
-    } else {
-        let reply;
-        try {
+    }
+}
+ // ✅ Non-Onboarding Flow for Returning Users
+ let reply;
+ try {
             if (mediaUrl && mediaType?.includes("audio")) {
                 // 🎤 Voice Note Handling
                 const audioResponse = await axios.get(mediaUrl, { responseType: 'arraybuffer' });
@@ -169,36 +174,7 @@ app.post('/webhook', async (req, res) => {
         }
 
         res.send(`<Response><Message>${reply}</Message></Response>`);
-    }
-});
-// ✅ Save completed onboarding profile
-if (!userProfile) {
-    userProfile = {
-        user_id: from,
-        name: state.responses.step_0,
-        country: state.responses.step_1,
-        province: state.responses.step_2,
-        business_type: state.responses.step_3,
-        industry: state.responses.step_4,
-        personal_expenses_enabled: state.responses.step_5?.toLowerCase() === "yes",
-        track_mileage: state.responses.step_6?.toLowerCase() === "yes",
-        track_home_office: state.responses.step_7?.toLowerCase() === "yes",
-        financial_goals: state.responses.step_8,
-        add_bills: state.responses.step_9?.toLowerCase() === "yes",
-        created_at: new Date().toISOString()
-    };
-
-    try {
-        await saveUserProfile(userProfile);
-        delete userOnboardingState[from];
-        return res.send(`<Response><Message>✅ Onboarding complete, ${userProfile.name}! You can now start logging expenses.</Message></Response>`);
-    } catch (error) {
-        console.error("[ERROR] Failed to save user profile:", error);
-        return res.send(`<Response><Message>⚠️ Sorry, something went wrong while saving your profile. Please try again later.</Message></Response>`);
-    }
-} else {
-    return res.send(`<Response><Message>Welcome back, ${userProfile.name}! How can I assist you today?</Message></Response>`);
-}
+    });
 
 // ✅ Debugging: Log Environment Variables
 console.log("[DEBUG] Checking environment variables...");
