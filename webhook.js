@@ -60,6 +60,20 @@ const onboardingSteps = [
 ];
 
 const userOnboardingState = {};
+/**
+ * Save user profile to Firestore.
+ * @param {Object} userProfile - The user profile data to be saved.
+ */
+async function saveUserProfile(userProfile) {
+    try {
+        const userRef = db.collection('users').doc(userProfile.user_id);
+        await userRef.set(userProfile, { merge: true });  // Save or update the profile
+        console.log(`[✅ SUCCESS] User profile saved for ${userProfile.user_id}`);
+    } catch (error) {
+        console.error(`[❌ ERROR] Failed to save user profile:`, error);
+        throw error;  // Let the calling function handle the error
+    }
+}
 
 app.post('/webhook', async (req, res) => { 
     const from = req.body.From;
