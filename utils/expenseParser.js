@@ -3,44 +3,44 @@ const chrono = require('chrono-node');
 function parseExpenseMessage(message) {
   console.log(`[DEBUG] Parsing expense message: "${message}"`);
 
-  // Extract amount (Supports "$24.60", "24.60", "1,200.00")
-  const amountMatch = message.match(/(?:\$|for\s?)\s?([\d,]+(?:\.\d{1,2})?)/i);
+  // Enhanced amount extraction: supports "$24.60", "24.60", "4872 dollars", "bought 4872"
+  const amountMatch = message.match(/(?:\$|for\s?|bought\s?)?\s?([\d,]+(?:\.\d{1,2})?)\s?(?:dollars)?/i);
   const amount = amountMatch
     ? `$${parseFloat(amountMatch[1].replace(/,/g, '')).toFixed(2)}`
     : null;
 
-  // Extract store name: try to capture words following "at" or "from"
-  let storeMatch = message.match(/(?:at|from)\s+([\w\s&-]+?)(?:\s(?:today|yesterday|last\s\w+|on\s\w+))?(?:\.|$)/i);
-  let store = storeMatch ? storeMatch[1].trim() : null;
+  // Store name extraction: supports apostrophes in names like "Herman's Supply"
+  let storeMatch = message.match(/(?:at|from)\s+([\w\s&'-]+?)(?:\s(?:today|yesterday|last\s\w+|on\s\w+))?(?:\.|$)/i);
+  let store = storeMatch ? storeMatch[1].trim() : "Unknown Store";
 
-  // Extract date using chrono-node; prefer explicit dates in the text.
+  // Date extraction using chrono-node; defaults to today if not specified
   const parsedDate = chrono.parseDate(message);
   const date = parsedDate
     ? parsedDate.toISOString().split('T')[0]
     : new Date().toISOString().split('T')[0];
 
-  // Extract item name by looking for phrases like "bought", "purchased", "spent on", etc.
+  // Item extraction: adjusts for "worth of" phrasing
   let item = null;
   const patterns = [
-    /(?:bought|purchased|got|spent on|paid for)\s+([\w\d\s-]+?)(?=\s(?:for|at|from|\$|\d))/i,
-    /(?:just got|picked up|ordered)\s+([\w\d\s-]+?)(?=\s(?:for|at|from|\$|\d))/i,
+    /(?:bought|purchased|got|spent on|paid for)\s+(\d+\s*)?(?:dollars\s+)?(?:worth of\s+)?([\w\d\s-]+?)(?=\s(?:for|at|from|\$|\d|today|yesterday))/i,
+    /(?:just got|picked up|ordered)\s+([\w\d\s-]+?)(?=\s(?:for|at|from|\$|\d|today|yesterday))/i,
     /([\d]+x[\d]+(?:\s\w+)?)/i // e.g., "20 2x4"
   ];
   for (const pattern of patterns) {
     const match = message.match(pattern);
     if (match) {
-      item = match[1].trim();
+      item = match[2] ? match[2].trim() : match[1].trim();
       break;
     }
   }
-  
+
   // Fallback: if no item is found, default to "Miscellaneous Purchase"
   if (!item) {
     item = "Miscellaneous Purchase";
   }
 
-  // Final cleaning: remove any extraneous words from the item if store is mentioned
-  if (store) {
+  // Final cleaning: remove redundant store mentions from item name
+  if (store !== "Unknown Store") {
     const regex = new RegExp(`\\bat\\s*${store}\\b`, 'gi');
     item = item.replace(regex, '').trim();
   }
