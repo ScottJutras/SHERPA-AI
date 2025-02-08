@@ -47,12 +47,16 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
 const onboardingSteps = [
-    "Which country are you in? (Canada/USA)",
+    "Can I get your name?",
+    "Are you in Canada or USA? (Canada/USA)",
     "Which province or state are you in?",
+    "What type of business do you have? (Sole Proprietorship, Corporation, Charity, Non-Profit, Other)",
     "What industry do you work in? (Construction, Real Estate, Retail, Freelancer, Other)",
     "Do you want to track personal expenses too? (Yes/No)",
-    "Do you want to track mileage or home office deductions? (Yes/No)",
-    "Do you want to track home office deductions? (Yes/No)"
+    "Do you want to track mileage? (Yes/No)",
+    "Do you want to track home office deductions? (Yes/No)",
+    "What is your primary financial goal? (Save to pay off debts, Save to invest, Spend to lower tax bracket, Spend to invest)",
+    "Would you like to add your yearly, monthly, weekly, or bi-weekly bills to track? (Yes/No)"
 ];
 
 const userOnboardingState = {};
@@ -81,33 +85,39 @@ app.post('/webhook', async (req, res) => {
             userOnboardingState[from] = { step: 0, responses: {} };
         }
         const state = userOnboardingState[from];
-        
-        if (state.step < onboardingSteps.length) {
-            state.responses[`step_${state.step}`] = body;
-            const nextStep = state.step + 1;
+        if (state.step < onboardingSteps.length - 1) {
+            if (state.step > 0) {
+                state.responses[`step_${state.step - 1}`] = body;
+            }
+            state.step++;
+            return res.send(`<Response><Message>${onboardingSteps[state.step]}</Message></Response>`);
+        } else {
+            state.responses[`step_${state.step - 1}`] = body;
 
-            if (nextStep < onboardingSteps.length) {
-                state.step++;
-                return res.send(`<Response><Message>${onboardingSteps[nextStep]}</Message></Response>`);
-            } else {
 // ✅ Save completed onboarding profile
-        userProfile = {
-            user_id: from,
-            country: state.responses.step_0,
-            province: state.responses.step_1,
-            industry: state.responses.step_2,
-            personal_expenses_enabled: state.responses.step_3.toLowerCase() === "yes",
-            track_mileage: state.responses.step_4.toLowerCase() === "yes",
-            track_home_office: state.responses.step_4.toLowerCase() === "yes",
-            created_at: new Date().toISOString()
-        };
+userProfile = {
+    user_id: from,
+    name: state.responses.step_0,
+    country: state.responses.step_1,
+    province: state.responses.step_2,
+    business_type: state.responses.step_3,
+    industry: state.responses.step_4,
+    personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
+    track_mileage: state.responses.step_6.toLowerCase() === "yes",
+    track_home_office: state.responses.step_7.toLowerCase() === "yes",
+    financial_goals: state.responses.step_8,
+    add_bills: state.responses.step_9.toLowerCase() === "yes",
+    created_at: new Date().toISOString()
+};
 
-        await saveUserProfile(userProfile);
-        delete userOnboardingState[from];
-        return res.send(`<Response><Message>✅ Onboarding complete! You can now start logging expenses.</Message></Response>`);
-    }
+await saveUserProfile(userProfile);
+delete userOnboardingState[from];
+return res.send(`<Response><Message>✅ Onboarding complete, ${userProfile.name}! You can now start logging expenses.</Message></Response>`);
 }
 }
+
+res.send(`<Response><Message>Welcome back, ${userProfile.name}! How can I assist you today?</Message></Response>`);
+});
     let reply;
     try {
         if (mediaUrl && mediaType?.includes("audio")) {
@@ -160,7 +170,7 @@ app.post('/webhook', async (req, res) => {
     }
 
     res.send(`<Response><Message>${reply}</Message></Response>`);
-});
+;
 
 // ✅ Debugging: Log Environment Variables
 console.log("[DEBUG] Checking environment variables...");
