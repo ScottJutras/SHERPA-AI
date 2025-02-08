@@ -138,12 +138,21 @@ app.post('/webhook', async (req, res) => {
  // ✅ Non-Onboarding Flow for Returning Users
  let reply;
  try {
-            if (mediaUrl && mediaType?.includes("audio")) {
-                // 🎤 Voice Note Handling
-                const audioResponse = await axios.get(mediaUrl, { responseType: 'arraybuffer' });
-                const audioBuffer = Buffer.from(audioResponse.data, 'binary');
-                const transcription = await transcribeAudio(audioBuffer);
-                reply = transcription ? `🎤 Transcription: "${transcription}"` : "⚠️ Sorry, I couldn't understand the voice note.";
+    if (mediaUrl && mediaType?.includes("audio")) {
+         // 🎤 Voice Note Handling
+        const authHeader = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
+
+const audioResponse = await axios.get(mediaUrl, {
+    responseType: 'arraybuffer',
+    headers: {
+        Authorization: `Basic ${authHeader}`
+    }
+});
+        const audioBuffer = Buffer.from(audioResponse.data, 'binary');
+        const transcription = await transcribeAudio(audioBuffer);
+        reply = transcription ? `🎤 Transcription: "${transcription}"` : "⚠️ Sorry, I couldn't understand the voice note.";
+    
+    
             } else if (mediaUrl && mediaType?.includes("image")) {
                 // 🧾 Receipt Image Handling
                 reply = await handleReceiptImage(from, mediaUrl);
@@ -188,7 +197,7 @@ app.post('/webhook', async (req, res) => {
         }
 
         res.send(`<Response><Message>${reply}</Message></Response>`);
-    });
+});
 
 // ✅ Debugging: Log Environment Variables
 console.log("[DEBUG] Checking environment variables...");
