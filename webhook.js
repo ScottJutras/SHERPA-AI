@@ -296,25 +296,17 @@ app.post('/webhook', async (req, res) => {
                 if (transcription) {
                     console.log(`[DEBUG] Transcription successful: "${transcription}"`);
 
-                    // ✅ Check if transcription contains "start job [job name]"
-                    const jobMatch = transcription.match(/start job (.+)/i);
+                    // ✅ Attempt to parse the transcription as an expense
+                    const expenseData = parseExpenseMessage(transcription);
 
-                    if (jobMatch) {
-                        // ✅ Start a new job if detected
-                        const newJob = jobMatch[1].trim();
-                        await setActiveJob(from, newJob);
-
-                        reply = `✅ New job '${newJob}' started. You can now log expenses under this job.`;
+                    if (expenseData) {
+                        // ✅ Send confirmation message to user
+                        reply = `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}? Reply 'yes' to confirm or 'no' to correct.`;
+                        
+                        // Store the pending confirmation in memory (or DB if needed)
+                        userOnboardingState[from] = { pendingExpense: expenseData };
                     } else {
-                        // ✅ Log transcription as an expense under active job
-                        const activeJob = await getActiveJob(from) || "Uncategorized";
-
-                        await appendToUserSpreadsheet(
-                            from,
-                            [new Date().toISOString(), "Voice Note", transcription, "N/A", activeJob]
-                        );
-
-                        reply = `✅ Transcription logged under '${activeJob}': "${transcription}"`;
+                        reply = `🎤 Transcription: "${transcription}". I couldn't identify this as an expense. Please clarify.`;
                     }
                 } else {
                     reply = "⚠️ Sorry, I couldn't understand the voice note.";
@@ -332,6 +324,27 @@ app.post('/webhook', async (req, res) => {
             // 🏗️ Handle job start request
             reply = await handleStartJob(from, body);
         } 
+        else if (body === 'yes' && userOnboardingState[from]?.pendingExpense) {
+            // ✅ User confirmed the parsed expense
+            const confirmedExpense = userOnboardingState[from].pendingExpense;
+            const activeJob = await getActiveJob(from) || "Uncategorized";
+
+            await appendToUserSpreadsheet(from, [
+                confirmedExpense.date,
+                confirmedExpense.item,
+                confirmedExpense.amount,
+                confirmedExpense.store,
+                activeJob
+            ]);
+
+            reply = `✅ Expense confirmed and logged: ${confirmedExpense.item} for ${confirmedExpense.amount} at ${confirmedExpense.store} on ${confirmedExpense.date}`;
+            delete userOnboardingState[from].pendingExpense; // Clear pending state
+        }
+        else if (body === 'no' && userOnboardingState[from]?.pendingExpense) {
+            // ❌ User rejected the parsed expense
+            reply = "⚠️ Okay, please resend the correct expense details.";
+            delete userOnboardingState[from].pendingExpense; // Clear pending state
+        }
         else {
             // 💬 Normal text message (expense logging)
             try {
@@ -339,11 +352,9 @@ app.post('/webhook', async (req, res) => {
                 const expenseData = parseExpenseMessage(body);
 
                 if (expenseData) {
-                    await appendToUserSpreadsheet(
-                        from,
-                        [expenseData.date, expenseData.item, expenseData.amount, expenseData.store, activeJob]
-                    );
-                    reply = `✅ Expense logged under '${activeJob}': ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
+                    // Confirm before logging
+                    reply = `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}? Reply 'yes' to confirm or 'no' to correct.`;
+                    userOnboardingState[from] = { pendingExpense: expenseData };
                 } else {
                     reply = "⚠️ Could not understand your request. Please provide a valid expense message.";
                 }
