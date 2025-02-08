@@ -61,7 +61,7 @@ const onboardingSteps = [
 
 const userOnboardingState = {};
 
-app.post('/webhook', async (req, res) => {
+app.post('/webhook', async (req, res) => { 
     const from = req.body.From;
     const body = req.body.Body?.trim();
     const mediaUrl = req.body.MediaUrl0;
@@ -85,92 +85,120 @@ app.post('/webhook', async (req, res) => {
             userOnboardingState[from] = { step: 0, responses: {} };
         }
         const state = userOnboardingState[from];
-        if (state.step < onboardingSteps.length - 1) {
+
+        if (state.step < onboardingSteps.length) {
             if (state.step > 0) {
                 state.responses[`step_${state.step - 1}`] = body;
             }
+            const nextStep = onboardingSteps[state.step];
             state.step++;
-            return res.send(`<Response><Message>${onboardingSteps[state.step]}</Message></Response>`);
+            return res.send(`<Response><Message>${nextStep}</Message></Response>`);
         } else {
             state.responses[`step_${state.step - 1}`] = body;
-
-// ✅ Save completed onboarding profile
-userProfile = {
-    user_id: from,
-    name: state.responses.step_0,
-    country: state.responses.step_1,
-    province: state.responses.step_2,
-    business_type: state.responses.step_3,
-    industry: state.responses.step_4,
-    personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
-    track_mileage: state.responses.step_6.toLowerCase() === "yes",
-    track_home_office: state.responses.step_7.toLowerCase() === "yes",
-    financial_goals: state.responses.step_8,
-    add_bills: state.responses.step_9.toLowerCase() === "yes",
-    created_at: new Date().toISOString()
-};
-
-await saveUserProfile(userProfile);
-delete userOnboardingState[from];
-return res.send(`<Response><Message>✅ Onboarding complete, ${userProfile.name}! You can now start logging expenses.</Message></Response>`);
-}
-}
-
-res.send(`<Response><Message>Welcome back, ${userProfile.name}! How can I assist you today?</Message></Response>`);
-});
-    let reply;
-    try {
-        if (mediaUrl && mediaType?.includes("audio")) {
-             // 🎤 Voice Note Handling
-            const audioResponse = await axios.get(mediaUrl, { responseType: 'arraybuffer' });
-            const audioBuffer = Buffer.from(audioResponse.data, 'binary');
-            const transcription = await transcribeAudio(audioBuffer);
-            reply = transcription ? `🎤 Transcription: "${transcription}"` : "⚠️ Sorry, I couldn't understand the voice note.";
-        } else if (mediaUrl && mediaType?.includes("image")) {
-             // 🧾 Receipt Image Handling
-             reply = await handleReceiptImage(from, mediaUrl);
-            } else if (body.toLowerCase().startsWith("start job ")) {
-             // 🏗️ Job Tracking Feature 
-             const jobName = body.slice(10).trim();
-            await setActiveJob(from, jobName);
-            reply = `✅ Job '${jobName}' is now active. All expenses will be assigned to this job.`;
-        } else if (body.toLowerCase().startsWith("expense summary")) {
-            // 📊 Fetch Expense Analytics  
-            const activeJob = await getActiveJob(from) || "Uncategorized";
-            const expenseData = await fetchExpenseData(from, activeJob);
-            const analytics = calculateExpenseAnalytics(expenseData);
             
+            // ✅ Save completed onboarding profile
+            userProfile = {
+                user_id: from,
+                name: state.responses.step_0,
+                country: state.responses.step_1,
+                province: state.responses.step_2,
+                business_type: state.responses.step_3,
+                industry: state.responses.step_4,
+                personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
+                track_mileage: state.responses.step_6.toLowerCase() === "yes",
+                track_home_office: state.responses.step_7.toLowerCase() === "yes",
+                financial_goals: state.responses.step_8,
+                add_bills: state.responses.step_9?.toLowerCase() === "yes",
+                created_at: new Date().toISOString()
+            };
+
+            await saveUserProfile(userProfile);
+            delete userOnboardingState[from];
+            return res.send(`<Response><Message>✅ Onboarding complete, ${userProfile.name}! You can now start logging expenses.</Message></Response>`);
+        }
+    } else {
+        let reply;
+        try {
+            if (mediaUrl && mediaType?.includes("audio")) {
+                // 🎤 Voice Note Handling
+                const audioResponse = await axios.get(mediaUrl, { responseType: 'arraybuffer' });
+                const audioBuffer = Buffer.from(audioResponse.data, 'binary');
+                const transcription = await transcribeAudio(audioBuffer);
+                reply = transcription ? `🎤 Transcription: "${transcription}"` : "⚠️ Sorry, I couldn't understand the voice note.";
+            } else if (mediaUrl && mediaType?.includes("image")) {
+                // 🧾 Receipt Image Handling
+                reply = await handleReceiptImage(from, mediaUrl);
+            } else if (body.toLowerCase().startsWith("start job ")) {
+                // 🏗️ Job Tracking Feature 
+                const jobName = body.slice(10).trim();
+                await setActiveJob(from, jobName);
+                reply = `✅ Job '${jobName}' is now active. All expenses will be assigned to this job.`;
+            } else if (body.toLowerCase().startsWith("expense summary")) {
+                // 📊 Fetch Expense Analytics  
+                const activeJob = await getActiveJob(from) || "Uncategorized";
+                const expenseData = await fetchExpenseData(from, activeJob);
+                const analytics = calculateExpenseAnalytics(expenseData);
+
                 reply = `
 📊 *Expense Summary for ${activeJob}* 📊
 💰 Total Spent: ${analytics.totalSpent}
 🏪 Top Store: ${analytics.topStore}
 📌 Biggest Purchase: ${analytics.biggestPurchase}
 🔄 Most Frequent Expense: ${analytics.mostFrequentItem}
-            `;
+                `;
             } else {
-                            // 💬 Expense Logging via Text Message
-            const activeJob = await getActiveJob(from) || "Uncategorized";
-            const expenseData = parseExpenseMessage(body);
-            if (expenseData) {
-                await appendToUserSpreadsheet(from, [
-                    expenseData.date,
-                    expenseData.item,
-                    expenseData.amount,
-                    expenseData.store,
-                    activeJob
-                ]);
-                reply = `✅ Expense logged: ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
-            } else {
-                reply = "⚠️ Could not understand your request. Please provide a valid expense message.";
+                // 💬 Expense Logging via Text Message
+                const activeJob = await getActiveJob(from) || "Uncategorized";
+                const expenseData = parseExpenseMessage(body);
+                if (expenseData) {
+                    await appendToUserSpreadsheet(from, [
+                        expenseData.date,
+                        expenseData.item,
+                        expenseData.amount,
+                        expenseData.store,
+                        activeJob
+                    ]);
+                    reply = `✅ Expense logged: ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
+                } else {
+                    reply = "⚠️ Could not understand your request. Please provide a valid expense message.";
+                }
             }
+        } catch (error) {
+            console.error("[ERROR]", error);
+            reply = "⚠️ Sorry, something went wrong. Please try again later.";
         }
-    } catch (error) {
-        console.error("[ERROR]", error);
-        reply = "⚠️ Sorry, something went wrong. Please try again later.";
-    }
 
-    res.send(`<Response><Message>${reply}</Message></Response>`);
-;
+        res.send(`<Response><Message>${reply}</Message></Response>`);
+    }
+});
+// ✅ Save completed onboarding profile
+if (!userProfile) {
+    userProfile = {
+        user_id: from,
+        name: state.responses.step_0,
+        country: state.responses.step_1,
+        province: state.responses.step_2,
+        business_type: state.responses.step_3,
+        industry: state.responses.step_4,
+        personal_expenses_enabled: state.responses.step_5?.toLowerCase() === "yes",
+        track_mileage: state.responses.step_6?.toLowerCase() === "yes",
+        track_home_office: state.responses.step_7?.toLowerCase() === "yes",
+        financial_goals: state.responses.step_8,
+        add_bills: state.responses.step_9?.toLowerCase() === "yes",
+        created_at: new Date().toISOString()
+    };
+
+    try {
+        await saveUserProfile(userProfile);
+        delete userOnboardingState[from];
+        return res.send(`<Response><Message>✅ Onboarding complete, ${userProfile.name}! You can now start logging expenses.</Message></Response>`);
+    } catch (error) {
+        console.error("[ERROR] Failed to save user profile:", error);
+        return res.send(`<Response><Message>⚠️ Sorry, something went wrong while saving your profile. Please try again later.</Message></Response>`);
+    }
+} else {
+    return res.send(`<Response><Message>Welcome back, ${userProfile.name}! How can I assist you today?</Message></Response>`);
+}
 
 // ✅ Debugging: Log Environment Variables
 console.log("[DEBUG] Checking environment variables...");
