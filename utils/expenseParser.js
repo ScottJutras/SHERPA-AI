@@ -10,7 +10,7 @@ function parseExpenseMessage(message) {
         : null;
 
     // Store name extraction: Improved to capture full names like "Home Depot"
-    const storeMatch = message.match(/(?:at|from)\s+([\w\s&'’-]+?)(?=\s|$|\.)/i);
+    const storeMatch = message.match(/(?:at|from)\s+([\w\s&'’-]+)(?=\s*(?:today|yesterday|on|$|\n|\.))/i);
     const store = storeMatch ? storeMatch[1].trim() : "Unknown Store";
 
     // Date extraction using chrono-node
