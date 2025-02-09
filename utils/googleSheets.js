@@ -36,9 +36,8 @@ const googleCredentials = JSON.parse(
 // Scopes required for Sheets and Drive.
 const SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
-  'https://www.googleapis.com/auth/drive.file'
+  'https://www.googleapis.com/auth/drive'        // Ensure full sharing permissions
 ];
-
 /**
  * Initialize and return an authorized Google API client.
  */
@@ -69,6 +68,8 @@ async function createSpreadsheetForUser(phoneNumber) {
     console.log(`[DEBUG] Creating a new spreadsheet for user: ${phoneNumber}`);
     const auth = await getAuthorizedClient();
     const sheets = google.sheets({ version: 'v4', auth });
+    const drive = google.drive({ version: 'v3', auth });  // Initialize Google Drive API
+    //Step 1: Create a new spreadsheet
     const response = await sheets.spreadsheets.create({
       resource: {
         properties: { title: `Expenses - ${phoneNumber}` },
@@ -93,17 +94,39 @@ async function createSpreadsheetForUser(phoneNumber) {
       },
       fields: 'spreadsheetId',
     });
+    const spreadsheetId = response.data.spreadsheetId;
     console.log(`[✅ SUCCESS] Spreadsheet created: ${response.data.spreadsheetId}`);
-    return response.data.spreadsheetId;
+    //Step 2 : Retrieve the user's email from Firestore (or use a default for testing)
+    const userDoc = await db.collection('users').doc(phoneNumber).get();
+    const userEmail = userDoc.exists && userDoc.data().email
+      ? userDoc.data().email
+      : process.env.FALLBACK_EMAIL;  // Set FALLBACK_EMAIL in Vercel for testing
+
+    if (!userEmail) {
+      throw new Error(`[ERROR] No email found for user ${phoneNumber}. Cannot share the spreadsheet.`);
+    }
+
+    // Step 3: Share the spreadsheet with the user
+    await drive.permissions.create({
+      fileId: spreadsheetId,
+      requestBody: {
+        role: 'writer',
+        type: 'user',
+        emailAddress: userEmail  // Share with the retrieved email
+      }
+    });
+
+    console.log(`[✅ SUCCESS] Spreadsheet shared with ${userEmail}`);
+
+    return spreadsheetId;
   } catch (error) {
-    console.error(`[❌ ERROR] Failed to create spreadsheet for ${phoneNumber}:`, error.message);
-    throw error;
+    console.error(`[❌ ERROR] Failed to share spreadsheet with ${userEmail}:`, shareError.message);
+    throw new Error('Spreadsheet created but sharing failed.');
   }
 }
 
 /**
  * Retrieves (from Firestore) or creates a new spreadsheet for a user.
- * Each user gets their own spreadsheet.
  *
  * @param {string} phoneNumber - The user's phone number.
  * @returns {Promise<string>} The spreadsheet ID.
@@ -113,6 +136,7 @@ async function getOrCreateUserSpreadsheet(phoneNumber) {
     const userDoc = db.collection('users').doc(phoneNumber);
     const userSnapshot = await userDoc.get();
     let spreadsheetId;
+
     if (userSnapshot.exists && userSnapshot.data().spreadsheetId) {
       spreadsheetId = userSnapshot.data().spreadsheetId;
     } else {

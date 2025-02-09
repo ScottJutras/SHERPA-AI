@@ -56,7 +56,8 @@ const onboardingSteps = [
     "Do you want to track mileage? (Yes/No)",
     "Do you want to track home office deductions? (Yes/No)",
     "What is your primary financial goal? (Save to pay off debts, Save to invest, Spend to lower tax bracket, Spend to invest)",
-    "Would you like to add your yearly, monthly, weekly, or bi-weekly bills to track? (Yes/No)"
+    "Would you like to add your yearly, monthly, weekly, or bi-weekly bills to track? (Yes/No)",
+    "Can I get your email address?"
 ];
 
 const userOnboardingState = {};
@@ -109,11 +110,18 @@ app.post('/webhook', async (req, res) => {
             return res.send(`<Response><Message>${nextStep}</Message></Response>`);
         } else {
             state.responses[`step_${state.step - 1}`] = body;
+            // ✅ Email Validation (for step 10)
+    const email = state.responses.step_10;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailRegex.test(email)) {
+        return res.send(`<Response><Message>⚠️ The email address you provided doesn't seem valid. Please enter a valid email address.</Message></Response>`);
+    }
             try{
             // ✅ Save completed onboarding profile
             userProfile = {
                 user_id: from,
-                name: state.responses.step_0,
+                name: state.responses.step_0,  
                 country: state.responses.step_1,
                 province: state.responses.step_2,
                 business_type: state.responses.step_3,
@@ -123,6 +131,7 @@ app.post('/webhook', async (req, res) => {
                 track_home_office: state.responses.step_7.toLowerCase() === "yes",
                 financial_goals: state.responses.step_8,
                 add_bills: state.responses.step_9?.toLowerCase() === "yes",
+                email: state.responses.step_10,
                 created_at: new Date().toISOString()
             };
 
