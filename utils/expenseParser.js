@@ -3,8 +3,8 @@ const chrono = require('chrono-node');
 function parseExpenseMessage(message) {
   console.log(`[DEBUG] Parsing expense message: "${message}"`);
 
-  // Enhanced amount extraction: supports "$484", "484 dollars", "484 dollars worth of", "spend 484"
-  const amountMatch = message.match(/(?:\$|for\s?|spent\s?|spend\s?)\s?([\d,]+(?:\.\d{1,2})?)/i);
+  // Enhanced amount extraction: supports "$484", "484 dollars", "spent 484", "483 on"
+  const amountMatch = message.match(/(?:\$|for\s?|spent\s?|spend\s?|on\s?)\s?([\d,]+(?:\.\d{1,2})?)/i);
   const amount = amountMatch
     ? `$${parseFloat(amountMatch[1].replace(/,/g, '')).toFixed(2)}`
     : null;
@@ -19,11 +19,11 @@ function parseExpenseMessage(message) {
     ? parsedDate.toISOString().split('T')[0]
     : new Date().toISOString().split('T')[0];
 
-  // Improved item extraction: captures items after "worth of"
+  // Improved item extraction: captures items after "on", "worth of", or common verbs
   let item = null;
   const patterns = [
-    /(?:bought|purchased|got|spent on|spend on|paid for)\s+(?:\d+\s*(?:dollars)?\s*)?(?:worth of\s+)?([\w\d\s-]+?)(?=\s(?:at|from|\$|\d|today|yesterday|on))/i,
-    /(?:just got|picked up|ordered)\s+([\w\d\s-]+?)(?=\s(?:for|at|from|\$|\d|today|yesterday))/i,
+    /(?:bought|purchased|got|spent on|spend on|paid for|on)\s+(?:\d+\s*(?:dollars)?\s*)?(?:worth of\s+)?([\w\d\s-]+?)(?=\s(?:at|from|\$|\d|today|yesterday|on|\.|$))/i,
+    /(?:just got|picked up|ordered)\s+([\w\d\s-]+?)(?=\s(?:for|at|from|\$|\d|today|yesterday|on|\.|$))/i,
     /([\d]+x[\d]+(?:\s\w+)?)/i // e.g., "20 2x4"
   ];
 
