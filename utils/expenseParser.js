@@ -1,4 +1,8 @@
 const chrono = require('chrono-node');
+const materialsList = require('./materialsList');
+const toolsList = require('./toolsList');
+const allItemsList = [...materialsList, ...toolsList];
+
 
 function parseExpenseMessage(message) {
   console.log(`[DEBUG] Parsing expense message: "${message}"`);
@@ -9,17 +13,25 @@ function parseExpenseMessage(message) {
     ? `$${parseFloat(amountMatch[1].replace(/,/g, '')).toFixed(2)}`
     : null;
 
-  // Store name extraction: supports apostrophes in names like "Herman's Supply"
-  const storeMatch = message.match(/(?:at|from)\s+([\w\s&'’-]+)(?=\s*(?:today|yesterday|on|$|\n|\.))/i);
-  const store = storeMatch ? storeMatch[1].trim() : "Unknown Store";
+  // Store name extraction: combines regex and predefined store list
+  let storeMatch = message.match(/(?:at|from)\s+([\w\s&'’-]+)(?=\s*(?:today|yesterday|on|$|\n|\.))|(?:at|from)\s+([\w\s&'’-]+)(?:\s|$|\.)/i);
+  let store = storeMatch ? (storeMatch[1] || storeMatch[2]).trim() : null;
 
+  // Check against predefined store list if regex fails
+  if (!store || store === "Unknown Store") {
+    const foundStore = storeList.find(storeName => 
+      message.toLowerCase().includes(storeName.toLowerCase())
+    );
+    store = foundStore ? foundStore : "Unknown Store";
+  }
+  
   // Date extraction using chrono-node
   const parsedDate = chrono.parseDate(message);
   const date = parsedDate
     ? parsedDate.toISOString().split('T')[0]
     : new Date().toISOString().split('T')[0];
 
-  // Improved item extraction: captures items after "on", "worth of", or common verbs
+   // Improved item extraction: captures items after "on", "worth of", or common verbs
   let item = null;
   const patterns = [
     /(?:bought|purchased|got|spent on|spend on|paid for|on)\s+(?:\d+\s*(?:dollars)?\s*)?(?:worth of\s+)?([\w\d\s-]+?)(?=\s(?:at|from|\$|\d|today|yesterday|on|\.|$))/i,
@@ -35,9 +47,16 @@ function parseExpenseMessage(message) {
     }
   }
 
-  // Fallback: if no item is found, default to "Miscellaneous Purchase"
-  if (!item) {
-    item = "Miscellaneous Purchase";
+  // Fallback: Use materials/tools lists if regex patterns didn't capture a specific item
+  if (!item || item === "Miscellaneous Purchase") {
+    const foundItem = allItemsList.find(listItem => 
+      message.toLowerCase().includes(listItem.toLowerCase())
+    );
+    if (foundItem) {
+      item = foundItem;
+    } else {
+      item = "Miscellaneous Purchase"; // Default fallback if nothing matches
+    }
   }
 
   // Final cleaning: remove redundant store mentions from item
@@ -54,12 +73,7 @@ function parseExpenseMessage(message) {
 
   console.log(`[DEBUG] Parsed Expense Data: item="${item}", amount="${amount}", store="${store}", date="${date}"`);
 
-  return {
-    item,
-    amount,
-    store,
-    date
-  };
+  return { item, amount, store, date };
 }
 
 module.exports = { parseExpenseMessage };
