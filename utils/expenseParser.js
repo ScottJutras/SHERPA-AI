@@ -4,7 +4,7 @@ function parseExpenseMessage(message) {
   console.log(`[DEBUG] Parsing expense message: "${message}"`);
 
   // Enhanced amount extraction: supports "$484", "484 dollars", "484 dollars worth of"
-  const amountMatch = message.match(/(?:\$)?\s?([\d,]+(?:\.\d{1,2})?)\s?(?:dollars)?/i);
+  const amountMatch = message.match(/(?:\$|dollars|for\s?)\s?([\d,.]+(?:\.\d{1,2})?)/i);
   const amount = amountMatch
     ? `$${parseFloat(amountMatch[1].replace(/,/g, '')).toFixed(2)}`
     : null;

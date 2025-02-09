@@ -142,61 +142,98 @@ app.post('/webhook', async (req, res) => {
          // 🎤 Voice Note Handling
         const authHeader = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
 
-const audioResponse = await axios.get(mediaUrl, {
-    responseType: 'arraybuffer',
-    headers: {
-        Authorization: `Basic ${authHeader}`
-    }
-});
+        const audioResponse = await axios.get(mediaUrl, {
+            responseType: 'arraybuffer',
+            headers: {
+                Authorization: `Basic ${authHeader}`
+            }
+        });
         const audioBuffer = Buffer.from(audioResponse.data, 'binary');
         const transcription = await transcribeAudio(audioBuffer);
-        reply = transcription ? `🎤 Transcription: "${transcription}"` : "⚠️ Sorry, I couldn't understand the voice note.";
-    
-    
-            } else if (mediaUrl && mediaType?.includes("image")) {
-                // 🧾 Receipt Image Handling
-                reply = await handleReceiptImage(from, mediaUrl);
-            } else if (body.toLowerCase().startsWith("start job ")) {
-                // 🏗️ Job Tracking Feature 
-                const jobName = body.slice(10).trim();
-                await setActiveJob(from, jobName);
-                reply = `✅ Job '${jobName}' is now active. All expenses will be assigned to this job.`;
-            } else if (body.toLowerCase().startsWith("expense summary")) {
-                // 📊 Fetch Expense Analytics  
-                const activeJob = await getActiveJob(from) || "Uncategorized";
-                const expenseData = await fetchExpenseData(from, activeJob);
-                const analytics = calculateExpenseAnalytics(expenseData);
 
-                reply = `
+        if (transcription) {
+            console.log(`[DEBUG] Transcription successful: "${transcription}"`);
+
+            // ✅ Attempt to parse the transcription as an expense
+            const expenseData = parseExpenseMessage(transcription);
+
+            if (expenseData) {
+                // ✅ Send confirmation message to user
+                reply = `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}? Reply 'yes' to confirm or 'no' to correct.`;
+                
+                // Store the pending confirmation in memory (or DB if needed)
+                userOnboardingState[from] = { pendingExpense: expenseData };
+            } else {
+                reply = `🎤 Transcription: "${transcription}". I couldn't identify this as an expense. Please clarify.`;
+            }
+        } else {
+            reply = "⚠️ Sorry, I couldn't understand the voice note.";
+        }
+    } 
+    else if (mediaUrl && mediaType?.includes("image")) {
+        // 🧾 Receipt Image Handling
+        reply = await handleReceiptImage(from, mediaUrl);
+    } 
+    else if (body.toLowerCase().startsWith("start job ")) {
+        // 🏗️ Job Tracking Feature 
+        const jobName = body.slice(10).trim();
+        await setActiveJob(from, jobName);
+        reply = `✅ Job '${jobName}' is now active. All expenses will be assigned to this job.`;
+    } 
+    else if (body.toLowerCase().startsWith("expense summary")) {
+        // 📊 Fetch Expense Analytics  
+        const activeJob = await getActiveJob(from) || "Uncategorized";
+        const expenseData = await fetchExpenseData(from, activeJob);
+        const analytics = calculateExpenseAnalytics(expenseData);
+
+        reply = `
 📊 *Expense Summary for ${activeJob}* 📊
 💰 Total Spent: ${analytics.totalSpent}
 🏪 Top Store: ${analytics.topStore}
 📌 Biggest Purchase: ${analytics.biggestPurchase}
 🔄 Most Frequent Expense: ${analytics.mostFrequentItem}
-                `;
-            } else {
-                // 💬 Expense Logging via Text Message
-                const activeJob = await getActiveJob(from) || "Uncategorized";
-                const expenseData = parseExpenseMessage(body);
-                if (expenseData) {
-                    await appendToUserSpreadsheet(from, [
-                        expenseData.date,
-                        expenseData.item,
-                        expenseData.amount,
-                        expenseData.store,
-                        activeJob
-                    ]);
-                    reply = `✅ Expense logged: ${expenseData.item} for ${expenseData.amount} at ${expenseData.store} on ${expenseData.date}`;
-                } else {
-                    reply = "⚠️ Could not understand your request. Please provide a valid expense message.";
-                }
-            }
-        } catch (error) {
-            console.error("[ERROR]", error);
-            reply = "⚠️ Sorry, something went wrong. Please try again later.";
-        }
+        `;
+    } 
+    else if (body.toLowerCase() === 'yes' && userOnboardingState[from]?.pendingExpense) {
+        // ✅ User confirmed the parsed expense
+        const confirmedExpense = userOnboardingState[from].pendingExpense;
+        const activeJob = await getActiveJob(from) || "Uncategorized";
 
-        res.send(`<Response><Message>${reply}</Message></Response>`);
+        await appendToUserSpreadsheet(from, [
+            confirmedExpense.date,
+            confirmedExpense.item,
+            confirmedExpense.amount,
+            confirmedExpense.store,
+            activeJob
+        ]);
+
+        reply = `✅ Expense confirmed and logged: ${confirmedExpense.item} for ${confirmedExpense.amount} at ${confirmedExpense.store} on ${confirmedExpense.date}`;
+        delete userOnboardingState[from].pendingExpense; // Clear pending state
+    }
+    else if (body.toLowerCase() === 'no' && userOnboardingState[from]?.pendingExpense) {
+        // ❌ User rejected the parsed expense
+        reply = "⚠️ Okay, please resend the correct expense details.";
+        delete userOnboardingState[from].pendingExpense; // Clear pending state
+    }
+    else {
+        // 💬 Expense Logging via Text Message
+        const activeJob = await getActiveJob(from) || "Uncategorized";
+        const expenseData = parseExpenseMessage(body);
+
+        if (expenseData) {
+            // Confirm before logging
+            reply = `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}? Reply 'yes' to confirm or 'no' to correct.`;
+            userOnboardingState[from] = { pendingExpense: expenseData };
+        } else {
+            reply = "⚠️ Could not understand your request. Please provide a valid expense message.";
+        }
+    }
+} catch (error) {
+    console.error("[ERROR]", error);
+    reply = "⚠️ Sorry, something went wrong. Please try again later.";
+}
+
+res.send(`<Response><Message>${reply}</Message></Response>`);
 });
 
 // ✅ Debugging: Log Environment Variables
