@@ -1,8 +1,8 @@
 const chrono = require('chrono-node');
 const materialsList = require('./materialsList');
 const toolsList = require('./toolsList');
+const storeList = require('./storeList');
 const allItemsList = [...materialsList, ...toolsList];
-
 
 function parseExpenseMessage(message) {
   console.log(`[DEBUG] Parsing expense message: "${message}"`);
@@ -24,14 +24,14 @@ function parseExpenseMessage(message) {
     );
     store = foundStore ? foundStore : "Unknown Store";
   }
-  
+
   // Date extraction using chrono-node
   const parsedDate = chrono.parseDate(message);
   const date = parsedDate
     ? parsedDate.toISOString().split('T')[0]
     : new Date().toISOString().split('T')[0];
 
-   // Improved item extraction: captures items after "on", "worth of", or common verbs
+  // Improved item extraction: captures items after "on", "worth of", or common verbs
   let item = null;
   const patterns = [
     /(?:bought|purchased|got|spent on|spend on|paid for|on)\s+(?:\d+\s*(?:dollars)?\s*)?(?:worth of\s+)?([\w\d\s-]+?)(?=\s(?:at|from|\$|\d|today|yesterday|on|\.|$))/i,
@@ -65,15 +65,30 @@ function parseExpenseMessage(message) {
     item = item.replace(regex, '').trim();
   }
 
+  // Error Handling: Log missing fields for debugging
+  if (!amount) console.log("[DEBUG] Amount not detected.");
+  if (!store || store === "Unknown Store") console.log("[DEBUG] Store not detected.");
+  if (!item || item === "Miscellaneous Purchase") console.log("[DEBUG] Item not detected.");
+
   // Ensure all required fields exist
   if (!amount || !store || !item) {
     console.log("[DEBUG] Missing essential data, returning null.");
     return null;
   }
 
-  console.log(`[DEBUG] Parsed Expense Data: item="${item}", amount="${amount}", store="${store}", date="${date}"`);
+  // Suggested Category for Dynamic Quick Replies
+  let suggestedCategory = "General";
+  if (store.toLowerCase().includes("home depot") || store.toLowerCase().includes("rona")) {
+    suggestedCategory = "Construction Materials";
+  } else if (store.toLowerCase().includes("best buy")) {
+    suggestedCategory = "Electronics";
+  } else if (store.toLowerCase().includes("ikea")) {
+    suggestedCategory = "Furniture";
+  }
 
-  return { item, amount, store, date };
+  console.log(`[DEBUG] Parsed Expense Data: item="${item}", amount="${amount}", store="${store}", date="${date}", category="${suggestedCategory}"`);
+
+  return { item, amount, store, date, suggestedCategory };
 }
 
 module.exports = { parseExpenseMessage };

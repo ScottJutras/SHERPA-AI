@@ -215,36 +215,63 @@ try {
     else if (mediaUrl && mediaType?.includes("audio")) {
         // 🎤 Voice Note Handling
         const authHeader = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
-
+    
         const audioResponse = await axios.get(mediaUrl, {
             responseType: 'arraybuffer',
             headers: {
                 Authorization: `Basic ${authHeader}`
             }
         });
-
+    
         const audioBuffer = Buffer.from(audioResponse.data, 'binary');
         const transcription = await transcribeAudio(audioBuffer);
-
+        
         if (transcription) {
-            console.log(`[DEBUG] Transcription successful: "${transcription}"`);
-
-            // ✅ Attempt to parse the transcription as an expense
+            console.log(`[DEBUG] Transcription Result: "${transcription}"`);
+    
+            // First try parsing with the existing regex logic
             const expenseData = parseExpenseMessage(transcription);
-
+    
             if (expenseData) {
                 // ✅ Send confirmation message to user
                 reply = `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}? Reply 'yes' to confirm or 'no' to correct.`;
-
+    
                 // Store the pending confirmation in memory (or DB if needed)
                 userOnboardingState[from] = { pendingExpense: expenseData };
             } else {
-                reply = `🎤 Transcription: "${transcription}". I couldn't identify this as an expense. Please clarify.`;
+                // If parsing fails, fallback to GPT-3.5 immediately
+                console.log("[DEBUG] Regex parsing failed, using GPT-3.5 for fallback...");
+    
+                const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+                const gptResponse = await openai.chat.completions.create({
+                    model: "gpt-3.5-turbo",
+                    messages: [
+                        {
+                            role: "system",
+                            content: "You are an assistant that extracts structured expense data from messages."
+                        },
+                        {
+                            role: "user",
+                            content: `Extract the date, item, amount, and store from this message: "${transcription}". Return in JSON format like this: {"date": "YYYY-MM-DD", "item": "ITEM", "amount": "$AMOUNT", "store": "STORE"}.`
+                        }
+                    ]
+                });
+    
+                const gptParsed = JSON.parse(gptResponse.choices[0].message.content);
+    
+                if (gptParsed && gptParsed.item && gptParsed.amount && gptParsed.store) {
+                    reply = `Did you mean: ${gptParsed.amount} for ${gptParsed.item} from ${gptParsed.store} on ${gptParsed.date}? Reply 'yes' to confirm or 'no' to correct.`;
+    
+                    // Store the pending GPT-3.5 result for confirmation
+                    userOnboardingState[from] = { pendingExpense: gptParsed };
+                } else {
+                    reply = "⚠️ I couldn't parse the expense details from your voice note. Please try again or provide more details.";
+                }
             }
         } else {
             reply = "⚠️ Sorry, I couldn't understand the voice note.";
         }
-    } 
+    }
     else if (mediaUrl && mediaType?.includes("image")) {
         // 🧾 Receipt Image Handling
         reply = await handleReceiptImage(from, mediaUrl);
@@ -351,8 +378,8 @@ app.post('/webhook', async (req, res) => {
 
     const from = req.body.From;
     const body = req.body.Body?.trim().toLowerCase();
-    const mediaUrl = req.body.MediaUrl0; // WhatsApp image/audio URL
-    const mediaType = req.body.MediaContentType0; // Detect audio/image type
+    const mediaUrl = req.body.MediaUrl0; 
+    const mediaType = req.body.MediaContentType0;
 
     if (!from) {
         console.error("[ERROR] Webhook request missing 'From'.");
@@ -362,14 +389,74 @@ app.post('/webhook', async (req, res) => {
     console.log(`[DEBUG] Incoming message from ${from}: "${body || "(Media received)"}"`);
 
     let reply;
-    
-    try {
-        if (mediaUrl && mediaType?.includes("audio")) {
-            // 🎤 Voice note received - process transcription
-            try {
-                console.log(`[DEBUG] Downloading audio file from ${mediaUrl}`);
 
-                // ✅ Twilio authentication for fetching audio
+    try {
+         // ✅ Save User Phone Number on First Contact
+        const userRef = db.collection('users').doc(from);
+        const userDoc = await userRef.get();
+
+        if (!userDoc.exists) {
+            await userRef.set({
+                user_id: from,
+                created_at: new Date().toISOString(),
+                onboarding_complete: false
+            });
+            console.log(`[✅ SUCCESS] Phone number saved for new user: ${from}`);
+        }
+
+        // ✅ Handle User Confirmation with Quick Replies
+        if (userOnboardingState[from]?.pendingExpense) {
+            if (body === 'yes') {
+                const confirmedExpense = userOnboardingState[from].pendingExpense;
+                const activeJob = await getActiveJob(from) || "Uncategorized";
+
+                await appendToUserSpreadsheet(from, [
+                    confirmedExpense.date,
+                    confirmedExpense.item,
+                    confirmedExpense.amount,
+                    confirmedExpense.store,
+                    activeJob
+                ]);
+
+                reply = `✅ Expense confirmed and logged: ${confirmedExpense.item} for ${confirmedExpense.amount} at ${confirmedExpense.store} on ${confirmedExpense.date}`;
+                delete userOnboardingState[from].pendingExpense;
+
+            } else if (body === 'no' || body === 'edit') {
+                reply = "✏️ Okay, please resend the correct expense details.";
+                delete userOnboardingState[from].pendingExpense;
+
+            } else if (body === 'cancel') {
+                reply = "🚫 Expense entry canceled.";
+                delete userOnboardingState[from].pendingExpense;
+
+            } else {
+                reply = {
+                    body: `Please confirm: ${userOnboardingState[from].pendingExpense.amount} for ${userOnboardingState[from].pendingExpense.item} from ${userOnboardingState[from].pendingExpense.store} on ${userOnboardingState[from].pendingExpense.date}`,
+                    persistentAction: [
+                        "reply?text=Yes",
+                        "reply?text=Edit",
+                        "reply?text=Cancel"
+                    ]
+                };
+
+                return res.send(`
+                    <Response>
+                        <Message>
+                            <Body>${reply.body}</Body>
+                            <PersistentAction>${reply.persistentAction.join('</PersistentAction><PersistentAction>')}</PersistentAction>
+                        </Message>
+                    </Response>
+                `);
+            }
+
+            return res.send(`<Response><Message>${reply}</Message></Response>`);
+        }
+
+        try {
+            let combinedText = '';
+    
+            // 🎤 Voice Note Handling
+            if (mediaUrl && mediaType?.includes("audio")) {
                 const audioResponse = await axios.get(mediaUrl, {
                     responseType: 'arraybuffer',
                     auth: {
@@ -377,92 +464,134 @@ app.post('/webhook', async (req, res) => {
                         password: process.env.TWILIO_AUTH_TOKEN
                     }
                 });
-
                 const audioBuffer = Buffer.from(audioResponse.data, 'binary');
-                console.log(`[DEBUG] Audio file downloaded, size: ${audioBuffer.length} bytes`);
-
-                // ✅ Transcribe the voice note
                 const transcription = await transcribeAudio(audioBuffer);
-
+    
                 if (transcription) {
-                    console.log(`[DEBUG] Transcription successful: "${transcription}"`);
-
-                    // ✅ Attempt to parse the transcription as an expense
-                    const expenseData = parseExpenseMessage(transcription);
-
-                    if (expenseData) {
-                        // ✅ Send confirmation message to user
-                        reply = `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}? Reply 'yes' to confirm or 'no' to correct.`;
-                        
-                        // Store the pending confirmation in memory (or DB if needed)
-                        userOnboardingState[from] = { pendingExpense: expenseData };
-                    } else {
-                        reply = `🎤 Transcription: "${transcription}". I couldn't identify this as an expense. Please clarify.`;
-                    }
-                } else {
-                    reply = "⚠️ Sorry, I couldn't understand the voice note.";
+                    combinedText += transcription + " ";  // Append transcription to combinedText
+                    console.log(`[DEBUG] Voice Transcription: "${transcription}"`);
                 }
-            } catch (error) {
-                console.error(`[ERROR] Failed to process voice note:`, error);
-                reply = "⚠️ Failed to transcribe voice note. Please try again.";
             }
-        } 
-        else if (mediaUrl && mediaType?.includes("image")) {
-            // 🧾 Receipt image received - process image OCR
-            reply = await handleReceiptImage(from, mediaUrl);
-        } 
-        else if (body.startsWith("start job ")) {
-            // 🏗️ Handle job start request
-            reply = await handleStartJob(from, body);
-        } 
-        else if (body === 'yes' && userOnboardingState[from]?.pendingExpense) {
-            // ✅ User confirmed the parsed expense
-            const confirmedExpense = userOnboardingState[from].pendingExpense;
-            const activeJob = await getActiveJob(from) || "Uncategorized";
-
-            await appendToUserSpreadsheet(from, [
-                confirmedExpense.date,
-                confirmedExpense.item,
-                confirmedExpense.amount,
-                confirmedExpense.store,
-                activeJob
-            ]);
-
-            reply = `✅ Expense confirmed and logged: ${confirmedExpense.item} for ${confirmedExpense.amount} at ${confirmedExpense.store} on ${confirmedExpense.date}`;
-            delete userOnboardingState[from].pendingExpense; // Clear pending state
-        }
-        else if (body === 'no' && userOnboardingState[from]?.pendingExpense) {
-            // ❌ User rejected the parsed expense
-            reply = "⚠️ Okay, please resend the correct expense details.";
-            delete userOnboardingState[from].pendingExpense; // Clear pending state
-        }
-        else {
-            // 💬 Normal text message (expense logging)
-            try {
-                const activeJob = await getActiveJob(from) || "Uncategorized";
-                const expenseData = parseExpenseMessage(body);
-
+    
+            // 🧾 Receipt Image Handling
+            if (mediaUrl && mediaType?.includes("image")) {
+                const ocrText = await extractTextFromImage(mediaUrl);
+    
+                if (ocrText) {
+                    combinedText += ocrText;  // Append OCR text to combinedText
+                    console.log(`[DEBUG] OCR Text: "${ocrText}"`);
+                }
+            }
+    
+            // 📝 Parse Combined Text
+            if (combinedText) {
+                const expenseData = parseExpenseMessage(combinedText);
+    
                 if (expenseData) {
-                    // Confirm before logging
-                    reply = `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}? Reply 'yes' to confirm or 'no' to correct.`;
+                    reply = {
+                        body: `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?`,
+                        persistentAction: ["reply?text=Yes", "reply?text=Edit", "reply?text=Cancel"]
+                    };
                     userOnboardingState[from] = { pendingExpense: expenseData };
+    
+                    return res.send(`
+                        <Response>
+                            <Message>
+                                <Body>${reply.body}</Body>
+                                <PersistentAction>${reply.persistentAction.join('</PersistentAction><PersistentAction>')}</PersistentAction>
+                            </Message>
+                        </Response>
+                    `);
                 } else {
-                    reply = "⚠️ Could not understand your request. Please provide a valid expense message.";
+                    reply = "⚠️ I couldn't parse the details from your message. Please clarify.";
                 }
-            } catch (error) {
-                console.error(`[ERROR] Failed to process text message:`, error);
-                reply = "⚠️ Something went wrong while processing your message.";
+            } else {
+                reply = "⚠️ No media detected or unable to extract information. Please resend.";
             }
+        } catch (error) {
+            console.error(`[ERROR] Error handling message from ${from}:`, error);
+            reply = "⚠️ Sorry, something went wrong. Please try again later.";
         }
-    } catch (error) {
-        console.error(`[ERROR] Error handling message from ${from}:`, error);
-        reply = "⚠️ Sorry, something went wrong. Please try again later.";
+
+        // 🎗️ Job Start Handling
+        if (body.startsWith("start job ")) {
+            reply = await handleStartJob(from, body);
+        }
+        // 💬 Text-Based Expense Logging with Confirmation and GPT-3.5 Fallback
+else if (body) {
+    const activeJob = await getActiveJob(from) || "Uncategorized";
+    let expenseData = parseExpenseMessage(body);  // First attempt with regex-based parsing
+
+    // 🔄 GPT-3.5 Fallback if regex parsing fails
+    if (!expenseData) {
+        console.log("[DEBUG] Regex parsing failed, using GPT-3.5 for fallback...");
+
+        const gptResponse = await openai.chat.completions.create({
+            model: "gpt-3.5-turbo",
+            messages: [
+                {
+                    role: "system",
+                    content: "You are an assistant that extracts structured expense data from messages."
+                },
+                {
+                    role: "user",
+                    content: `Extract the date, item, amount, and store from this message: "${body}". Return in JSON format like this: {"date": "YYYY-MM-DD", "item": "ITEM", "amount": "$AMOUNT", "store": "STORE"}.`
+                }
+            ]
+        });
+
+        // 🔒 Parse the GPT response safely
+        try {
+            expenseData = JSON.parse(gptResponse.choices[0].message.content);
+            console.log("[DEBUG] GPT-3.5 Fallback Result:", expenseData);
+
+            // Ensure date is present, if not, assign today's date
+            if (!expenseData.date) {
+                expenseData.date = new Date().toISOString().split('T')[0];
+            }
+
+        } catch (gptError) {
+            console.error("[ERROR] Failed to parse GPT-3.5 response:", gptError, gptResponse);
+        }
     }
 
-    res.set('Content-Type', 'text/xml');
-    res.send(`<Response><Message>${reply}</Message></Response>`);
-    console.log(`[DEBUG] Reply sent: "${reply}"`);
+    // ✅ If expense data is successfully extracted
+    if (expenseData && expenseData.item && expenseData.amount && expenseData.store) {
+        reply = {
+            body: `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?`,
+            persistentAction: ["reply?text=Yes", "reply?text=Edit", "reply?text=Cancel"]
+        };
+
+        // Store the pending confirmation in memory
+        userOnboardingState[from] = { pendingExpense: expenseData };
+
+        // 📝 Send Quick Reply Buttons
+        return res.send(`
+            <Response>
+                <Message>
+                    <Body>${reply.body}</Body>
+                    <PersistentAction>${reply.persistentAction.join('</PersistentAction><PersistentAction>')}</PersistentAction>
+                </Message>
+            </Response>
+        `);
+    } else {
+        // ⚠️ If parsing fails entirely
+        reply = "⚠️ Could not understand your request. Please provide a valid expense message.";
+    }
+}
+
+// Final catch for unhandled errors
+} catch (error) {
+    console.error(`[ERROR] Error handling message from ${from}:`, error);
+    reply = "⚠️ Sorry, something went wrong. Please try again later.";
+}
+
+// Send the final response
+res.set('Content-Type', 'text/xml');
+res.send(`<Response><Message>${reply}</Message></Response>`);
+console.log(`[DEBUG] Reply sent: "${reply}"`);
 });
+       
 // ✅ Function to handle setting a new job
 async function handleStartJob(from, body) {
     const jobMatch = body.match(/start job (.+)/i);
