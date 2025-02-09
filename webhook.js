@@ -3,6 +3,7 @@ const express = require('express');
 const OpenAI = require('openai');
 const bodyParser = require('body-parser');
 const axios = require('axios');
+const areaCodeMap = require('./utils/areaCodes'); // Adjust the path if necessary
 const { parseExpenseMessage } = require('./utils/expenseParser');
 const { getUserProfile } = require('./utils/googleSheets'); 
 const {
@@ -14,12 +15,13 @@ const {
     getActiveJob
 } = require('./utils/googleSheets');
 const { extractTextFromImage, handleReceiptImage } = require('./utils/visionService');
+const { parsePhoneNumberFromString } = require('libphonenumber-js');
 const { transcribeAudio } = require('./utils/transcriptionService'); // New function
 const fs = require('fs');
 const path = require('path');
-
 const admin = require("firebase-admin");
 
+// ─── FIREBASE ADMIN SETUP ────────────────────────────────────────────
 if (!admin.apps.length) {
     const firebaseCredentialsBase64 = process.env.FIREBASE_CREDENTIALS_BASE64;
     if (!firebaseCredentialsBase64) {
@@ -42,10 +44,41 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
+// ─── DETECT LOCATION BASED ON PHONE NUMBER ───────────────────────────────
+function detectCountryAndRegion(phoneNumber) {
+    const phoneInfo = parsePhoneNumberFromString(phoneNumber);
+    if (!phoneInfo || !phoneInfo.isValid()) {
+        return { country: "Unknown", region: "Unknown" };
+    }
+
+    const country = phoneInfo.country;  // ISO country code (e.g., 'US', 'CA')
+    const nationalNumber = phoneInfo.nationalNumber; 
+    const areaCode = nationalNumber.substring(0, 3);
+
+    let region = "Unknown";
+    if (country === 'US') {
+        const usAreaCodes = {
+            "212": "New York", "213": "Los Angeles", "305": "Miami",
+            // Add all US area codes here
+        };
+        region = usAreaCodes[areaCode] || "Unknown State";
+    } else if (country === 'CA') {
+        const caAreaCodes = {
+            "416": "Toronto, Ontario", "604": "Vancouver, British Columbia",
+            // Add all Canadian area codes here
+        };
+        region = caAreaCodes[areaCode] || "Unknown Province";
+    }
+
+    return { country, region };
+}
+
+// ─── EXPRESS APP SETUP ───────────────────────────────────────────────
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
+// ─── ONBOARDING STEPS ───────────────────────────────────────────────
 const onboardingSteps = [
     "Can I get your name?",
     "Are you in Canada or USA? (Canada/USA)",
@@ -61,10 +94,8 @@ const onboardingSteps = [
 ];
 
 const userOnboardingState = {};
-/**
- * Save user profile to Firestore.
- * @param {Object} userProfile - The user profile data to be saved.
- */
+
+// ─── SAVE USER PROFILE ───────────────────────────────────────────────
 async function saveUserProfile(userProfile) {
     try {
         const userRef = db.collection('users').doc(userProfile.user_id);
@@ -76,6 +107,7 @@ async function saveUserProfile(userProfile) {
     }
 }
 
+// ─── WEBHOOK HANDLER ───────────────────────────────────────────────
 app.post('/webhook', async (req, res) => { 
     const from = req.body.From;
     const body = req.body.Body?.trim();
@@ -94,10 +126,11 @@ app.post('/webhook', async (req, res) => {
         return res.send(`<Response><Message>⚠️ Sorry, something went wrong. Please try again.</Message></Response>`);
     }
 
-    // ✅ Onboarding Flow
-    if (!userProfile) {
+     // ✅ Onboarding Flow
+     if (!userProfile) {
         if (!userOnboardingState[from]) {
-            userOnboardingState[from] = { step: 0, responses: {} };
+            const detectedLocation = detectCountryAndRegion(from);  // Use this function
+            userOnboardingState[from] = { step: 0, responses: {}, detectedLocation };
         }
         const state = userOnboardingState[from];
 
@@ -105,11 +138,20 @@ app.post('/webhook', async (req, res) => {
             if (state.step > 0) {
                 state.responses[`step_${state.step - 1}`] = body;
             }
+
+            // Skip country/province questions if detected
+            if (state.step === 1 && state.detectedLocation.country !== 'Unknown') {
+                state.responses['country'] = state.detectedLocation.country;
+                state.responses['province'] = state.detectedLocation.region;
+                state.step += 2;  // Skip country and province questions
+            } 
+
             const nextStep = onboardingSteps[state.step];
             state.step++;
             return res.send(`<Response><Message>${nextStep}</Message></Response>`);
         } else {
             state.responses[`step_${state.step - 1}`] = body;
+            
             // ✅ Email Validation (for step 10)
     const email = state.responses.step_10;
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -122,8 +164,8 @@ app.post('/webhook', async (req, res) => {
             userProfile = {
                 user_id: from,
                 name: state.responses.step_0,  
-                country: state.responses.step_1,
-                province: state.responses.step_2,
+                country: state.responses.country || state.responses.step_1,  // Use detected country or user input
+                province: state.responses.province || state.responses.step_2, // Use detected province or user input
                 business_type: state.responses.step_3,
                 industry: state.responses.step_4,
                 personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
@@ -144,6 +186,8 @@ app.post('/webhook', async (req, res) => {
         }
     }
 }
+
+
  // ✅ Non-Onboarding Flow for Returning Users
 let reply;
 try {

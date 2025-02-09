@@ -13,6 +13,7 @@
     "google-auth-library": "^9.0.0",
     "google-spreadsheet": "^4.1.4",
     "googleapis": "^144.0.0",
+    "libphonenumber-js": "^1.11.19",
     "openai": "^4.77.3",
     "twilio": "^5.4.0"
   },
