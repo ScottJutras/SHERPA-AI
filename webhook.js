@@ -16,6 +16,7 @@ const {
 } = require('./utils/googleSheets');
 const { extractTextFromImage, handleReceiptImage } = require('./utils/visionService');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
+const { calculateIncomeGoal } = require('./utils/googleSheets');
 const { transcribeAudio } = require('./utils/transcriptionService'); // New function
 const fs = require('fs');
 const path = require('path');
@@ -374,7 +375,7 @@ async function getJobExpenseSummary(from, jobName) {
 
 // ✅ Webhook Route Handling (Voice Notes, Images, and Messages)
 app.post('/webhook', async (req, res) => {
-    console.log("[DEBUG] Incoming Webhook Request", JSON.stringify(req.body));
+    console.log(`[DEBUG] Incoming Webhook Request from ${req.body.From}:`, JSON.stringify(req.body));
 
     const from = req.body.From;
     const body = req.body.Body?.trim().toLowerCase();
@@ -391,7 +392,7 @@ app.post('/webhook', async (req, res) => {
     let reply;
 
     try {
-         // ✅ Save User Phone Number on First Contact
+        // ✅ Save User Phone Number on First Contact
         const userRef = db.collection('users').doc(from);
         const userDoc = await userRef.get();
 
@@ -405,57 +406,83 @@ app.post('/webhook', async (req, res) => {
         }
 
         // ✅ Handle User Confirmation with Quick Replies
-        if (userOnboardingState[from]?.pendingExpense) {
-            if (body === 'yes') {
-                const confirmedExpense = userOnboardingState[from].pendingExpense;
-                const activeJob = await getActiveJob(from) || "Uncategorized";
+        if (userOnboardingState[from]?.pendingExpense || userOnboardingState[from]?.pendingRevenue || userOnboardingState[from]?.pendingBill) {
+            const pendingData = userOnboardingState[from].pendingExpense || userOnboardingState[from].pendingRevenue || userOnboardingState[from].pendingBill;
+            const type = userOnboardingState[from].pendingExpense ? 'expense' : userOnboardingState[from].pendingRevenue ? 'revenue' : 'bill';
+            const activeJob = await getActiveJob(from) || "Uncategorized";
 
+            if (body === 'yes') {
+                if (type === 'bill') {
+                    if (pendingData.action === 'edit') {
+                        const updateSuccess = await updateBillInFirebase(from, pendingData);
+                        reply = updateSuccess 
+                            ? `✏️ Bill "${pendingData.billName}" has been updated to ${pendingData.amount} due on ${pendingData.dueDate}.`
+                            : `⚠️ Bill "${pendingData.billName}" was not found to update. Please check the name.`;
+                    } else if (pendingData.action === 'delete') {
+                        const deletionSuccess = await deleteBillFromFirebase(from, pendingData.billName);
+                        reply = deletionSuccess 
+                            ? `🗑️ Bill "${pendingData.billName}" has been deleted.` 
+                            : `⚠️ Bill "${pendingData.billName}" not found for deletion.`;
+                } else {
+                    // Log bill creation to Google Sheets
+                    await appendToUserSpreadsheet(from, [
+                        pendingData.date,
+                        pendingData.billName,
+                        pendingData.amount,
+                        'Recurring Bill',
+                        activeJob,
+                        'bill',
+                        'recurring'
+                    ]);
+                    reply = `✅ Bill "${pendingData.billName}" has been added for ${pendingData.amount} due on ${pendingData.dueDate}.`;
+
+                }
+            } else {
                 await appendToUserSpreadsheet(from, [
-                    confirmedExpense.date,
-                    confirmedExpense.item,
-                    confirmedExpense.amount,
-                    confirmedExpense.store,
-                    activeJob
+                    pendingData.date,
+                    pendingData.item || pendingData.source,
+                    pendingData.amount,
+                    pendingData.store || pendingData.source,
+                    activeJob,
+                    type
                 ]);
 
-                reply = `✅ Expense confirmed and logged: ${confirmedExpense.item} for ${confirmedExpense.amount} at ${confirmedExpense.store} on ${confirmedExpense.date}`;
-                delete userOnboardingState[from].pendingExpense;
-
-            } else if (body === 'no' || body === 'edit') {
-                reply = "✏️ Okay, please resend the correct expense details.";
-                delete userOnboardingState[from].pendingExpense;
-
-            } else if (body === 'cancel') {
-                reply = "🚫 Expense entry canceled.";
-                delete userOnboardingState[from].pendingExpense;
-
-            } else {
-                reply = {
-                    body: `Please confirm: ${userOnboardingState[from].pendingExpense.amount} for ${userOnboardingState[from].pendingExpense.item} from ${userOnboardingState[from].pendingExpense.store} on ${userOnboardingState[from].pendingExpense.date}`,
-                    persistentAction: [
-                        "reply?text=Yes",
-                        "reply?text=Edit",
-                        "reply?text=Cancel"
-                    ]
-                };
-
-                return res.send(`
-                    <Response>
-                        <Message>
-                            <Body>${reply.body}</Body>
-                            <PersistentAction>${reply.persistentAction.join('</PersistentAction><PersistentAction>')}</PersistentAction>
-                        </Message>
-                    </Response>
-                `);
+                reply = `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} confirmed and logged: ${pendingData.item || pendingData.source} for ${pendingData.amount} on ${pendingData.date}`;
             }
+               // Clear user onboarding state
+               delete userOnboardingState[from].pendingExpense;
+               delete userOnboardingState[from].pendingRevenue;
+               delete userOnboardingState[from].pendingBill;
+           } 
+           else if (body === 'no' || body === 'edit') {
+               reply = "✏️ Okay, please resend the correct details.";
+               delete userOnboardingState[from];
+           } 
+           else if (body === 'cancel') {
+               reply = "🚫 Entry canceled.";
+               delete userOnboardingState[from];
+           } 
+           else {
+               reply = {
+                   body: `Please confirm: ${pendingData.amount} for ${pendingData.item || pendingData.source || pendingData.billName} on ${pendingData.date}`,
+                   persistentAction: ["reply?text=Yes", "reply?text=Edit", "reply?text=Cancel"]
+               };
+           }
 
-            return res.send(`<Response><Message>${reply}</Message></Response>`);
-        }
-
-        try {
-            let combinedText = '';
-    
+           if (typeof reply === 'object') {
+               // Send quick reply buttons
+               return res.send(`
+                   <Response>
+                       <Message>
+                           <Body>${reply.body}</Body>
+                           <PersistentAction>${reply.persistentAction.join('</PersistentAction><PersistentAction>')}</PersistentAction>
+                       </Message>
+                   </Response>
+               `);
+           }
+       }
             // 🎤 Voice Note Handling
+            let combinedText = '';
             if (mediaUrl && mediaType?.includes("audio")) {
                 const audioResponse = await axios.get(mediaUrl, {
                     responseType: 'arraybuffer',
@@ -466,34 +493,34 @@ app.post('/webhook', async (req, res) => {
                 });
                 const audioBuffer = Buffer.from(audioResponse.data, 'binary');
                 const transcription = await transcribeAudio(audioBuffer);
-    
+
                 if (transcription) {
-                    combinedText += transcription + " ";  // Append transcription to combinedText
+                    combinedText += transcription + " ";
                     console.log(`[DEBUG] Voice Transcription: "${transcription}"`);
                 }
             }
-    
+
             // 🧾 Receipt Image Handling
             if (mediaUrl && mediaType?.includes("image")) {
                 const ocrText = await extractTextFromImage(mediaUrl);
-    
+
                 if (ocrText) {
-                    combinedText += ocrText;  // Append OCR text to combinedText
+                    combinedText += ocrText;
                     console.log(`[DEBUG] OCR Text: "${ocrText}"`);
                 }
             }
-    
+
             // 📝 Parse Combined Text
             if (combinedText) {
                 const expenseData = parseExpenseMessage(combinedText);
-    
+
                 if (expenseData) {
                     reply = {
                         body: `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?`,
                         persistentAction: ["reply?text=Yes", "reply?text=Edit", "reply?text=Cancel"]
                     };
                     userOnboardingState[from] = { pendingExpense: expenseData };
-    
+
                     return res.send(`
                         <Response>
                             <Message>
@@ -510,19 +537,86 @@ app.post('/webhook', async (req, res) => {
             }
         } catch (error) {
             console.error(`[ERROR] Error handling message from ${from}:`, error);
-            reply = "⚠️ Sorry, something went wrong. Please try again later.";
+            reply = "⚠️ Sorry, something went wrong while processing your request. Please try again later or resend the details.";
         }
 
         // 🎗️ Job Start Handling
         if (body.startsWith("start job ")) {
             reply = await handleStartJob(from, body);
         }
+ //Income Goal Calculation
+ if (body.includes("how much do i need to make") || body.includes("income goal")) {
+    const incomeGoal = await calculateIncomeGoal(from);
+
+    if (incomeGoal) {
+        const reply = `📈 To cover your expenses next month, you need to make **$${incomeGoal}**. This includes your recurring bills, average variable expenses, and a 10% savings target.`;
+        res.set('Content-Type', 'text/xml');
+        return res.send(`<Response><Message>${reply}</Message></Response>`);
+    } else {
+        const reply = "⚠️ I couldn't calculate your income goal right now. Please ensure your expenses and bills are logged correctly.";
+        res.set('Content-Type', 'text/xml');
+        return res.send(`<Response><Message>${reply}</Message></Response>`);
+    }
+}
+        // 💬 Revenue Logging with Confirmation and GPT-3.5 Fallback
+        else if (body.startsWith("received") || body.startsWith("earned") || body.startsWith("income") || body.startsWith("revenue")) {
+            const activeJob = await getActiveJob(from) || "Uncategorized";
+            let revenueData = parseRevenueMessage(body);
+
+            if (!revenueData) {
+                console.log("[DEBUG] Regex parsing failed for revenue, using GPT-3.5 for fallback...");
+
+                const gptResponse = await openai.chat.completions.create({
+                    model: "gpt-3.5-turbo",
+                    messages: [
+                        { role: "system", content: "You are an assistant that extracts structured revenue data from messages." },
+                        { role: "user", content: `Extract the date, amount, and source from this revenue message: \"${body}\". Return in JSON format like this: {\"date\": \"YYYY-MM-DD\", \"amount\": \"$AMOUNT\", \"source\": \"SOURCE\"}.` }
+                    ]
+                });
+
+                try {
+                    revenueData = JSON.parse(gptResponse.choices[0].message.content);
+                    console.log("[DEBUG] GPT-3.5 Fallback Revenue Result:", revenueData);
+
+                    if (!revenueData.date) {
+                        revenueData.date = new Date().toISOString().split('T')[0];
+                    }
+
+                } catch (gptError) {
+                    console.error("[ERROR] Failed to parse GPT-3.5 revenue response:", gptError, gptResponse);
+                }
+            }
+
+            if (revenueData && revenueData.amount && revenueData.source) {
+                reply = {
+                    body: `Did you mean: ${revenueData.amount} from ${revenueData.source} on ${revenueData.date}?`,
+                    persistentAction: [
+                        "reply?text=Yes",
+                        "reply?text=Edit",
+                        "reply?text=Cancel"
+                    ]
+                };
+
+                userOnboardingState[from] = { pendingRevenue: revenueData };
+
+                return res.send(`
+                    <Response>
+                        <Message>
+                            <Body>${reply.body}</Body>
+                            <PersistentAction>${reply.persistentAction.join('</PersistentAction><PersistentAction>')}</PersistentAction>
+                        </Message>
+                    </Response>
+                `);
+            } else {
+                reply = "⚠️ Could not understand your revenue message. Please provide more details.";
+            }
+        }
+       
         // 💬 Text-Based Expense Logging with Confirmation and GPT-3.5 Fallback
 else if (body) {
     const activeJob = await getActiveJob(from) || "Uncategorized";
-    let expenseData = parseExpenseMessage(body);  // First attempt with regex-based parsing
+    let expenseData = parseExpenseMessage(body);
 
-    // 🔄 GPT-3.5 Fallback if regex parsing fails
     if (!expenseData) {
         console.log("[DEBUG] Regex parsing failed, using GPT-3.5 for fallback...");
 
@@ -535,17 +629,15 @@ else if (body) {
                 },
                 {
                     role: "user",
-                    content: `Extract the date, item, amount, and store from this message: "${body}". Return in JSON format like this: {"date": "YYYY-MM-DD", "item": "ITEM", "amount": "$AMOUNT", "store": "STORE"}.`
+                    content: `Extract the date, item, amount, and store from this message: \"${body}\". Return in JSON format like this: {\"date\": \"YYYY-MM-DD\", \"item\": \"ITEM\", \"amount\": \"$AMOUNT\", \"store\": \"STORE\"}.`
                 }
             ]
         });
 
-        // 🔒 Parse the GPT response safely
         try {
             expenseData = JSON.parse(gptResponse.choices[0].message.content);
             console.log("[DEBUG] GPT-3.5 Fallback Result:", expenseData);
 
-            // Ensure date is present, if not, assign today's date
             if (!expenseData.date) {
                 expenseData.date = new Date().toISOString().split('T')[0];
             }
@@ -555,17 +647,14 @@ else if (body) {
         }
     }
 
-    // ✅ If expense data is successfully extracted
     if (expenseData && expenseData.item && expenseData.amount && expenseData.store) {
         reply = {
             body: `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?`,
             persistentAction: ["reply?text=Yes", "reply?text=Edit", "reply?text=Cancel"]
         };
 
-        // Store the pending confirmation in memory
         userOnboardingState[from] = { pendingExpense: expenseData };
 
-        // 📝 Send Quick Reply Buttons
         return res.send(`
             <Response>
                 <Message>
@@ -575,23 +664,69 @@ else if (body) {
             </Response>
         `);
     } else {
-        // ⚠️ If parsing fails entirely
         reply = "⚠️ Could not understand your request. Please provide a valid expense message.";
     }
 }
+    
+    // ✅ Ensure there's always a fallback response
+    if (!reply) {
+        reply = "⚠️ I couldn't understand your request. Please try again with more details.";
+        
+        res.set('Content-Type', 'text/xml');
+        return res.send(`<Response><Message>${reply}</Message></Response>`);
+    }    
+    // ✅ Send the final response (only if the above conditions don't trigger)
+res.set('Content-Type', 'text/xml');
+console.log(`[DEBUG] Reply sent to ${from}: "${reply}"`);
+return res.send(`<Response><Message>${reply}</Message></Response>`);
+});
 
-// Final catch for unhandled errors
-} catch (error) {
-    console.error(`[ERROR] Error handling message from ${from}:`, error);
-    reply = "⚠️ Sorry, something went wrong. Please try again later.";
+
+// 🛠️ Helper Functions for Bill Management
+async function updateBillInFirebase(userId, billData) {
+    try {
+        const userBillsRef = db.collection('users').doc(userId).collection('bills');
+        const querySnapshot = await userBillsRef.where('billName', '==', billData.billName).get();
+
+        if (!querySnapshot.empty) {
+            const billDoc = querySnapshot.docs[0];
+            await billDoc.ref.update({
+                amount: billData.amount,
+                dueDate: billData.dueDate,
+                recurrence: billData.recurrence
+            });
+            console.log(`[✅ SUCCESS] Bill "${billData.billName}" updated.`);
+            return true;
+        } else {
+            console.log(`[⚠️ WARNING] Bill "${billData.billName}" not found for update.`);
+            return false;
+        }
+    } catch (error) {
+        console.error(`[ERROR] Failed to update bill "${billData.billName}":`, error);
+        return false;
+    }
 }
 
-// Send the final response
-res.set('Content-Type', 'text/xml');
-res.send(`<Response><Message>${reply}</Message></Response>`);
-console.log(`[DEBUG] Reply sent: "${reply}"`);
-});
-       
+async function deleteBillFromFirebase(userId, billName) {
+    try {
+        const userBillsRef = db.collection('users').doc(userId).collection('bills');
+        const querySnapshot = await userBillsRef.where('billName', '==', billName).get();
+
+        if (!querySnapshot.empty) {
+            const billDoc = querySnapshot.docs[0];
+            await billDoc.ref.delete();
+            console.log(`[✅ SUCCESS] Bill "${billName}" deleted.`);
+            return true;
+        } else {
+            console.log(`[⚠️ WARNING] Bill "${billName}" not found for deletion.`);
+            return false;
+        }
+    } catch (error) {
+        console.error(`[ERROR] Failed to delete bill "${billName}":`, error);
+        return false;
+    }
+}
+
 // ✅ Function to handle setting a new job
 async function handleStartJob(from, body) {
     const jobMatch = body.match(/start job (.+)/i);

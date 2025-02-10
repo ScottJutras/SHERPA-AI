@@ -411,7 +411,45 @@ async function getUserProfile(phoneNumber) {
     return null;
   }
 }
+/**
+ * Calculates the income goal based on bills and expenses.
+ *
+ * @param {string} userId - The user's ID (WhatsApp number).
+ * @returns {Promise<string|null>} The calculated income goal or null if an error occurs.
+ */
+async function calculateIncomeGoal(userId) {
+  try {
+     // Fetch recurring bills (e.g., rent, utilities)  
+    const billsSnapshot = await db.collection('users').doc(userId).collection('bills').get();
+      let totalFixedExpenses = 0;
 
+      billsSnapshot.forEach(doc => {
+          const bill = doc.data();
+          totalFixedExpenses += parseFloat(bill.amount);
+      });
+      // Fetch variable expenses for the current month
+      const currentDate = new Date();
+      const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+
+      const expensesSnapshot = await db.collection('users').doc(userId).collection('expenses')
+          .where('date', '>=', firstDayOfMonth.toISOString())
+          .get();
+
+      let totalVariableExpenses = 0;
+      expensesSnapshot.forEach(doc => {
+          const expense = doc.data();
+          totalVariableExpenses += parseFloat(expense.amount);
+      });
+      // Add a 10% savings target
+      const savingsTarget = 0.1 * (totalFixedExpenses + totalVariableExpenses);
+      const incomeGoal = totalFixedExpenses + totalVariableExpenses + savingsTarget;
+
+      return incomeGoal.toFixed(2);
+  } catch (error) {
+      console.error(`[ERROR] Failed to calculate income goal for user ${userId}:`, error);
+      return null;
+  }
+}
 // ─── MODULE EXPORTS ───────────────────────────────────────────────────────────
 module.exports = {
   getUserProfile,
@@ -424,4 +462,5 @@ module.exports = {
   createSpreadsheetForUser,
   calculateExpenseAnalytics,
   parseReceiptText,
+  calculateIncomeGoal,
 };
