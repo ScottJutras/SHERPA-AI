@@ -324,12 +324,13 @@ console.log("[DEBUG] GOOGLE_CREDENTIALS_BASE64:", process.env.GOOGLE_CREDENTIALS
 console.log("[DEBUG] FIREBASE_CREDENTIALS_BASE64:", process.env.FIREBASE_CREDENTIALS_BASE64 ? "Loaded" : "Missing");
 console.log("[DEBUG] OPENAI_API_KEY:", process.env.OPENAI_API_KEY ? "Loaded" : "Missing");
 
-// ✅ Load Google Vision Credentials from ENV
-const googleVisionBase64 = process.env.GOOGLE_VISION_CREDENTIALS_BASE64;
+// ✅ Load Google Vision Credentials from ENV (fallback to GOOGLE_CREDENTIALS_BASE64 if missing)
+const googleVisionBase64 = process.env.GOOGLE_VISION_CREDENTIALS_BASE64 || process.env.GOOGLE_CREDENTIALS_BASE64;
 
 if (!googleVisionBase64) {
-    throw new Error("[ERROR] Missing GOOGLE_VISION_CREDENTIALS_BASE64 in environment variables.");
+    throw new Error("[ERROR] Missing Google Vision API credentials. Ensure GOOGLE_CREDENTIALS_BASE64 is set.");
 }
+
 
 // ✅ Decode Base64 and write it to a temporary file in /tmp (since /var/task is read-only in Vercel)
 const visionCredentialsPath = "/tmp/google-vision-key.json";
