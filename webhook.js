@@ -406,81 +406,83 @@ app.post('/webhook', async (req, res) => {
         }
 
         // ✅ Handle User Confirmation with Quick Replies
-        if (userOnboardingState[from]?.pendingExpense || userOnboardingState[from]?.pendingRevenue || userOnboardingState[from]?.pendingBill) {
-            const pendingData = userOnboardingState[from].pendingExpense || userOnboardingState[from].pendingRevenue || userOnboardingState[from].pendingBill;
-            const type = userOnboardingState[from].pendingExpense ? 'expense' : userOnboardingState[from].pendingRevenue ? 'revenue' : 'bill';
-            const activeJob = await getActiveJob(from) || "Uncategorized";
+if (userOnboardingState[from]?.pendingExpense || userOnboardingState[from]?.pendingRevenue || userOnboardingState[from]?.pendingBill) {
+    const pendingData = userOnboardingState[from].pendingExpense || userOnboardingState[from].pendingRevenue || userOnboardingState[from].pendingBill;
+    const type = userOnboardingState[from].pendingExpense ? 'expense' : userOnboardingState[from].pendingRevenue ? 'revenue' : 'bill';
+    const activeJob = await getActiveJob(from) || "Uncategorized";
 
-            if (body === 'yes') {
-                if (type === 'bill') {
-                    if (pendingData.action === 'edit') {
-                        const updateSuccess = await updateBillInFirebase(from, pendingData);
-                        reply = updateSuccess 
-                            ? `✏️ Bill "${pendingData.billName}" has been updated to ${pendingData.amount} due on ${pendingData.dueDate}.`
-                            : `⚠️ Bill "${pendingData.billName}" was not found to update. Please check the name.`;
-                    } else if (pendingData.action === 'delete') {
-                        const deletionSuccess = await deleteBillFromFirebase(from, pendingData.billName);
-                        reply = deletionSuccess 
-                            ? `🗑️ Bill "${pendingData.billName}" has been deleted.` 
-                            : `⚠️ Bill "${pendingData.billName}" not found for deletion.`;
-                } else {
-                    // Log bill creation to Google Sheets
-                    await appendToUserSpreadsheet(from, [
-                        pendingData.date,
-                        pendingData.billName,
-                        pendingData.amount,
-                        'Recurring Bill',
-                        activeJob,
-                        'bill',
-                        'recurring'
-                    ]);
-                    reply = `✅ Bill "${pendingData.billName}" has been added for ${pendingData.amount} due on ${pendingData.dueDate}.`;
-
-                }
+    if (body === 'yes') {
+        if (type === 'bill') {
+            if (pendingData.action === 'edit') {
+                const updateSuccess = await updateBillInFirebase(from, pendingData);
+                reply = updateSuccess 
+                    ? `✏️ Bill "${pendingData.billName}" has been updated to ${pendingData.amount} due on ${pendingData.dueDate}.`
+                    : `⚠️ Bill "${pendingData.billName}" was not found to update. Please check the name.`;
+            } else if (pendingData.action === 'delete') {
+                const deletionSuccess = await deleteBillFromFirebase(from, pendingData.billName);
+                reply = deletionSuccess 
+                    ? `🗑️ Bill "${pendingData.billName}" has been deleted.` 
+                    : `⚠️ Bill "${pendingData.billName}" not found for deletion.`;
             } else {
+                // Log bill creation to Google Sheets
                 await appendToUserSpreadsheet(from, [
                     pendingData.date,
-                    pendingData.item || pendingData.source,
+                    pendingData.billName,
                     pendingData.amount,
-                    pendingData.store || pendingData.source,
+                    'Recurring Bill',
                     activeJob,
-                    type
+                    'bill',
+                    'recurring'
                 ]);
-
-                reply = `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} confirmed and logged: ${pendingData.item || pendingData.source} for ${pendingData.amount} on ${pendingData.date}`;
+                reply = `✅ Bill "${pendingData.billName}" has been added for ${pendingData.amount} due on ${pendingData.dueDate}.`;
             }
-               // Clear user onboarding state
-               delete userOnboardingState[from].pendingExpense;
-               delete userOnboardingState[from].pendingRevenue;
-               delete userOnboardingState[from].pendingBill;
-           } 
-           else if (body === 'no' || body === 'edit') {
-               reply = "✏️ Okay, please resend the correct details.";
-               delete userOnboardingState[from];
-           } 
-           else if (body === 'cancel') {
-               reply = "🚫 Entry canceled.";
-               delete userOnboardingState[from];
-           } 
-           else {
-               reply = {
-                   body: `Please confirm: ${pendingData.amount} for ${pendingData.item || pendingData.source || pendingData.billName} on ${pendingData.date}`,
-                   persistentAction: ["reply?text=Yes", "reply?text=Edit", "reply?text=Cancel"]
-               };
-           }
+        } else {
+            await appendToUserSpreadsheet(from, [
+                pendingData.date,
+                pendingData.item || pendingData.source,
+                pendingData.amount,
+                pendingData.store || pendingData.source,
+                activeJob,
+                type
+            ]);
 
-           if (typeof reply === 'object') {
-               // Send quick reply buttons
-               return res.send(`
-                   <Response>
-                       <Message>
-                           <Body>${reply.body}</Body>
-                           <PersistentAction>${reply.persistentAction.join('</PersistentAction><PersistentAction>')}</PersistentAction>
-                       </Message>
-                   </Response>
-               `);
-           }
-       }
+            reply = `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} confirmed and logged: ${pendingData.item || pendingData.source} for ${pendingData.amount} on ${pendingData.date}`;
+        }
+    } else if (body === 'no' || body === 'edit') {
+        reply = "✏️ Okay, please resend the correct details.";
+        delete userOnboardingState[from].pendingExpense;
+        delete userOnboardingState[from].pendingRevenue;
+        delete userOnboardingState[from].pendingBill;
+
+    } else if (body === 'cancel') {
+        reply = "🚫 Entry canceled.";
+        delete userOnboardingState[from].pendingExpense;
+        delete userOnboardingState[from].pendingRevenue;
+        delete userOnboardingState[from].pendingBill;
+
+    } else {
+        reply = {
+            body: `Please confirm: ${pendingData.amount} for ${pendingData.item || pendingData.source || pendingData.billName} on ${pendingData.date}`,
+            persistentAction: [
+                "reply?text=Yes",
+                "reply?text=Edit",
+                "reply?text=Cancel"
+            ]
+        };
+
+        return res.send(`
+            <Response>
+                <Message>
+                    <Body>${reply.body}</Body>
+                    <PersistentAction>${reply.persistentAction.join('</PersistentAction><PersistentAction>')}</PersistentAction>
+                </Message>
+            </Response>
+        `);
+    }
+
+    return res.send(`<Response><Message>${reply}</Message></Response>`);
+}
+
             // 🎤 Voice Note Handling
             let combinedText = '';
             if (mediaUrl && mediaType?.includes("audio")) {
