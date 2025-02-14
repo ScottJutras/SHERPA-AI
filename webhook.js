@@ -230,26 +230,31 @@ app.post('/webhook', async (req, res) => {
  // ✅ Non-Onboarding Flow for Returning Users
 let reply;
 try {
-    if (body?.toLowerCase() === 'yes' && userOnboardingState[from]?.pendingExpense) {
-        // ✅ User confirmed the parsed expense
+    if (userOnboardingState[from]?.pendingExpense) {
         const confirmedExpense = userOnboardingState[from].pendingExpense;
-        const activeJob = await getActiveJob(from) || "Uncategorized";
     
-        if (!confirmedExpense.amount || !confirmedExpense.item || !confirmedExpense.store) {
-            console.log("[❌ ERROR] Missing essential expense data. Aborting log.");
-            return res.send(`<Response><Message>⚠️ Sorry, I couldn't process that expense. Please provide the full details.</Message></Response>`);
+        if (body.toLowerCase() === 'yes' || body.toLowerCase() === 'yea' || body.toLowerCase() === 'yep') {
+            const activeJob = await getActiveJob(from) || "Uncategorized";
+    
+            await appendToUserSpreadsheet(from, [
+                confirmedExpense.date,
+                confirmedExpense.item,
+                confirmedExpense.amount,
+                confirmedExpense.store,
+                activeJob
+            ]);
+    
+            delete userOnboardingState[from].pendingExpense; // Clear the pending state
+    
+            return res.send(`<Response><Message>✅ Expense confirmed and logged: ${confirmedExpense.item} for ${confirmedExpense.amount} at ${confirmedExpense.store} on ${confirmedExpense.date}</Message></Response>`);
+        } else if (body.toLowerCase() === 'no' || body.toLowerCase() === 'edit') {
+            delete userOnboardingState[from].pendingExpense; // Clear the pending state
+            return res.send(`<Response><Message>✏️ Okay, please resend the correct details.</Message></Response>`);
+        } else {
+            return res.send(`<Response><Message>⚠️ Please reply with 'Yes' to confirm, 'No' to cancel, or 'Edit' to correct.</Message></Response>`);
         }
-    
-        await appendToUserSpreadsheet(from, [
-            confirmedExpense.date,
-            confirmedExpense.item,
-            confirmedExpense.amount,
-            confirmedExpense.store,
-            activeJob
-        ]);
-        delete userOnboardingState[from].pendingExpense;
-        return res.send(`<Response><Message>✅ Expense confirmed and logged: ${confirmedExpense.item} for ${confirmedExpense.amount} at ${confirmedExpense.store} on ${confirmedExpense.date}</Message></Response>`);
     }
+    
     // 🎤 Voice Note Handling   
     if (mediaUrl && mediaType?.includes("audio")) {
         const authHeader = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
