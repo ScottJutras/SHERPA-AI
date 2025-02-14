@@ -178,240 +178,232 @@ if (!userProfile) {
 
 // ─── WEBHOOK HANDLER ───────────────────────────────────────────────
 app.post('/webhook', async (req, res) => { 
-    const from = req.body.From;
-    const body = req.body.ButtonResponse?.id || req.body.Body?.trim();
-    const mediaUrl = req.body.MediaUrl0;
-    const mediaType = req.body.MediaContentType0;
-
-    if (!from) {
-        return res.status(400).send("Bad Request: Missing 'From'.");
-    }
-
-    let userProfile;
     try {
-        userProfile = await getUserProfile(from);
-    } catch (error) {
-        console.error("[ERROR] Failed to fetch user profile:", error);
-        return res.send(`<Response><Message>⚠️ Sorry, something went wrong. Please try again.</Message></Response>`);
-    }
+        const from = req.body.From;
+        const body = req.body.ButtonResponse?.id || req.body.Body?.trim();
+        const mediaUrl = req.body.MediaUrl0;
+        const mediaType = req.body.MediaContentType0;
 
-     // ✅ Onboarding Flow
-     if (!userProfile) {
-        if (!userOnboardingState[from]) {
-            const detectedLocation = detectCountryAndRegion(from);  // Use this function
-            userOnboardingState[from] = { step: 0, responses: {}, detectedLocation };
+        if (!from) {
+            return res.status(400).send("Bad Request: Missing 'From'.");
         }
-        const state = userOnboardingState[from];
 
-        if (state.step < onboardingSteps.length) {
-            if (state.step > 0) {
-                state.responses[`step_${state.step - 1}`] = body;
+        let userProfile = await getUserProfile(from);
+
+        // ✅ Onboarding Flow
+        if (!userProfile) {
+            if (!userOnboardingState[from]) {
+                const detectedLocation = detectCountryAndRegion(from);  
+                userOnboardingState[from] = { step: 0, responses: {}, detectedLocation };
             }
 
-            // Skip country/province questions if detected
-            if (state.step === 1 && state.detectedLocation.country !== 'Unknown') {
-                state.responses['country'] = state.detectedLocation.country;
-                state.responses['province'] = state.detectedLocation.region;
-                state.step += 2;  // Skip country and province questions
-            } 
+            const state = userOnboardingState[from];
 
-            const nextStep = onboardingSteps[state.step];
-            state.step++;
-            await axios.post(
-                `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
-                new URLSearchParams({
-                    From: process.env.TWILIO_WHATSAPP_NUMBER,
-                    To: from,
-                    MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-                    ContentTemplateSid: "YOUR_TEMPLATE_SID_HERE" // Use the appropriate Twilio template SID for this question
-                }).toString(),
-                {
-                    headers: {
-                        "Content-Type": "application/x-www-form-urlencoded"
-                    },
-                    auth: {
-                        username: process.env.TWILIO_ACCOUNT_SID,
-                        password: process.env.TWILIO_AUTH_TOKEN
+            if (state.step < onboardingSteps.length) {
+                if (state.step > 0) {
+                    state.responses[`step_${state.step - 1}`] = body;
+                }
+
+                // Skip country/province questions if detected
+                if (state.step === 1 && state.detectedLocation.country !== 'Unknown') {
+                    state.responses['country'] = state.detectedLocation.country;
+                    state.responses['province'] = state.detectedLocation.region;
+                    state.step += 2;
+                }
+
+                const nextStep = onboardingSteps[state.step];
+                state.step++;
+
+                const templateSid = onboardingTemplates[state.step] || null;
+
+                if (templateSid) {
+                    console.log(`[DEBUG] Sending Quick Reply for Step ${state.step} using Template SID: ${templateSid}`);
+
+                    await axios.post(
+                        `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
+                        new URLSearchParams({
+                            From: process.env.TWILIO_WHATSAPP_NUMBER,
+                            To: from,
+                            MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+                            ContentTemplateSid: templateSid
+                        }).toString(),
+                        {
+                            headers: {
+                                "Content-Type": "application/x-www-form-urlencoded"
+                            },
+                            auth: {
+                                username: process.env.TWILIO_ACCOUNT_SID,
+                                password: process.env.TWILIO_AUTH_TOKEN
+                            }
+                        }
+                    );
+
+                    return res.status(200).send("Quick Reply Sent.");
+                } else {
+                    console.log(`[DEBUG] No Template SID found for Step ${state.step}, sending plain text.`);
+                    return res.send(`<Response><Message>${nextStep}</Message></Response>`);
+                }
+            } else {
+                state.responses[`step_${state.step - 1}`] = body;
+
+                // ✅ Email Validation (for step 10)
+                const email = state.responses.step_10;
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+                if (!emailRegex.test(email)) {
+                    return res.send(`<Response><Message>⚠️ Invalid email format. Please provide a valid email address.</Message></Response>`);
+                }
+
+                try {
+                    // ✅ Save completed onboarding profile
+                    userProfile = {
+                        user_id: from,
+                        name: state.responses.step_0,  
+                        country: state.responses.country || state.responses.step_1,  
+                        province: state.responses.province || state.responses.step_2,  
+                        business_type: state.responses.step_3,
+                        industry: state.responses.step_4,
+                        personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
+                        track_mileage: state.responses.step_6.toLowerCase() === "yes",
+                        track_home_office: state.responses.step_7.toLowerCase() === "yes",
+                        financial_goals: state.responses.step_8,
+                        add_bills: state.responses.step_9?.toLowerCase() === "yes",
+                        email: state.responses.step_10,
+                        created_at: new Date().toISOString()
+                    };
+
+                    await saveUserProfile(userProfile);
+                    delete userOnboardingState[from];
+
+                    return res.send(`<Response><Message>✅ Onboarding complete, ${userProfile.name}! You can now start logging expenses.</Message></Response>`);
+                } catch (error) {
+                    console.error("[ERROR] Failed to save user profile:", error);
+                    return res.send(`<Response><Message>⚠️ Error saving profile. Please try again later.</Message></Response>`);
+                }
+            }
+        }
+
+        // ✅ Non-Onboarding Flow for Returning Users
+        let reply;
+        if (userOnboardingState[from]?.pendingExpense) {
+            const confirmedExpense = userOnboardingState[from].pendingExpense;
+
+            if (["yes", "yea", "yep"].includes(body.toLowerCase())) {
+                const activeJob = await getActiveJob(from) || "Uncategorized";
+
+                await appendToUserSpreadsheet(from, [
+                    confirmedExpense.date,
+                    confirmedExpense.item,
+                    confirmedExpense.amount,
+                    confirmedExpense.store,
+                    activeJob
+                ]);
+
+                delete userOnboardingState[from].pendingExpense;
+
+                return res.send(`<Response><Message>✅ Expense logged: ${confirmedExpense.item} for ${confirmedExpense.amount} at ${confirmedExpense.store} on ${confirmedExpense.date}</Message></Response>`);
+            } else if (["no", "edit"].includes(body.toLowerCase())) {
+                delete userOnboardingState[from].pendingExpense;
+                return res.send(`<Response><Message>✏️ Okay, please resend the correct details.</Message></Response>`);
+            } else {
+                return res.send(`<Response><Message>⚠️ Reply with 'Yes' to confirm, 'No' to cancel, or 'Edit' to correct.</Message></Response>`);
+            }
+        }
+
+        // ✅ Handling Voice Notes
+        if (mediaUrl && mediaType?.includes("audio")) {
+            const authHeader = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
+
+            const audioResponse = await axios.get(mediaUrl, {
+                responseType: 'arraybuffer',
+                headers: {
+                    Authorization: `Basic ${authHeader}`
+                }
+            });
+
+            const audioBuffer = Buffer.from(audioResponse.data, 'binary');
+            const transcription = await transcribeAudio(audioBuffer);
+
+            if (transcription) {
+                console.log(`[DEBUG] Transcription Result: "${transcription}"`);
+                let expenseData = parseExpenseMessage(transcription);
+
+                if (!expenseData) {
+                    // 🔄 Fallback to GPT-3.5 if Regex Parsing Fails
+                    console.log("[DEBUG] Regex parsing failed, using GPT-3.5 fallback...");
+
+                    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+                    const gptResponse = await openai.chat.completions.create({
+                        model: "gpt-3.5-turbo",
+                        messages: [
+                            {
+                                role: "system",
+                                content: "You are an assistant that extracts structured expense data from messages."
+                            },
+                            {
+                                role: "user",
+                                content: `Extract the date, item, amount, and store from this message: "${transcription}". Return in JSON format like this: {"date": "YYYY-MM-DD", "item": "ITEM", "amount": "$AMOUNT", "store": "STORE"}.`
+                            }
+                        ]
+                    });
+
+                    try {
+                        expenseData = JSON.parse(gptResponse.choices[0].message.content);
+                    } catch (error) {
+                        console.error("[ERROR] GPT-3.5 Parsing Error:", error);
+                        expenseData = null;
                     }
                 }
-            );
-            
-        } else {
-            state.responses[`step_${state.step - 1}`] = body;
-            
-            // ✅ Email Validation (for step 10)
-    const email = state.responses.step_10;
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-    if (!emailRegex.test(email)) {
-        return res.send(`<Response><Message>⚠️ The email address you provided doesn't seem valid. Please enter a valid email address.</Message></Response>`);
-    }
-            try{
-            // ✅ Save completed onboarding profile
-            userProfile = {
-                user_id: from,
-                name: state.responses.step_0,  
-                country: state.responses.country || state.responses.step_1,  // Use detected country or user input
-                province: state.responses.province || state.responses.step_2, // Use detected province or user input
-                business_type: state.responses.step_3,
-                industry: state.responses.step_4,
-                personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
-                track_mileage: state.responses.step_6.toLowerCase() === "yes",
-                track_home_office: state.responses.step_7.toLowerCase() === "yes",
-                financial_goals: state.responses.step_8,
-                add_bills: state.responses.step_9?.toLowerCase() === "yes",
-                email: state.responses.step_10,
-                created_at: new Date().toISOString()
-            };
+                if (expenseData) {
+                    userOnboardingState[from] = { pendingExpense: expenseData };
 
-            await saveUserProfile(userProfile);
-            delete userOnboardingState[from];
-            return res.send(`<Response><Message>✅ Onboarding complete, ${userProfile.name}! You can now start logging expenses.</Message></Response>`);
-        } catch (error) {
-            console.error("[ERROR] Failed to save user profile:", error);
-            return res.send(`<Response><Message>⚠️ Sorry, something went wrong while saving your profile. Please try again later.</Message></Response>`);
-        }
-    }
+                    await sendQuickReply(from, 
+                        `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?`, 
+                        ["Yes", "Edit", "Cancel"]
+                    );
 
-}
-
- // ✅ Non-Onboarding Flow for Returning Users
-let reply;
-try {
-    if (userOnboardingState[from]?.pendingExpense) {
-        const confirmedExpense = userOnboardingState[from].pendingExpense;
-    
-        if (body.toLowerCase() === 'yes' || body.toLowerCase() === 'yea' || body.toLowerCase() === 'yep') {
-            const activeJob = await getActiveJob(from) || "Uncategorized";
-    
-            await appendToUserSpreadsheet(from, [
-                confirmedExpense.date,
-                confirmedExpense.item,
-                confirmedExpense.amount,
-                confirmedExpense.store,
-                activeJob
-            ]);
-    
-            delete userOnboardingState[from].pendingExpense; // Clear the pending state
-    
-            return res.send(`<Response><Message>✅ Expense confirmed and logged: ${confirmedExpense.item} for ${confirmedExpense.amount} at ${confirmedExpense.store} on ${confirmedExpense.date}</Message></Response>`);
-        } else if (body.toLowerCase() === 'no' || body.toLowerCase() === 'edit') {
-            delete userOnboardingState[from].pendingExpense; // Clear the pending state
-            return res.send(`<Response><Message>✏️ Okay, please resend the correct details.</Message></Response>`);
-        } else {
-            return res.send(`<Response><Message>⚠️ Please reply with 'Yes' to confirm, 'No' to cancel, or 'Edit' to correct.</Message></Response>`);
-        }
-    }
-    
-    // 🎤 Voice Note Handling   
-    if (mediaUrl && mediaType?.includes("audio")) {
-        const authHeader = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
-    
-        const audioResponse = await axios.get(mediaUrl, {
-            responseType: 'arraybuffer',
-            headers: {
-                Authorization: `Basic ${authHeader}`
-            }
-        });
-    
-        const audioBuffer = Buffer.from(audioResponse.data, 'binary');
-        const transcription = await transcribeAudio(audioBuffer);
-        
-        if (transcription) {
-            console.log(`[DEBUG] Transcription Result: "${transcription}"`);
-    
-            // First try parsing with the existing regex logic
-            const expenseData = parseExpenseMessage(transcription);
-    
-            if (expenseData) {
-                // ✅ Send confirmation message to user
-                await sendQuickReply(from, 
-                    `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?`, 
-                    ["Yes", "Edit", "Cancel"]
-                );
-                return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
-                
-    
-                // Store the pending confirmation in memory (or DB if needed)
-                userOnboardingState[from] = { pendingExpense: expenseData };
-            } else {
-                // If parsing fails, fallback to GPT-3.5 immediately
-                console.log("[DEBUG] Regex parsing failed, using GPT-3.5 for fallback...");
-    
-                const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-                const gptResponse = await openai.chat.completions.create({
-                    model: "gpt-3.5-turbo",
-                    messages: [
-                        {
-                            role: "system",
-                            content: "You are an assistant that extracts structured expense data from messages."
-                        },
-                        {
-                            role: "user",
-                            content: `Extract the date, item, amount, and store from this message: "${transcription}". Return in JSON format like this: {"date": "YYYY-MM-DD", "item": "ITEM", "amount": "$AMOUNT", "store": "STORE"}.`
-                        }
-                    ]
-                });
-    
-                const gptParsed = JSON.parse(gptResponse.choices[0].message.content);
-    
-                if (gptParsed && gptParsed.item && gptParsed.amount && gptParsed.store) {
-                    reply = `Did you mean: ${gptParsed.amount} for ${gptParsed.item} from ${gptParsed.store} on ${gptParsed.date}? Reply 'yes' to confirm or 'no' to correct.`;
-    
-                    // Store the pending GPT-3.5 result for confirmation
-                    userOnboardingState[from] = { pendingExpense: gptParsed };
+                    return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
                 } else {
-                    reply = "⚠️ I couldn't parse the expense details from your voice note. Please try again or provide more details.";
+                    reply = "⚠️ Could not extract expense details. Please try again.";
                 }
+            } else {
+                reply = "⚠️ Sorry, I couldn't understand the voice note.";
             }
-        } else {
-            reply = "⚠️ Sorry, I couldn't understand the voice note.";
         }
-    }
-    else if (mediaUrl && mediaType?.includes("image")) {
-        // 🧾 Receipt Image Handling
-        reply = await handleReceiptImage(from, mediaUrl);
-    } 
-    else if (body?.toLowerCase().startsWith("start job ")) {
-        // 🏗️ Job Tracking Feature 
-        const jobName = body.slice(10).trim();
-        await setActiveJob(from, jobName);
-        reply = `✅ Job '${jobName}' is now active. All expenses will be assigned to this job.`;
-    } 
-    else if (body?.toLowerCase().startsWith("expense summary")) {
-        // 📊 Fetch Expense Analytics  
-        const activeJob = await getActiveJob(from) || "Uncategorized";
-        const expenseData = await fetchExpenseData(from, activeJob);
-        const analytics = calculateExpenseAnalytics(expenseData);
+        // ✅ Handling Receipt Images
+        else if (mediaUrl && mediaType?.includes("image")) {
+            reply = await handleReceiptImage(from, mediaUrl);
+        }
 
-        reply = `
-📊 *Expense Summary for ${activeJob}* 📊
+        // ✅ Handling Job Tracking
+        else if (body?.toLowerCase().startsWith("start job ")) {
+            const jobName = body.slice(10).trim();
+            await setActiveJob(from, jobName);
+            reply = `✅ Job '${jobName}' is now active.`;
+        }
+
+        // ✅ Expense Summary
+        else if (body?.toLowerCase().startsWith("expense summary")) {
+            const activeJob = await getActiveJob(from) || "Uncategorized";
+            const expenseData = await fetchExpenseData(from, activeJob);
+            const analytics = calculateExpenseAnalytics(expenseData);
+
+            reply = `📊 *Expense Summary for ${activeJob}* 📊
 💰 Total Spent: ${analytics.totalSpent}
 🏪 Top Store: ${analytics.topStore}
 📌 Biggest Purchase: ${analytics.biggestPurchase}
-🔄 Most Frequent Expense: ${analytics.mostFrequentItem}
-        `;
-    } 
-    else {
-        // 💬 Expense Logging via Text Message
-        const activeJob = await getActiveJob(from) || "Uncategorized";
-        const expenseData = parseExpenseMessage(body);
-
-        if (expenseData) {
-            // Confirm before logging
-            reply = `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}? Reply 'yes' to confirm or 'no' to correct.`;
-            userOnboardingState[from] = { pendingExpense: expenseData };
-        } else {
-            reply = "⚠️ Could not understand your request. Please provide a valid expense message.";
+🔄 Most Frequent Expense: ${analytics.mostFrequentItem}`;
         }
-    }
-} catch (error) {
-    console.error("[ERROR]", error);
-    reply = "⚠️ Sorry, something went wrong. Please try again later.";
-}
 
-res.send(`<Response><Message>${reply}</Message></Response>`);
+        res.send(`<Response><Message>${reply}</Message></Response>`);
+
+    } catch (error) {
+        console.error("[ERROR]", error);
+        res.send(`<Response><Message>⚠️ Error processing request.</Message></Response>`);
+    }
 });
+
 
 // ✅ Debugging: Log Environment Variables
 console.log("[DEBUG] Checking environment variables...");
