@@ -63,7 +63,7 @@ async function getAuthorizedClient() {
  * @param {string} phoneNumber - The user's phone number.
  * @returns {Promise<string>} The spreadsheet ID.
  */
-async function createSpreadsheetForUser(phoneNumber) {
+async function createSpreadsheetForUser(phoneNumber, userEmail) {
   try {
     console.log(`[DEBUG] Creating a new spreadsheet for user: ${phoneNumber}`);
     const auth = await getAuthorizedClient();
@@ -142,15 +142,26 @@ async function getOrCreateUserSpreadsheet(phoneNumber) {
     } else {
       console.log(`[DEBUG] No spreadsheet found for user (${phoneNumber}). Creating a new one.`);
       spreadsheetId = await createSpreadsheetForUser(phoneNumber);
+
       await userDoc.set({ spreadsheetId }, { merge: true });
       console.log(`[✅ SUCCESS] Spreadsheet created and saved to Firebase for user (${phoneNumber}): ${spreadsheetId}`);
     }
-    return spreadsheetId;
+
+    // ✅ Retrieve the user profile and extract the email correctly
+    const userProfile = await getUserProfile(phoneNumber);
+    
+    if (!userProfile || !userProfile.email) {
+      console.error(`[❌ ERROR] Missing user email for ${phoneNumber}`);
+      throw new Error("User email is required but missing.");
+    }
+
+    return { spreadsheetId, userEmail: userProfile.email };  // ✅ Return both spreadsheetId and userEmail
   } catch (error) {
     console.error(`[❌ ERROR] Failed to retrieve or create spreadsheet for user (${phoneNumber}):`, error.message);
     throw error;
   }
 }
+
 
 /**
  * Append an expense entry to the user's spreadsheet.
