@@ -23,6 +23,12 @@ const { transcribeAudio } = require('./utils/transcriptionService'); // New func
 const fs = require('fs');
 const path = require('path');
 const admin = require("firebase-admin");
+console.log("[DEBUG] Twilio API URL:", `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`);
+console.log("[DEBUG] TWILIO_ACCOUNT_SID:", process.env.TWILIO_ACCOUNT_SID ? "Loaded" : "MISSING");
+console.log("[DEBUG] TWILIO_AUTH_TOKEN:", process.env.TWILIO_AUTH_TOKEN ? "Loaded" : "MISSING");
+console.log("[DEBUG] TWILIO_WHATSAPP_NUMBER:", process.env.TWILIO_WHATSAPP_NUMBER ? "Loaded" : "MISSING");
+console.log("[DEBUG] TWILIO_MESSAGING_SERVICE_SID:", process.env.TWILIO_MESSAGING_SERVICE_SID ? "Loaded" : "MISSING");
+
 
 // ─── FIREBASE ADMIN SETUP ────────────────────────────────────────────
 if (!admin.apps.length) {
