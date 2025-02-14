@@ -5,7 +5,7 @@ const bodyParser = require('body-parser');
 const axios = require('axios');
 const areaCodeMap = require('./utils/areaCodes'); // Adjust the path if necessary
 const { parseExpenseMessage } = require('./utils/expenseParser');
-const { getUserProfile } = require('./utils/googleSheets'); 
+const { getUserProfile, saveUserProfile } = require("./utils/googleSheets"); 
 const {
     appendToUserSpreadsheet,
     getOrCreateUserSpreadsheet,
@@ -102,30 +102,21 @@ const onboardingSteps = [
 
 const userOnboardingState = {};
 
-// ─── SAVE OR UPDATE USER PROFILE ─────────────────────────────────────────────── 
-async function getUserProfile(phoneNumber) {
+// ─── SAVE OR UPDATE USER PROFILE ───────────────────────────────────────────────
+async function saveUserProfile(userProfile) {
     try {
-      if (!phoneNumber.startsWith("whatsapp:")) {
-          phoneNumber = `whatsapp:${phoneNumber.replace(/\D/g, "")}`;
-      }
-  
-      console.log(`[DEBUG] Fetching user profile for: ${phoneNumber}`);
-      
-      const userRef = db.collection("users").doc(phoneNumber);
-      const doc = await userRef.get();
-  
-      if (doc.exists) {
-        console.log(`[✅] Retrieved user profile for ${phoneNumber}`);
-        return doc.data();
-      } else {
-        console.log(`[ℹ️] No user profile found for ${phoneNumber}`);
-        return null;
-      }
+        const formattedNumber = userProfile.user_id.replace(/\D/g, ""); // Normalize to digits only
+        console.log(`[DEBUG] Checking user profile for: ${formattedNumber}`);
+
+        const userRef = db.collection('users').doc(formattedNumber);
+        await userRef.set(userProfile, { merge: true });
+
+        console.log(`[✅ SUCCESS] User profile saved for ${formattedNumber}`);
     } catch (error) {
-      console.error("[❌] Error fetching user profile:", error);
-      return null;
+        console.error(`[❌ ERROR] Failed to save user profile:`, error);
+        throw error;
     }
-  } 
+}
 
 // ─── WEBHOOK HANDLER ───────────────────────────────────────────────
 app.post('/webhook', async (req, res) => { 
@@ -231,8 +222,7 @@ try {
     
         reply = `✅ Expense confirmed and logged: ${confirmedExpense.item} for ${confirmedExpense.amount} at ${confirmedExpense.store} on ${confirmedExpense.date}`;
         delete userOnboardingState[from].pendingExpense; // Clear pending state
-    }
-    
+    }    
     else if (body?.toLowerCase() === 'no' && userOnboardingState[from]?.pendingExpense) {
         // ❌ User rejected the parsed expense
         reply = "⚠️ Okay, please resend the correct expense details.";

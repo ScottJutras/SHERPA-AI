@@ -1,6 +1,7 @@
 // ─── IMPORTS ────────────────────────────────────────────────────────────────
 const { google } = require('googleapis');
 const admin = require('firebase-admin');
+const db = admin.firestore();
 
 // ─── FIREBASE ADMIN / FIRESTORE SETUP ─────────────────────────────────────────
 // Initialize Firebase Admin if not already initialized.
@@ -23,7 +24,6 @@ if (!admin.apps.length) {
     process.exit(1);
   }
 }
-const db = admin.firestore();
 
 // ─── GOOGLE CREDENTIALS & AUTH SETUP ───────────────────────────────────────────
 if (!process.env.GOOGLE_CREDENTIALS_BASE64) {
@@ -425,6 +425,24 @@ async function getUserProfile(phoneNumber) {
     return null;
   }
 }
+
+async function saveUserProfile(userProfile) {
+  try {
+      const formattedNumber = userProfile.user_id.replace(/\D/g, ""); // Normalize to digits only
+      console.log(`[DEBUG] Checking user profile for: ${formattedNumber}`);
+
+      const userRef = db.collection("users").doc(formattedNumber);
+      await userRef.set(userProfile, { merge: true });
+
+      console.log(`[✅ SUCCESS] User profile saved for ${formattedNumber}`);
+  } catch (error) {
+      console.error("[❌ ERROR] Failed to save user profile:", error);
+      throw error;
+  }
+}
+
+module.exports = { getUserProfile, saveUserProfile };  // Ensure both functions are exported
+
 
 /**
  * Calculates the income goal based on bills and expenses.
