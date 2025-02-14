@@ -7,20 +7,20 @@ const PROJECT_ID = process.env.GCP_PROJECT_ID;  // Your actual project ID
 const LOCATION = (process.env.GCP_LOCATION || "us").toLowerCase();  
 const PROCESSOR_ID = process.env.DOCUMENTAI_PROCESSOR_ID;  // Your Document AI processor ID
 
-// ✅ Google Authentication
-if (!process.env.GOOGLE_CREDENTIALS_BASE64) {
-    throw new Error("[ERROR] GOOGLE_CREDENTIALS_BASE64 is missing. Cannot authenticate Document AI.");
+if (!process.env.GOOGLE_VISION_CREDENTIALS_BASE64) {
+    throw new Error("[ERROR] GOOGLE_VISION_CREDENTIALS_BASE64 is missing. Cannot authenticate Google Vision API.");
 }
-console.log("[DEBUG] Loading Google Document AI credentials from environment variable.");
-const googleCredentials = JSON.parse(
-    Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8')
+console.log("[DEBUG] Loading Google Vision API credentials from environment variable.");
+const googleVisionCredentials = JSON.parse(
+    Buffer.from(process.env.GOOGLE_VISION_CREDENTIALS_BASE64, 'base64').toString('utf-8')
 );
 
-// Create a GoogleAuth client with the cloud-platform scope.
+// Create a GoogleAuth client for Vision API
 const authClient = new GoogleAuth({
-    credentials: googleCredentials,
+    credentials: googleVisionCredentials,
     scopes: ["https://www.googleapis.com/auth/cloud-platform"],
 });
+
 
 /**
  * Process receipt image with Google Document AI (Receipts Processor).
