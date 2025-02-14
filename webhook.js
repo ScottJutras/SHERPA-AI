@@ -4,16 +4,18 @@ const OpenAI = require('openai');
 const bodyParser = require('body-parser');
 const axios = require('axios');
 const areaCodeMap = require('./utils/areaCodes'); // Adjust the path if necessary
-const { parseExpenseMessage } = require('./utils/expenseParser');
-const { getUserProfile, saveUserProfile } = require("./utils/googleSheets"); 
+const { parseExpenseMessage } = require('./utils/expenseParser'); 
 const {
+    getUserProfile,
+    saveUserProfile,
     appendToUserSpreadsheet,
     getOrCreateUserSpreadsheet,
     fetchExpenseData,
     calculateExpenseAnalytics,
     setActiveJob,
     getActiveJob
-} = require('./utils/googleSheets');
+} = require("./utils/googleSheets");
+
 const { extractTextFromImage, handleReceiptImage } = require('./utils/visionService');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
 const { calculateIncomeGoal } = require('./utils/googleSheets');
