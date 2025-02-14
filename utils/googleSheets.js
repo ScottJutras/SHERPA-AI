@@ -1,7 +1,6 @@
 // ─── IMPORTS ────────────────────────────────────────────────────────────────
 const { google } = require('googleapis');
 const admin = require('firebase-admin');
-const db = admin.firestore();
 
 // ─── FIREBASE ADMIN / FIRESTORE SETUP ─────────────────────────────────────────
 // Initialize Firebase Admin if not already initialized.
@@ -24,6 +23,53 @@ if (!admin.apps.length) {
     process.exit(1);
   }
 }
+
+// Define Firestore instance
+const db = admin.firestore();
+
+/**
+ * Retrieves the user's profile from Firestore.
+ *
+ * @param {string} phoneNumber - The user's WhatsApp number.
+ * @returns {Promise<Object|null>} The user profile data or null if not found.
+ */
+async function getUserProfile(phoneNumber) {
+  try {
+    const formattedNumber = phoneNumber.replace(/\D/g, "");  // Normalize phone number (remove non-digits)
+    console.log(`[DEBUG] Fetching user profile for: ${formattedNumber}`);
+
+    const userRef = db.collection("users").doc(formattedNumber);
+    const doc = await userRef.get();
+
+    if (doc.exists) {
+      console.log(`[✅] Retrieved user profile for ${formattedNumber}:`, doc.data());
+      return doc.data(); // Return user profile data
+    } else {
+      console.log(`[ℹ️] No user profile found for ${formattedNumber}`);
+      return null; // User profile does not exist
+    }
+  } catch (error) {
+    console.error("[❌] Error fetching user profile:", error);
+    return null;
+  }
+}
+
+async function saveUserProfile(userProfile) {
+  try {
+      const formattedNumber = userProfile.user_id.replace(/\D/g, ""); // Normalize to digits only
+      console.log(`[DEBUG] Checking user profile for: ${formattedNumber}`);
+
+      const userRef = db.collection("users").doc(formattedNumber);
+      await userRef.set(userProfile, { merge: true });
+
+      console.log(`[✅ SUCCESS] User profile saved for ${formattedNumber}`);
+  } catch (error) {
+      console.error("[❌ ERROR] Failed to save user profile:", error);
+      throw error;
+  }
+}
+
+module.exports = { getUserProfile, saveUserProfile };
 
 // ─── GOOGLE CREDENTIALS & AUTH SETUP ───────────────────────────────────────────
 if (!process.env.GOOGLE_CREDENTIALS_BASE64) {
@@ -399,50 +445,6 @@ async function logReceiptExpense(phoneNumber, extractedText) {
     activeJob,
   ]);
 }
-/**
- * Retrieves the user's profile from Firestore.
- *
- * @param {string} phoneNumber - The user's WhatsApp number.
- * @returns {Promise<Object|null>} The user profile data or null if not found.
- */
-async function getUserProfile(phoneNumber) {
-  try {
-    const formattedNumber = phoneNumber.replace(/\D/g, "");  // Normalize phone number (remove non-digits)
-    console.log(`[DEBUG] Fetching user profile for: ${formattedNumber}`);
-
-    const userRef = db.collection("users").doc(formattedNumber);
-    const doc = await userRef.get();
-
-    if (doc.exists) {
-      console.log(`[✅] Retrieved user profile for ${formattedNumber}:`, doc.data());
-      return doc.data(); // Return user profile data
-    } else {
-      console.log(`[ℹ️] No user profile found for ${formattedNumber}`);
-      return null; // User profile does not exist
-    }
-  } catch (error) {
-    console.error("[❌] Error fetching user profile:", error);
-    return null;
-  }
-}
-
-async function saveUserProfile(userProfile) {
-  try {
-      const formattedNumber = userProfile.user_id.replace(/\D/g, ""); // Normalize to digits only
-      console.log(`[DEBUG] Checking user profile for: ${formattedNumber}`);
-
-      const userRef = db.collection("users").doc(formattedNumber);
-      await userRef.set(userProfile, { merge: true });
-
-      console.log(`[✅ SUCCESS] User profile saved for ${formattedNumber}`);
-  } catch (error) {
-      console.error("[❌ ERROR] Failed to save user profile:", error);
-      throw error;
-  }
-}
-
-module.exports = { getUserProfile, saveUserProfile };  // Ensure both functions are exported
-
 
 /**
  * Calculates the income goal based on bills and expenses.
