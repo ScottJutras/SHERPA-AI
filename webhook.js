@@ -46,11 +46,21 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 // ─── DETECT LOCATION BASED ON PHONE NUMBER ───────────────────────────────
+const { parsePhoneNumberFromString } = require('libphonenumber-js'); // Ensure this is imported
+
 function detectCountryAndRegion(phoneNumber) {
+    if (!phoneNumber.startsWith("+")) {
+        phoneNumber = `+${phoneNumber}`;  // Normalize phone number
+    }
+
     const phoneInfo = parsePhoneNumberFromString(phoneNumber);
     if (!phoneInfo || !phoneInfo.isValid()) {
         return { country: "Unknown", region: "Unknown" };
     }
+
+    return { country: phoneInfo.country, region: phoneInfo.countryCallingCode };
+}
+
 
     const country = phoneInfo.country;  // ISO country code (e.g., 'US', 'CA')
     const nationalNumber = phoneInfo.nationalNumber; 
