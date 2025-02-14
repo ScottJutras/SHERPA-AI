@@ -45,7 +45,6 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-// ─── DETECT LOCATION BASED ON PHONE NUMBER ───────────────────────────────
 const { parsePhoneNumberFromString } = require('libphonenumber-js'); // Ensure this is imported
 
 function detectCountryAndRegion(phoneNumber) {
@@ -58,15 +57,12 @@ function detectCountryAndRegion(phoneNumber) {
         return { country: "Unknown", region: "Unknown" };
     }
 
-    return { country: phoneInfo.country, region: phoneInfo.countryCallingCode };
-}
-
-
     const country = phoneInfo.country;  // ISO country code (e.g., 'US', 'CA')
     const nationalNumber = phoneInfo.nationalNumber; 
     const areaCode = nationalNumber.substring(0, 3);
 
     let region = "Unknown";
+
     if (country === 'US') {
         const usAreaCodes = {
             "212": "New York", "213": "Los Angeles", "305": "Miami",
