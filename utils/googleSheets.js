@@ -35,20 +35,28 @@ const db = admin.firestore();
  */
 async function getUserProfile(phoneNumber) {
   try {
-    const formattedNumber = phoneNumber.replace(/\D/g, "");  // Normalize phone number (remove non-digits)
+    const formattedNumber = phoneNumber.replace(/\D/g, ""); // Normalize phone number
+    const possibleFormats = [formattedNumber, `whatsapp:+${formattedNumber}`];
 
-    console.log(`[DEBUG] Fetching user profile for: ${formattedNumber}`);
+    let userProfile = null;
 
-    const userRef = db.collection("users").doc(formattedNumber);
-    const doc = await userRef.get();
+    for (const format of possibleFormats) {
+      const userRef = db.collection("users").doc(format);
+      const doc = await userRef.get();
 
-    if (doc.exists) {
-      console.log(`[✅] Retrieved user profile for ${formattedNumber}:`, doc.data());
-      return doc.data(); // Return user profile data
-    } else {
-      console.log(`[ℹ️] No user profile found for ${formattedNumber}`);
-      return null; // User profile does not exist
+      if (doc.exists) {
+        userProfile = doc.data();
+        console.log(`[✅] Retrieved user profile for ${format}:`, userProfile);
+        break;
+      }
     }
+
+    if (!userProfile) {
+      console.log(`[ℹ️] No user profile found for ${phoneNumber}`);
+      return null;
+    }
+
+    return userProfile;
   } catch (error) {
     console.error("[❌] Error fetching user profile:", error);
     return null;
@@ -143,14 +151,12 @@ async function createSpreadsheetForUser(phoneNumber, userEmail) {
     const spreadsheetId = response.data.spreadsheetId;
     console.log(`[✅ SUCCESS] Spreadsheet created: ${response.data.spreadsheetId}`);
     //Step 2 : Retrieve the user's email from Firestore (or use a default for testing)
-    const userDoc = await db.collection('users').doc(phoneNumber).get();
-    const userEmail = userDoc.exists && userDoc.data().email
-      ? userDoc.data().email
-      : process.env.FALLBACK_EMAIL;  // Set FALLBACK_EMAIL in Vercel for testing
+    const userProfile = await getUserProfile(phoneNumber);
+const userEmail = userProfile?.email || process.env.FALLBACK_EMAIL;
 
-    if (!userEmail) {
-      throw new Error(`[ERROR] No email found for user ${phoneNumber}. Cannot share the spreadsheet.`);
-    }
+if (!userEmail) {
+  throw new Error(`[ERROR] No email found for user ${phoneNumber}. Cannot share the spreadsheet.`);
+}
 
     // Step 3: Share the spreadsheet with the user
     await drive.permissions.create({
@@ -180,35 +186,51 @@ async function createSpreadsheetForUser(phoneNumber, userEmail) {
  */
 async function getOrCreateUserSpreadsheet(phoneNumber) {
   try {
-    const userDoc = db.collection('users').doc(phoneNumber);
-    const userSnapshot = await userDoc.get();
-    let spreadsheetId;
+    const formattedNumber = phoneNumber.replace(/\D/g, ""); // Normalize to digits only
+    const possibleFormats = [formattedNumber, `whatsapp:+${formattedNumber}`];
 
-    if (userSnapshot.exists && userSnapshot.data().spreadsheetId) {
-      spreadsheetId = userSnapshot.data().spreadsheetId;
-    } else {
-      console.log(`[DEBUG] No spreadsheet found for user (${phoneNumber}). Creating a new one.`);
-      spreadsheetId = await createSpreadsheetForUser(phoneNumber);
+    let userProfile = null;
+    let userDocRef = null;
 
-      await userDoc.set({ spreadsheetId }, { merge: true });
-      console.log(`[✅ SUCCESS] Spreadsheet created and saved to Firebase for user (${phoneNumber}): ${spreadsheetId}`);
+    // ✅ Check both formats in Firebase
+    for (const format of possibleFormats) {
+      const userDoc = db.collection('users').doc(format);
+      const doc = await userDoc.get();
+      if (doc.exists) {
+        userProfile = doc.data();
+        userDocRef = userDoc; // Store the correct document reference
+        break;
+      }
     }
 
-    // ✅ Retrieve the user profile and extract the email correctly
-    const userProfile = await getUserProfile(phoneNumber);
-    
     if (!userProfile || !userProfile.email) {
-      console.error(`[❌ ERROR] Missing user email for ${phoneNumber}`);
+      console.error(`[❌ ERROR] No email found for ${phoneNumber}. Cannot create a spreadsheet.`);
       throw new Error("User email is required but missing.");
     }
 
-    return { spreadsheetId, userEmail: userProfile.email };  // ✅ Return both spreadsheetId and userEmail
+    const userEmail = userProfile.email;
+    let spreadsheetId = userProfile.spreadsheetId;
+
+    if (!spreadsheetId) {
+      console.log(`[DEBUG] No spreadsheet found for user (${phoneNumber}). Creating a new one.`);
+      
+      // ✅ Pass the email to createSpreadsheetForUser
+      spreadsheetId = await createSpreadsheetForUser(formattedNumber, userEmail);
+
+      // ✅ Save new spreadsheet ID to Firestore
+      if (userDocRef) {
+        await userDocRef.set({ spreadsheetId }, { merge: true });
+      }
+      
+      console.log(`[✅ SUCCESS] Spreadsheet created and saved to Firebase for user (${phoneNumber}): ${spreadsheetId}`);
+    }
+
+    return { spreadsheetId, userEmail };
   } catch (error) {
     console.error(`[❌ ERROR] Failed to retrieve or create spreadsheet for user (${phoneNumber}):`, error.message);
     throw error;
   }
 }
-
 
 /**
  * Append an expense entry to the user's spreadsheet.
@@ -218,7 +240,7 @@ async function getOrCreateUserSpreadsheet(phoneNumber) {
  */
 async function appendToUserSpreadsheet(phoneNumber, rowData) {
   try {
-    const spreadsheetId = await getOrCreateUserSpreadsheet(phoneNumber);
+    const { spreadsheetId, userEmail } = await getOrCreateUserSpreadsheet(phoneNumber);
     console.log(`[DEBUG] Using Spreadsheet ID: ${spreadsheetId}`);
     const auth = await getAuthorizedClient();
     const sheets = google.sheets({ version: 'v4', auth });
@@ -248,7 +270,7 @@ async function appendToUserSpreadsheet(phoneNumber, rowData) {
  */
 async function fetchExpenseData(phoneNumber, jobName) {
   try {
-    const spreadsheetId = await getOrCreateUserSpreadsheet(phoneNumber);
+    const { spreadsheetId, userEmail } = await getOrCreateUserSpreadsheet(phoneNumber);
     const auth = await getAuthorizedClient();
     const sheets = google.sheets({ version: 'v4', auth });
     const RANGE = 'Sheet1!A:E'; // Columns: Date, Item, Amount, Store, Job

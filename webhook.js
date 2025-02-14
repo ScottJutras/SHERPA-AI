@@ -103,7 +103,43 @@ const onboardingSteps = [
 ];
 
 const userOnboardingState = {};
+// ✅ Function to send interactive WhatsApp Quick Replies
+const sendQuickReply = async (from, text, buttons) => {
+    try {
+        console.log(`[DEBUG] Attempting to send Quick Reply to ${from}`);
 
+        const buttonOptions = buttons.map(label => ({
+            type: "reply",
+            reply: {
+                id: label.toLowerCase(),
+                title: label
+            }
+        }));
+
+        const response = await axios.post(
+            `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`, 
+            new URLSearchParams({
+                From: process.env.TWILIO_WHATSAPP_NUMBER,
+                To: from,
+                MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+                Body: text,
+                "PersistentAction": buttons.map(b => `reply?text=${b}`).join(',')
+            }).toString(), 
+            {
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                auth: {
+                    username: process.env.TWILIO_ACCOUNT_SID,
+                    password: process.env.TWILIO_AUTH_TOKEN
+                }
+            }
+        );
+
+        console.log(`[✅ SUCCESS] Twilio API Response:`, response.data);
+
+    } catch (error) {
+        console.error("[❌ ERROR] Failed to send Quick Reply:", error.response?.data || error.message);
+    }
+};
 // ─── WEBHOOK HANDLER ───────────────────────────────────────────────
 app.post('/webhook', async (req, res) => { 
     const from = req.body.From;
@@ -182,8 +218,8 @@ app.post('/webhook', async (req, res) => {
             return res.send(`<Response><Message>⚠️ Sorry, something went wrong while saving your profile. Please try again later.</Message></Response>`);
         }
     }
-}
 
+}
 
  // ✅ Non-Onboarding Flow for Returning Users
 let reply;
@@ -205,17 +241,11 @@ try {
             confirmedExpense.store,
             activeJob
         ]);
-    
-        reply = `✅ Expense confirmed and logged: ${confirmedExpense.item} for ${confirmedExpense.amount} at ${confirmedExpense.store} on ${confirmedExpense.date}`;
-        delete userOnboardingState[from].pendingExpense; // Clear pending state
-    }    
-    else if (body?.toLowerCase() === 'no' && userOnboardingState[from]?.pendingExpense) {
-        // ❌ User rejected the parsed expense
-        reply = "⚠️ Okay, please resend the correct expense details.";
-        delete userOnboardingState[from].pendingExpense; // Clear pending state
+        delete userOnboardingState[from].pendingExpense;
+        return res.send(`<Response><Message>✅ Expense confirmed and logged: ${confirmedExpense.item} for ${confirmedExpense.amount} at ${confirmedExpense.store} on ${confirmedExpense.date}</Message></Response>`);
     }
-    else if (mediaUrl && mediaType?.includes("audio")) {
-        // 🎤 Voice Note Handling
+    // 🎤 Voice Note Handling   
+    if (mediaUrl && mediaType?.includes("audio")) {
         const authHeader = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
     
         const audioResponse = await axios.get(mediaUrl, {
@@ -236,7 +266,12 @@ try {
     
             if (expenseData) {
                 // ✅ Send confirmation message to user
-                reply = `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}? Reply 'yes' to confirm or 'no' to correct.`;
+                await sendQuickReply(from, 
+                    `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?`, 
+                    ["Yes", "Edit", "Cancel"]
+                );
+                return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+                
     
                 // Store the pending confirmation in memory (or DB if needed)
                 userOnboardingState[from] = { pendingExpense: expenseData };
@@ -471,15 +506,6 @@ if (userOnboardingState[from]?.pendingExpense || userOnboardingState[from]?.pend
                 "reply?text=Cancel"
             ]
         };
-
-        return res.send(`
-            <Response>
-                <Message>
-                    <Body>${reply.body}</Body>
-                    <PersistentAction>${reply.persistentAction.join('</PersistentAction><PersistentAction>')}</PersistentAction>
-                </Message>
-            </Response>
-        `);
     }
 
     return res.send(`<Response><Message>${reply}</Message></Response>`);
@@ -515,35 +541,31 @@ if (userOnboardingState[from]?.pendingExpense || userOnboardingState[from]?.pend
             }
 
             // 📝 Parse Combined Text
-            if (combinedText) {
-                const expenseData = parseExpenseMessage(combinedText);
+if (combinedText) {
+    const expenseData = parseExpenseMessage(combinedText);
 
-                if (expenseData) {
-                    reply = {
-                        body: `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?`,
-                        persistentAction: ["reply?text=Yes", "reply?text=Edit", "reply?text=Cancel"]
-                    };
-                    userOnboardingState[from] = { pendingExpense: expenseData };
+    if (expenseData) {
+        // ✅ Store pending expense BEFORE sending response
+        userOnboardingState[from] = { pendingExpense: expenseData };
 
-                    return res.send(`
-                        <Response>
-                            <Message>
-                                <Body>${reply.body}</Body>
-                                <PersistentAction>${reply.persistentAction.join('</PersistentAction><PersistentAction>')}</PersistentAction>
-                            </Message>
-                        </Response>
-                    `);
-                } else {
-                    reply = "⚠️ I couldn't parse the details from your message. Please clarify.";
-                }
-            } else {
-                reply = "⚠️ No media detected or unable to extract information. Please resend.";
-            }
-        } catch (error) {
-            console.error(`[ERROR] Error handling message from ${from}:`, error);
-            reply = "⚠️ Sorry, something went wrong while processing your request. Please try again later or resend the details.";
-        }
-
+        await sendQuickReply(from, 
+            `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?`, 
+            ["Yes", "Edit", "Cancel"]
+        );
+        return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+        
+    } else {
+        // 🚨 Fallback if parsing fails
+        console.log("[DEBUG] Parsing failed. No structured expense data detected.");
+        reply = "⚠️ I couldn't parse the details from your message. Please clarify.";
+    }
+} else {
+    reply = "⚠️ No media detected or unable to extract information. Please resend.";
+}
+} catch (error) {
+    console.error("[ERROR] Media processing failed:", error);
+    reply = "⚠️ Sorry, there was an issue processing your media file. Please try again.";
+}
         // 🎗️ Job Start Handling
         if (body.startsWith("start job ")) {
             reply = await handleStartJob(from, body);
@@ -553,7 +575,7 @@ if (userOnboardingState[from]?.pendingExpense || userOnboardingState[from]?.pend
     const incomeGoal = await calculateIncomeGoal(from);
 
     if (incomeGoal) {
-        const reply = `📈 To cover your expenses next month, you need to make **$${incomeGoal}**. This includes your recurring bills, average variable expenses, and a 10% savings target.`;
+        reply = `📈 To cover your expenses next month, you need to make **$${incomeGoal}**. This includes your recurring bills, average variable expenses, and a 10% savings target.`;
         res.set('Content-Type', 'text/xml');
         return res.send(`<Response><Message>${reply}</Message></Response>`);
     } else {
@@ -562,60 +584,53 @@ if (userOnboardingState[from]?.pendingExpense || userOnboardingState[from]?.pend
         return res.send(`<Response><Message>${reply}</Message></Response>`);
     }
 }
-        // 💬 Revenue Logging with Confirmation and GPT-3.5 Fallback
-        else if (body.startsWith("received") || body.startsWith("earned") || body.startsWith("income") || body.startsWith("revenue")) {
-            const activeJob = await getActiveJob(from) || "Uncategorized";
-            let revenueData = parseRevenueMessage(body);
+       // 💬 Revenue Logging with Confirmation and GPT-3.5 Fallback
+else if (body.startsWith("received") || body.startsWith("earned") || body.startsWith("income") || body.startsWith("revenue")) {
+    const activeJob = await getActiveJob(from) || "Uncategorized";
+    let revenueData = parseRevenueMessage(body);
 
-            if (!revenueData) {
-                console.log("[DEBUG] Regex parsing failed for revenue, using GPT-3.5 for fallback...");
+    if (!revenueData) {
+        console.log("[DEBUG] Regex parsing failed for revenue, using GPT-3.5 for fallback...");
 
-                const gptResponse = await openai.chat.completions.create({
-                    model: "gpt-3.5-turbo",
-                    messages: [
-                        { role: "system", content: "You are an assistant that extracts structured revenue data from messages." },
-                        { role: "user", content: `Extract the date, amount, and source from this revenue message: \"${body}\". Return in JSON format like this: {\"date\": \"YYYY-MM-DD\", \"amount\": \"$AMOUNT\", \"source\": \"SOURCE\"}.` }
-                    ]
-                });
+        const gptResponse = await openai.chat.completions.create({
+            model: "gpt-3.5-turbo",
+            messages: [
+                { role: "system", content: "You are an assistant that extracts structured revenue data from messages." },
+                { role: "user", content: `Extract the date, amount, and source from this revenue message: \"${body}\". Return in JSON format like this: {\"date\": \"YYYY-MM-DD\", \"amount\": \"$AMOUNT\", \"source\": \"SOURCE\"}.` }
+            ]
+        });
 
-                try {
-                    revenueData = JSON.parse(gptResponse.choices[0].message.content);
-                    console.log("[DEBUG] GPT-3.5 Fallback Revenue Result:", revenueData);
+        try {
+            revenueData = JSON.parse(gptResponse.choices[0].message.content);
+            console.log("[DEBUG] GPT-3.5 Fallback Revenue Result:", revenueData);
 
-                    if (!revenueData.date) {
-                        revenueData.date = new Date().toISOString().split('T')[0];
-                    }
-
-                } catch (gptError) {
-                    console.error("[ERROR] Failed to parse GPT-3.5 revenue response:", gptError, gptResponse);
-                }
+            if (!revenueData.date) {
+                revenueData.date = new Date().toISOString().split('T')[0];
             }
 
-            if (revenueData && revenueData.amount && revenueData.source) {
-                reply = {
-                    body: `Did you mean: ${revenueData.amount} from ${revenueData.source} on ${revenueData.date}?`,
-                    persistentAction: [
-                        "reply?text=Yes",
-                        "reply?text=Edit",
-                        "reply?text=Cancel"
-                    ]
-                };
-
-                userOnboardingState[from] = { pendingRevenue: revenueData };
-
-                return res.send(`
-                    <Response>
-                        <Message>
-                            <Body>${reply.body}</Body>
-                            <PersistentAction>${reply.persistentAction.join('</PersistentAction><PersistentAction>')}</PersistentAction>
-                        </Message>
-                    </Response>
-                `);
-            } else {
-                reply = "⚠️ Could not understand your revenue message. Please provide more details.";
-            }
+        } catch (gptError) {
+            console.error("[ERROR] Failed to parse GPT-3.5 revenue response:", gptError, gptResponse);
         }
-       
+    }
+
+    if (revenueData && revenueData.amount && revenueData.source) {
+        // ✅ Store the pending revenue BEFORE sending the Quick Reply
+        userOnboardingState[from] = { pendingRevenue: revenueData };
+
+        userOnboardingState[from] = { pendingRevenue: revenueData };
+
+await sendQuickReply(from, 
+    `Did you mean: ${revenueData.amount} from ${revenueData.source} on ${revenueData.date}?`, 
+    ["Yes", "Edit", "Cancel"]
+);
+
+return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+
+    } else {
+        reply = "⚠️ Could not understand your revenue message. Please provide more details.";
+    }
+}
+
         // 💬 Text-Based Expense Logging with Confirmation and GPT-3.5 Fallback
 else if (body) {
     const activeJob = await getActiveJob(from) || "Uncategorized";
@@ -652,21 +667,15 @@ else if (body) {
     }
 
     if (expenseData && expenseData.item && expenseData.amount && expenseData.store) {
-        reply = {
-            body: `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?`,
-            persistentAction: ["reply?text=Yes", "reply?text=Edit", "reply?text=Cancel"]
-        };
-
         userOnboardingState[from] = { pendingExpense: expenseData };
 
-        return res.send(`
-            <Response>
-                <Message>
-                    <Body>${reply.body}</Body>
-                    <PersistentAction>${reply.persistentAction.join('</PersistentAction><PersistentAction>')}</PersistentAction>
-                </Message>
-            </Response>
-        `);
+await sendQuickReply(from, 
+    `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?`, 
+    ["Yes", "Edit", "Cancel"]
+);
+
+return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+
     } else {
         reply = "⚠️ Could not understand your request. Please provide a valid expense message.";
     }
