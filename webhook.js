@@ -103,36 +103,29 @@ const onboardingSteps = [
 const userOnboardingState = {};
 
 // ─── SAVE OR UPDATE USER PROFILE ─────────────────────────────────────────────── 
-async function saveUserProfile(userProfile) {
+async function getUserProfile(phoneNumber) {
     try {
-        const formattedNumber = userProfile.user_id.replace(/\D/g, "");  // Normalize phone number
-        console.log(`[DEBUG] Checking user profile for: ${formattedNumber}`);
-
-        const userRef = db.collection('users').doc(formattedNumber);
-        const userDoc = await userRef.get();
-
-        if (userDoc.exists) {
-            console.log(`[DEBUG] User already exists in Firebase:`, userDoc.data());
-        } else {
-            console.log(`[DEBUG] No existing user found. Creating a new profile.`);
-        }
-
-        await userRef.set(userProfile, { merge: true });  // Save or update the profile
-        console.log(`[✅ SUCCESS] User profile saved for ${formattedNumber}`);
-
-        // ✅ Debug Log to Confirm Firestore Entry
-        const verifyDoc = await userRef.get();
-        if (verifyDoc.exists) {
-            console.log(`[✅ VERIFY] User profile successfully stored in Firestore:`, verifyDoc.data());
-        } else {
-            console.error(`[❌ ERROR] User profile did not save correctly.`);
-        }
-
+      if (!phoneNumber.startsWith("whatsapp:")) {
+          phoneNumber = `whatsapp:${phoneNumber.replace(/\D/g, "")}`;
+      }
+  
+      console.log(`[DEBUG] Fetching user profile for: ${phoneNumber}`);
+      
+      const userRef = db.collection("users").doc(phoneNumber);
+      const doc = await userRef.get();
+  
+      if (doc.exists) {
+        console.log(`[✅] Retrieved user profile for ${phoneNumber}`);
+        return doc.data();
+      } else {
+        console.log(`[ℹ️] No user profile found for ${phoneNumber}`);
+        return null;
+      }
     } catch (error) {
-        console.error(`[❌ ERROR] Failed to save user profile:`, error);
-        throw error;  // Let the calling function handle the error
+      console.error("[❌] Error fetching user profile:", error);
+      return null;
     }
-}
+  } 
 
 // ─── WEBHOOK HANDLER ───────────────────────────────────────────────
 app.post('/webhook', async (req, res) => { 
@@ -222,7 +215,12 @@ try {
         // ✅ User confirmed the parsed expense
         const confirmedExpense = userOnboardingState[from].pendingExpense;
         const activeJob = await getActiveJob(from) || "Uncategorized";
-
+    
+        if (!confirmedExpense.amount || !confirmedExpense.item || !confirmedExpense.store) {
+            console.log("[❌ ERROR] Missing essential expense data. Aborting log.");
+            return res.send(`<Response><Message>⚠️ Sorry, I couldn't process that expense. Please provide the full details.</Message></Response>`);
+        }
+    
         await appendToUserSpreadsheet(from, [
             confirmedExpense.date,
             confirmedExpense.item,
@@ -230,10 +228,11 @@ try {
             confirmedExpense.store,
             activeJob
         ]);
-
+    
         reply = `✅ Expense confirmed and logged: ${confirmedExpense.item} for ${confirmedExpense.amount} at ${confirmedExpense.store} on ${confirmedExpense.date}`;
         delete userOnboardingState[from].pendingExpense; // Clear pending state
     }
+    
     else if (body?.toLowerCase() === 'no' && userOnboardingState[from]?.pendingExpense) {
         // ❌ User rejected the parsed expense
         reply = "⚠️ Okay, please resend the correct expense details.";
