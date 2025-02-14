@@ -96,18 +96,29 @@ const onboardingSteps = [
 
 const userOnboardingState = {};
 
-// ─── SAVE USER PROFILE ───────────────────────────────────────────────
+// ─── SAVE OR UPDATE USER PROFILE ───────────────────────────────────────────────
 async function saveUserProfile(userProfile) {
     try {
-        const userRef = db.collection('users').doc(userProfile.user_id);
+        const formattedNumber = userProfile.user_id.replace(/\D/g, "");  // Normalize phone number
+        console.log(`[DEBUG] Checking user profile for: ${formattedNumber}`);
+
+        const userRef = db.collection('users').doc(formattedNumber);
+        const userDoc = await userRef.get();
+
+        if (userDoc.exists) {
+            console.log(`[DEBUG] User already exists in Firebase:`, userDoc.data());
+        } else {
+            console.log(`[DEBUG] No existing user found. Creating a new profile.`);
+        }
+
         await userRef.set(userProfile, { merge: true });  // Save or update the profile
-        console.log(`[✅ SUCCESS] User profile saved for ${userProfile.user_id}`);
+        console.log(`[✅ SUCCESS] User profile saved for ${formattedNumber}`);
+
     } catch (error) {
         console.error(`[❌ ERROR] Failed to save user profile:`, error);
         throw error;  // Let the calling function handle the error
     }
 }
-
 // ─── WEBHOOK HANDLER ───────────────────────────────────────────────
 app.post('/webhook', async (req, res) => { 
     const from = req.body.From;
