@@ -70,7 +70,6 @@ async function saveUserProfile(userProfile) {
     throw error;
   }
 }
-module.exports = { getUserProfile, saveUserProfile };
 
 // ─── GOOGLE CREDENTIALS & AUTH SETUP ───────────────────────────────────────────
 if (!process.env.GOOGLE_CREDENTIALS_BASE64) {
@@ -490,6 +489,7 @@ async function calculateIncomeGoal(userId) {
 // ─── MODULE EXPORTS ───────────────────────────────────────────────────────────
 module.exports = {
   getUserProfile,
+  saveUserProfile, // ✅ Ensure this is included
   appendToUserSpreadsheet,
   fetchExpenseData,
   logReceiptExpense,
@@ -501,3 +501,4 @@ module.exports = {
   parseReceiptText,
   calculateIncomeGoal,
 };
+
