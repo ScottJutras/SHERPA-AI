@@ -396,14 +396,17 @@ async function logReceiptExpense(phoneNumber, extractedText) {
  */
 async function getUserProfile(phoneNumber) {
   try {
-    const userRef = db.collection("users").doc(phoneNumber);
+    const formattedNumber = phoneNumber.replace(/\D/g, "");  // Normalize phone number (remove non-digits)
+    console.log(`[DEBUG] Fetching user profile for: ${formattedNumber}`);
+
+    const userRef = db.collection("users").doc(formattedNumber);
     const doc = await userRef.get();
 
     if (doc.exists) {
-      console.log(`[✅] Retrieved user profile for ${phoneNumber}`);
+      console.log(`[✅] Retrieved user profile for ${formattedNumber}:`, doc.data());
       return doc.data(); // Return user profile data
     } else {
-      console.log(`[ℹ️] No user profile found for ${phoneNumber}`);
+      console.log(`[ℹ️] No user profile found for ${formattedNumber}`);
       return null; // User profile does not exist
     }
   } catch (error) {
@@ -411,6 +414,7 @@ async function getUserProfile(phoneNumber) {
     return null;
   }
 }
+
 /**
  * Calculates the income goal based on bills and expenses.
  *

@@ -102,7 +102,7 @@ const onboardingSteps = [
 
 const userOnboardingState = {};
 
-// ─── SAVE OR UPDATE USER PROFILE ───────────────────────────────────────────────
+// ─── SAVE OR UPDATE USER PROFILE ─────────────────────────────────────────────── 
 async function saveUserProfile(userProfile) {
     try {
         const formattedNumber = userProfile.user_id.replace(/\D/g, "");  // Normalize phone number
@@ -120,11 +120,20 @@ async function saveUserProfile(userProfile) {
         await userRef.set(userProfile, { merge: true });  // Save or update the profile
         console.log(`[✅ SUCCESS] User profile saved for ${formattedNumber}`);
 
+        // ✅ Debug Log to Confirm Firestore Entry
+        const verifyDoc = await userRef.get();
+        if (verifyDoc.exists) {
+            console.log(`[✅ VERIFY] User profile successfully stored in Firestore:`, verifyDoc.data());
+        } else {
+            console.error(`[❌ ERROR] User profile did not save correctly.`);
+        }
+
     } catch (error) {
         console.error(`[❌ ERROR] Failed to save user profile:`, error);
         throw error;  // Let the calling function handle the error
     }
 }
+
 // ─── WEBHOOK HANDLER ───────────────────────────────────────────────
 app.post('/webhook', async (req, res) => { 
     const from = req.body.From;
