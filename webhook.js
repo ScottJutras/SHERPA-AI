@@ -45,7 +45,7 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-const { parsePhoneNumberFromString } = require('libphonenumber-js'); // Ensure this is imported
+
 
 function detectCountryAndRegion(phoneNumber) {
     if (!phoneNumber.startsWith("+")) {
