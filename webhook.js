@@ -310,90 +310,27 @@ app.post('/webhook', async (req, res) => {
             }
         }
 
-        // ✅ Handling Voice Notes
+        // ✅ Handling Voice Notes with GPT-3.5 fallback
         if (mediaUrl && mediaType?.includes("audio")) {
-            const authHeader = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
-
-            const audioResponse = await axios.get(mediaUrl, {
-                responseType: 'arraybuffer',
-                headers: {
-                    Authorization: `Basic ${authHeader}`
-                }
-            });
-
-            const audioBuffer = Buffer.from(audioResponse.data, 'binary');
-            const transcription = await transcribeAudio(audioBuffer);
-
-            if (transcription) {
-                console.log(`[DEBUG] Transcription Result: "${transcription}"`);
-                let expenseData = parseExpenseMessage(transcription);
-
-                if (!expenseData) {
-                    // 🔄 Fallback to GPT-3.5 if Regex Parsing Fails
-                    console.log("[DEBUG] Regex parsing failed, using GPT-3.5 fallback...");
-
-                    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-                    const gptResponse = await openai.chat.completions.create({
-                        model: "gpt-3.5-turbo",
-                        messages: [
-                            {
-                                role: "system",
-                                content: "You are an assistant that extracts structured expense data from messages."
-                            },
-                            {
-                                role: "user",
-                                content: `Extract the date, item, amount, and store from this message: "${transcription}". Return in JSON format like this: {"date": "YYYY-MM-DD", "item": "ITEM", "amount": "$AMOUNT", "store": "STORE"}.`
-                            }
-                        ]
-                    });
-
-                    try {
-                        expenseData = JSON.parse(gptResponse.choices[0].message.content);
-                    } catch (error) {
-                        console.error("[ERROR] GPT-3.5 Parsing Error:", error);
-                        expenseData = null;
-                    }
-                }
-
-                if (expenseData) {
-                    userOnboardingState[from] = { pendingExpense: expenseData };
-
-                    await sendQuickReply(from, 
-                        `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?`, 
-                        ["Yes", "Edit", "Cancel"]
-                    );
-
-                    return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
-                } else {
-                    reply = "⚠️ Could not extract expense details. Please try again.";
-                }
-            } else {
-                reply = "⚠️ Sorry, I couldn't understand the voice note.";
-            }
-        }
+            reply = await handleVoiceNote(from, mediaUrl);
+        } 
         // ✅ Handling Receipt Images
         else if (mediaUrl && mediaType?.includes("image")) {
             reply = await handleReceiptImage(from, mediaUrl);
-        }
-
+        } 
         // ✅ Handling Job Tracking
         else if (body?.toLowerCase().startsWith("start job ")) {
             const jobName = body.slice(10).trim();
             await setActiveJob(from, jobName);
             reply = `✅ Job '${jobName}' is now active.`;
-        }
-
+        } 
         // ✅ Expense Summary
         else if (body?.toLowerCase().startsWith("expense summary")) {
-            const activeJob = await getActiveJob(from) || "Uncategorized";
-            const expenseData = await fetchExpenseData(from, activeJob);
-            const analytics = calculateExpenseAnalytics(expenseData);
-
-            reply = `📊 *Expense Summary for ${activeJob}* 📊
-💰 Total Spent: ${analytics.totalSpent}
-🏪 Top Store: ${analytics.topStore}
-📌 Biggest Purchase: ${analytics.biggestPurchase}
-🔄 Most Frequent Expense: ${analytics.mostFrequentItem}`;
+            reply = await getExpenseSummary(from);
+        } 
+        // ✅ Default Expense Logging Flow
+        else {
+            reply = await handleExpenseLogging(from, body);
         }
 
         res.send(`<Response><Message>${reply}</Message></Response>`);
@@ -403,7 +340,6 @@ app.post('/webhook', async (req, res) => {
         res.send(`<Response><Message>⚠️ Error processing request.</Message></Response>`);
     }
 });
-
 
 // ✅ Debugging: Log Environment Variables
 console.log("[DEBUG] Checking environment variables...");
