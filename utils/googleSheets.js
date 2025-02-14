@@ -36,6 +36,7 @@ const db = admin.firestore();
 async function getUserProfile(phoneNumber) {
   try {
     const formattedNumber = phoneNumber.replace(/\D/g, "");  // Normalize phone number (remove non-digits)
+
     console.log(`[DEBUG] Fetching user profile for: ${formattedNumber}`);
 
     const userRef = db.collection("users").doc(formattedNumber);
@@ -56,19 +57,19 @@ async function getUserProfile(phoneNumber) {
 
 async function saveUserProfile(userProfile) {
   try {
-      const formattedNumber = userProfile.user_id.replace(/\D/g, ""); // Normalize to digits only
-      console.log(`[DEBUG] Checking user profile for: ${formattedNumber}`);
+    const formattedNumber = userProfile.user_id.replace(/\D/g, ""); // Normalize to digits only
 
-      const userRef = db.collection("users").doc(formattedNumber);
-      await userRef.set(userProfile, { merge: true });
+    console.log(`[DEBUG] Checking user profile for: ${formattedNumber}`);
 
-      console.log(`[✅ SUCCESS] User profile saved for ${formattedNumber}`);
+    const userRef = db.collection("users").doc(formattedNumber);
+    await userRef.set(userProfile, { merge: true });
+
+    console.log(`[✅ SUCCESS] User profile saved for ${formattedNumber}`);
   } catch (error) {
-      console.error("[❌ ERROR] Failed to save user profile:", error);
-      throw error;
+    console.error("[❌ ERROR] Failed to save user profile:", error);
+    throw error;
   }
 }
-
 module.exports = { getUserProfile, saveUserProfile };
 
 // ─── GOOGLE CREDENTIALS & AUTH SETUP ───────────────────────────────────────────
@@ -166,10 +167,11 @@ async function createSpreadsheetForUser(phoneNumber, userEmail) {
 
     return spreadsheetId;
   } catch (error) {
-    console.error(`[❌ ERROR] Failed to share spreadsheet with ${userEmail}:`, shareError.message);
-    throw new Error('Spreadsheet created but sharing failed.');
+    console.error(`[❌ ERROR] Failed to share spreadsheet with ${userEmail}:`, error.message);
+    throw new Error(`Spreadsheet created but sharing failed: ${error.message}`);
   }
 }
+
 
 /**
  * Retrieves (from Firestore) or creates a new spreadsheet for a user.
