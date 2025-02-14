@@ -102,22 +102,6 @@ const onboardingSteps = [
 
 const userOnboardingState = {};
 
-// ─── SAVE OR UPDATE USER PROFILE ───────────────────────────────────────────────
-async function saveUserProfile(userProfile) {
-    try {
-        const formattedNumber = userProfile.user_id.replace(/\D/g, ""); // Normalize to digits only
-        console.log(`[DEBUG] Checking user profile for: ${formattedNumber}`);
-
-        const userRef = db.collection('users').doc(formattedNumber);
-        await userRef.set(userProfile, { merge: true });
-
-        console.log(`[✅ SUCCESS] User profile saved for ${formattedNumber}`);
-    } catch (error) {
-        console.error(`[❌ ERROR] Failed to save user profile:`, error);
-        throw error;
-    }
-}
-
 // ─── WEBHOOK HANDLER ───────────────────────────────────────────────
 app.post('/webhook', async (req, res) => { 
     const from = req.body.From;
