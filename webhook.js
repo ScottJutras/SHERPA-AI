@@ -201,34 +201,33 @@ if (!userProfile) {
     }
   
     // Check if there are more questions to ask
-    if (state.step < onboardingSteps.length) {
-      const currentStep = state.step;
-      const nextStep = onboardingSteps[currentStep];
-      // Advance the state for this incoming message
-      state.step++;
-      await setOnboardingState(from, state);
-      console.log(`[DEBUG] Updated state for ${from}:`, state);
+if (state.step < onboardingSteps.length) {
+    const currentStep = state.step;
+    const nextStep = onboardingSteps[currentStep];
+    // Advance the state for this incoming message
+    state.step++;
+    await setOnboardingState(from, state);
+    console.log(`[DEBUG] Updated state for ${from}:`, state);
   
-      // If a template is mapped for this step, send the interactive template.
-      if (onboardingTemplates.hasOwnProperty(currentStep)) {
-        // Determine the ContentVariables.
-        // For the template "HX0cb311e5de4bb5e9c34d5c7c4093b5c7" (business type question), no dynamic content is needed.
-        const contentVariables = (onboardingTemplates[currentStep] === "HX0cb311e5de4bb5e9c34d5c7c4093b5c7")
-          ? {} // No placeholders needed
-          : { "1": nextStep }; // Otherwise, pass the question text dynamically
-  
-        const sent = await sendTemplateMessage(from, onboardingTemplates[currentStep], contentVariables);
-        if (!sent) {
-          console.error("Falling back to plain text question because template message sending failed");
-          return res.send(`<Response><Message>${nextStep}</Message></Response>`);
-        }
-        console.log(`[DEBUG] Sent interactive template for step ${currentStep} to ${from}`);
-        return res.send(`<Response></Response>`);
-      } else {
-        // If there's no template mapping for the current step, send plain text
-        console.log(`[DEBUG] Sending plain text for step ${currentStep} to ${from}`);
+    // If a template is mapped for this step, send the interactive template.
+    if (onboardingTemplates.hasOwnProperty(currentStep)) {
+      // Since your templates are static, we pass an empty object.
+      const sent = await sendTemplateMessage(
+        from,
+        onboardingTemplates[currentStep],
+        {}
+      );
+      if (!sent) {
+        console.error("Falling back to plain text question because template message sending failed");
         return res.send(`<Response><Message>${nextStep}</Message></Response>`);
       }
+      console.log(`[DEBUG] Sent interactive template for step ${currentStep} to ${from}`);
+      return res.send(`<Response></Response>`);
+    } else {
+      console.log(`[DEBUG] Sending plain text for step ${currentStep} to ${from}`);
+      return res.send(`<Response><Message>${nextStep}</Message></Response>`);
+    }
+  
     } else {
       // Final step: record the last response and complete onboarding
       state.responses[`step_${state.step - 1}`] = body;
