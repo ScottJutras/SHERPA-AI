@@ -1,7 +1,6 @@
 // ─── IMPORTS ────────────────────────────────────────────────────────────────
 const { google } = require('googleapis');
 const admin = require('firebase-admin');
-const { getUserProfile } = require("./firebaseService"); // Ensure this exists
 const { sendSpreadsheetEmail } = require("./sendGridService"); // ✅ Import SendGrid function
 
 // ─── FIREBASE ADMIN / FIRESTORE SETUP ─────────────────────────────────────────
