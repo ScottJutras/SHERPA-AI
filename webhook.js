@@ -14,12 +14,12 @@ const {
     fetchExpenseData,
     calculateExpenseAnalytics,
     setActiveJob,
-    getActiveJob
+    getActiveJob,
+    calculateIncomeGoal  // Ensure this is exported from googleSheets
 } = require("./utils/googleSheets");
 
 const { extractTextFromImage, handleReceiptImage } = require('./utils/visionService');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
-const { calculateIncomeGoal } = require('./utils/googleSheets');
 const { transcribeAudio } = require('./utils/transcriptionService');
 const fs = require('fs');
 const path = require('path');
@@ -45,7 +45,6 @@ if (!admin.apps.length) {
         process.exit(1);
     }
 }
-
 const db = admin.firestore();
 
 // Helper functions for onboarding state persistence in Firestore
@@ -104,9 +103,9 @@ const onboardingSteps = [
     "Would you like to add your yearly, monthly, weekly, or bi-weekly bills to track? (Yes/No)",                // Step 9
     "Can I get your email address?"                              // Step 10
 ];
-const userOnboardingState = {};
+const userOnboardingState = {}; // Retained for legacy use if needed
 
-// Mapping of onboarding step indexes to approved template names
+// Mapping of onboarding step indexes to approved template SIDs
 const onboardingTemplates = {
     1: "HX4cf7529ecaf5a488fdfa96b931025023", // onboarding_country
     3: "HX066a88aad4089ba4336a21116e923557", // onboarding_business_type
@@ -117,9 +116,6 @@ const onboardingTemplates = {
     8: "HX20b1be5490ea39f3730fb9e70d5275df", // copy_onboarding_financial_goal
     9: "HX99fd5cad1d49ab68e9afc6a70fe4d24a"  // copy_onboarding_bill_tracking
 };
-// ─── EXISTING QUICK REPLY FUNCTION (Legacy) ─────────────────────────
-// (Retained here for reference; new messages will use sendTemplateMessage)
-// const sendQuickReply = async (from, text, buttons) => { ... };
 
 // ─── NEW FUNCTION: Send Approved Template Message ─────────────────────
 const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
@@ -132,16 +128,13 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
             console.error("[ERROR] Missing required phone numbers for Twilio message.");
             return false;
         }
-
         // Twilio requires ContentVariables to be a JSON string
         const formattedVariables = JSON.stringify(contentVariables);
-
         console.log("[DEBUG] Sending Twilio template message with:", {
             To: to,
             ContentSid: contentSid,
             ContentVariables: formattedVariables
         });
-
         const response = await axios.post(
             `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
             new URLSearchParams({
@@ -160,7 +153,6 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
                 }
             }
         );
-
         console.log(`[✅] Twilio template message sent successfully to ${to} with ContentSid "${contentSid}"`);
         return true;
     } catch (error) {
@@ -169,20 +161,16 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
     }
 };
 
-
-// ─── WEBHOOK HANDLER ───────────────────────────────────────────────
-app.post('/webhook', async (req, res) => { 
+// ─── WEBHOOK HANDLER (Single Consolidated Handler) ─────────────────────────────
+app.post('/webhook', async (req, res) => {
     console.log(`[DEBUG] Incoming Webhook Request from ${req.body.From}:`, JSON.stringify(req.body));
-
     const from = req.body.From;
     const body = req.body.Body?.trim();
     const mediaUrl = req.body.MediaUrl0;
     const mediaType = req.body.MediaContentType0;
-
     if (!from) {
         return res.status(400).send("Bad Request: Missing 'From'.");
     }
-
     let userProfile;
     try {
         userProfile = await getUserProfile(from);
@@ -190,105 +178,8 @@ app.post('/webhook', async (req, res) => {
         console.error("[ERROR] Failed to fetch user profile:", error);
         return res.send(`<Response><Message>⚠️ Sorry, something went wrong. Please try again.</Message></Response>`);
     }
-
-
-  // ─── ONBOARDING FLOW WITH TEMPLATE INTEGRATION ─────────────────────────
-if (!userProfile) {
-    // Retrieve onboarding state from Firestore
-    let state = await getOnboardingState(from);
-    if (!state) {
-      state = { step: 0, responses: {}, detectedLocation: detectCountryAndRegion(from) };
-      await setOnboardingState(from, state);
-      console.log(`[DEBUG] Initialized state for ${from}:`, state);
-    }
-  
-    // Record the user's answer for the current question (if any)
-    // (We assume every incoming message is an answer to the question at index state.step)
-    if (state.step < onboardingSteps.length) {
-      state.responses[`step_${state.step}`] = body;
-      console.log(`[DEBUG] Recorded response for step ${state.step}:`, body);
-      // Advance state to the next question
-      state.step++;
-      await setOnboardingState(from, state);
-    
-    }
-  
-    // Check if there are more questions to ask
-    if (state.step < onboardingSteps.length) {
-      const nextQuestion = onboardingSteps[state.step];
-      
-      // If a template is mapped for this step, send the interactive template.
-      if (onboardingTemplates.hasOwnProperty(state.step)) {
-        // Since your templates are static, pass an empty object for ContentVariables.
-        const sent = await sendTemplateMessage(from, onboardingTemplates[state.step], {});
-        if (!sent) {
-          console.error("Falling back to plain text question because template message sending failed");
-          return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
-        }
-        console.log(`[DEBUG] Sent interactive template for step ${state.step} to ${from}`);
-        // Return an empty response so only the interactive template appears
-        return res.send(`<Response></Response>`);
-      } else {
-        // If no interactive template is mapped for this step, send the question as plain text.
-        console.log(`[DEBUG] Sending plain text for step ${state.step} to ${from}`);
-        return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
-      }
-    } else {
-      // Final step: process final answer and complete onboarding
-      const email = state.responses.step_10;
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        return res.send(`<Response><Message>⚠️ The email address you provided doesn't seem valid. Please enter a valid email address.</Message></Response>`);
-      }
-      try {
-        userProfile = {
-          user_id: from,
-          name: state.responses.step_0,
-          country: state.responses.country || state.responses.step_1,
-          province: state.responses.province || state.responses.step_2,
-          business_type: state.responses.step_3,
-          industry: state.responses.step_4,
-          personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
-          track_mileage: state.responses.step_6.toLowerCase() === "yes",
-          track_home_office: state.responses.step_7.toLowerCase() === "yes",
-          financial_goals: state.responses.step_8,
-          add_bills: state.responses.step_9?.toLowerCase() === "yes",
-          email: state.responses.step_10,
-          created_at: new Date().toISOString()
-        };
-        await saveUserProfile(userProfile);
-        await deleteOnboardingState(from);
-        console.log(`[DEBUG] Onboarding complete for ${from}:`, userProfile);
-        return res.send(`<Response><Message>✅ Onboarding complete, ${userProfile.name}! You can now start logging expenses.</Message></Response>`);
-      } catch (error) {
-        console.error("[ERROR] Failed to save user profile:", error);
-        return res.send(`<Response><Message>⚠️ Sorry, something went wrong while saving your profile. Please try again later.</Message></Response>`);
-      }
-    }
-  }  
-  // ─── WEBHOOK HANDLER ───────────────────────────────────────────────
-app.post('/webhook', async (req, res) => { 
-    console.log(`[DEBUG] Incoming Webhook Request from ${req.body.From}:`, JSON.stringify(req.body));
-
-    const from = req.body.From;
-    const body = req.body.Body?.trim();
-    const mediaUrl = req.body.MediaUrl0;
-    const mediaType = req.body.MediaContentType0;
-
-    if (!from) {
-        return res.status(400).send("Bad Request: Missing 'From'.");
-    }
-
-    let userProfile;
     try {
-        userProfile = await getUserProfile(from);
-    } catch (error) {
-        console.error("[ERROR] Failed to fetch user profile:", error);
-        return res.send(`<Response><Message>⚠️ Sorry, something went wrong. Please try again.</Message></Response>`);
-    }
-
-    try {
-        // ─── ONBOARDING FLOW WITH TEMPLATE INTEGRATION ─────────────────────────
+        // ─── ONBOARDING FLOW ─────────────────────────
         if (!userProfile) {
             let state = await getOnboardingState(from);
             if (!state) {
@@ -296,28 +187,31 @@ app.post('/webhook', async (req, res) => {
                 await setOnboardingState(from, state);
                 console.log(`[DEBUG] Initialized state for ${from}:`, state);
             }
-        
-            // Record the user's answer for the current question (if any)
+            // Record answer for current question and advance state
             if (state.step < onboardingSteps.length) {
                 state.responses[`step_${state.step}`] = body;
                 console.log(`[DEBUG] Recorded response for step ${state.step}:`, body);
                 state.step++;
                 await setOnboardingState(from, state);
             }
-        
+            // Send next question if available
             if (state.step < onboardingSteps.length) {
                 const nextQuestion = onboardingSteps[state.step];
+                console.log(`[DEBUG] Next question (step ${state.step}) for ${from}:`, nextQuestion);
                 if (onboardingTemplates.hasOwnProperty(state.step)) {
                     const sent = await sendTemplateMessage(from, onboardingTemplates[state.step], {});
                     if (!sent) {
                         console.error("Falling back to plain text question because template message sending failed");
                         return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
                     }
+                    console.log(`[DEBUG] Sent interactive template for step ${state.step} to ${from}`);
                     return res.send(`<Response></Response>`);
                 } else {
+                    console.log(`[DEBUG] Sending plain text for step ${state.step} to ${from}`);
                     return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
                 }
             } else {
+                // Final step: complete onboarding
                 const email = state.responses.step_10;
                 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                 if (!emailRegex.test(email)) {
@@ -348,281 +242,233 @@ app.post('/webhook', async (req, res) => {
                     return res.send(`<Response><Message>⚠️ Sorry, something went wrong while saving your profile. Please try again later.</Message></Response>`);
                 }
             }
-        }  
-
-        // ─── Log Revenue ─────────────────────────────
-        console.log("[DEBUG] Checking for revenue pattern in message:", body);
-        const revenuePattern = /received\s*(\$?\d+(?:\.\d{2})?)\s*from\s*(.+)/i;
-        const match = body.match(revenuePattern);
-
-        if (match) {
-            const amount = match[1].startsWith('$') ? match[1] : `$${match[1]}`;
-            const source = match[2].trim();
-            const date = new Date().toISOString().split('T')[0]; // Current date
-            const category = "General Revenue";
-            const paymentMethod = "Unknown";
-            const notes = "Logged via WhatsApp";
-
-            console.log("[DEBUG] Calling logRevenueEntry with:", {
-                userEmail: userProfile.email,
-                date, amount, source, category, paymentMethod, notes
-            });
-
-            try {
-                const success = await logRevenueEntry(from, date, amount, source, category, paymentMethod, notes);
-                if (success) {
-                    return res.send(`<Response><Message>✅ Revenue of ${amount} from ${source} logged successfully.</Message></Response>`);
+        }
+        // ─── NON-ONBOARDING FLOW (RETURNING USERS) ─────────────────────────
+        else {
+            let reply;
+            // Handle pending expense/revenue/bill confirmations
+            if (userOnboardingState[from]?.pendingExpense || userOnboardingState[from]?.pendingRevenue || userOnboardingState[from]?.pendingBill) {
+                const pendingData = userOnboardingState[from].pendingExpense || userOnboardingState[from].pendingRevenue || userOnboardingState[from].pendingBill;
+                const type = userOnboardingState[from].pendingExpense ? 'expense' : userOnboardingState[from].pendingRevenue ? 'revenue' : 'bill';
+                const activeJob = await getActiveJob(from) || "Uncategorized";
+                if (body.toLowerCase() === 'yes') {
+                    if (type === 'bill') {
+                        if (pendingData.action === 'edit') {
+                            const updateSuccess = await updateBillInFirebase(from, pendingData);
+                            reply = updateSuccess 
+                                ? `✏️ Bill "${pendingData.billName}" has been updated to ${pendingData.amount} due on ${pendingData.dueDate}.`
+                                : `⚠️ Bill "${pendingData.billName}" was not found to update. Please check the name.`;
+                        } else if (pendingData.action === 'delete') {
+                            const deletionSuccess = await deleteBillFromFirebase(from, pendingData.billName);
+                            reply = deletionSuccess 
+                                ? `🗑️ Bill "${pendingData.billName}" has been deleted.` 
+                                : `⚠️ Bill "${pendingData.billName}" not found for deletion.`;
+                        } else {
+                            await appendToUserSpreadsheet(from, [
+                                pendingData.date,
+                                pendingData.billName,
+                                pendingData.amount,
+                                'Recurring Bill',
+                                activeJob,
+                                'bill',
+                                'recurring'
+                            ]);
+                            reply = `✅ Bill "${pendingData.billName}" has been added for ${pendingData.amount} due on ${pendingData.dueDate}.`;
+                        }
+                    } else {
+                        await appendToUserSpreadsheet(from, [
+                            pendingData.date,
+                            pendingData.item || pendingData.source,
+                            pendingData.amount,
+                            pendingData.store || pendingData.source,
+                            activeJob,
+                            type
+                        ]);
+                        reply = `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} confirmed and logged: ${pendingData.item || pendingData.source || pendingData.billName} for ${pendingData.amount} on ${pendingData.date}`;
+                    }
+                } else if (body.toLowerCase() === 'no' || body.toLowerCase() === 'edit') {
+                    reply = "✏️ Okay, please resend the correct details.";
+                    delete userOnboardingState[from].pendingExpense;
+                    delete userOnboardingState[from].pendingRevenue;
+                    delete userOnboardingState[from].pendingBill;
+                } else if (body.toLowerCase() === 'cancel') {
+                    reply = "🚫 Entry canceled.";
+                    delete userOnboardingState[from].pendingExpense;
+                    delete userOnboardingState[from].pendingRevenue;
+                    delete userOnboardingState[from].pendingBill;
                 } else {
-                    return res.send(`<Response><Message>⚠️ Failed to log revenue.</Message></Response>`);
+                    await sendTemplateMessage(
+                        from,
+                        "onboarding_personal_expenses", // Use your desired template SID for expense confirmation
+                        { "1": `Please confirm: ${pendingData.amount} for ${pendingData.item || pendingData.source || pendingData.billName} on ${pendingData.date}` }
+                    );
+                    return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
                 }
-            } catch (error) {
-                console.error('Error logging revenue:', error);
-                return res.send(`<Response><Message>⚠️ Internal server error while logging revenue.</Message></Response>`);
+                return res.send(`<Response><Message>${reply}</Message></Response>`);
+            }
+            
+            // Media Handling: Voice Notes & Receipt Images
+            console.log("[DEBUG] Checking media in message...");
+            let combinedText = '';
+            if (mediaUrl && mediaType?.includes("audio")) {
+                const audioResponse = await axios.get(mediaUrl, {
+                    responseType: 'arraybuffer',
+                    auth: {
+                        username: process.env.TWILIO_ACCOUNT_SID,
+                        password: process.env.TWILIO_AUTH_TOKEN
+                    }
+                });
+                const audioBuffer = Buffer.from(audioResponse.data, 'binary');
+                const transcription = await transcribeAudio(audioBuffer);
+                if (transcription) {
+                    combinedText += transcription + " ";
+                    console.log(`[DEBUG] Voice Transcription: "${transcription}"`);
+                }
+            }
+            if (mediaUrl && mediaType?.includes("image")) {
+                const ocrText = await extractTextFromImage(mediaUrl);
+                if (ocrText) {
+                    combinedText += ocrText;
+                    console.log(`[DEBUG] OCR Text: "${ocrText}"`);
+                }
+            }
+            
+            // Expense Parsing from Combined Text
+            if (combinedText) {
+                const expenseData = parseExpenseMessage(combinedText);
+                if (expenseData) {
+                    userOnboardingState[from] = { pendingExpense: expenseData };
+                    await sendTemplateMessage(
+                        from,
+                        "onboarding_personal_expenses", // Use the appropriate template SID for expense confirmation
+                        { "1": `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?` }
+                    );
+                    return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+                } else {
+                    console.log("[DEBUG] Parsing failed. No structured expense data detected.");
+                    reply = "⚠️ I couldn't parse the details from your message. Please clarify.";
+                }
+            } else {
+                reply = "⚠️ No media detected or unable to extract information. Please resend.";
             }
         }
-
-        // ─── Continue Processing Other Message Types ─────────────────────────────
-        console.log("[DEBUG] Message is not revenue. Continuing to process as regular input...");
-        let reply = "⚠️ I couldn't understand your request. Please try again with more details.";
+        
+        // ─── Job Start, Income Goal, Revenue, & Text-Based Expense Handling ─────────────
+        if (body.toLowerCase().startsWith("start job ")) {
+            reply = await handleStartJob(from, body);
+        } else if (body.includes("how much do i need to make") || body.includes("income goal")) {
+            const incomeGoal = await calculateIncomeGoal(from);
+            if (incomeGoal) {
+                reply = `📈 To cover your expenses next month, you need to make **$${incomeGoal}**. This includes your recurring bills, average variable expenses, and a 10% savings target.`;
+                res.set('Content-Type', 'text/xml');
+                return res.send(`<Response><Message>${reply}</Message></Response>`);
+            } else {
+                reply = "⚠️ I couldn't calculate your income goal right now. Please ensure your expenses and bills are logged correctly.";
+                res.set('Content-Type', 'text/xml');
+                return res.send(`<Response><Message>${reply}</Message></Response>`);
+            }
+        } else if (body.toLowerCase().startsWith("received") || body.toLowerCase().startsWith("earned") || body.toLowerCase().startsWith("income") || body.toLowerCase().startsWith("revenue")) {
+            console.log("[DEBUG] Detected a revenue message:", body);
+            const activeJob = await getActiveJob(from) || "Uncategorized";
+            let revenueData = parseRevenueMessage(body);
+            if (!revenueData) {
+                console.log("[DEBUG] Regex parsing failed for revenue, using GPT-3.5 for fallback...");
+                const gptResponse = await openai.chat.completions.create({
+                    model: "gpt-3.5-turbo",
+                    messages: [
+                        { role: "system", content: "You are an assistant that extracts structured revenue data from messages." },
+                        { role: "user", content: `Extract the date, amount, and source from this revenue message: \"${body}\". Return in JSON format like this: {"date": "YYYY-MM-DD", "amount": "$AMOUNT", "source": "SOURCE"}.` }
+                    ]
+                });
+                console.log("[DEBUG] GPT Response for Revenue:", gptResponse.choices[0].message.content);
+                try {
+                    revenueData = JSON.parse(gptResponse.choices[0].message.content);
+                    console.log("[DEBUG] GPT-3.5 Fallback Revenue Result:", revenueData);
+                    if (!revenueData.date) {
+                        revenueData.date = new Date().toISOString().split('T')[0];
+                    }
+                } catch (gptError) {
+                    console.error("[ERROR] Failed to parse GPT-3.5 revenue response:", gptError, gptResponse);
+                }
+            }
+            if (revenueData && revenueData.amount && revenueData.source) {
+                userOnboardingState[from] = { pendingRevenue: revenueData };
+                console.log("[DEBUG] Calling logRevenueEntry with:", {
+                    userEmail: userProfile.email,
+                    date: revenueData.date,
+                    amount: revenueData.amount,
+                    source: revenueData.source,
+                    category: "General Revenue",
+                    paymentMethod: "Unknown",
+                    notes: "Logged via WhatsApp"
+                });
+                try {
+                    const success = await logRevenueEntry(from, revenueData.date, revenueData.amount, revenueData.source, "General Revenue", "Unknown", "Logged via WhatsApp");
+                    if (success) {
+                        return res.send(`<Response><Message>✅ Revenue of ${revenueData.amount} from ${revenueData.source} logged successfully.</Message></Response>`);
+                    } else {
+                        return res.send(`<Response><Message>⚠️ Failed to log revenue.</Message></Response>`);
+                    }
+                } catch (error) {
+                    console.error('Error logging revenue:', error);
+                    return res.send(`<Response><Message>⚠️ Internal server error while logging revenue.</Message></Response>`);
+                }
+            } else {
+                reply = "⚠️ Could not understand your revenue message. Please provide more details.";
+            }
+        } else if (body) {
+            const activeJob = await getActiveJob(from) || "Uncategorized";
+            let expenseData = parseExpenseMessage(body);
+            if (!expenseData) {
+                console.log("[DEBUG] Regex parsing failed for expense, using GPT-3.5 for fallback...");
+                const gptResponse = await openai.chat.completions.create({
+                    model: "gpt-3.5-turbo",
+                    messages: [
+                        {
+                            role: "system",
+                            content: "You are an assistant that extracts structured expense data from messages."
+                        },
+                        {
+                            role: "user",
+                            content: `Extract the date, item, amount, and store from this message: \"${body}\". Return in JSON format like this: {"date": "YYYY-MM-DD", "item": "ITEM", "amount": "$AMOUNT", "store": "STORE"}.`
+                        }
+                    ]
+                });
+                try {
+                    expenseData = JSON.parse(gptResponse.choices[0].message.content);
+                    console.log("[DEBUG] GPT-3.5 Fallback Expense Result:", expenseData);
+                    if (!expenseData.date) {
+                        expenseData.date = new Date().toISOString().split('T')[0];
+                    }
+                } catch (gptError) {
+                    console.error("[ERROR] Failed to parse GPT-3.5 expense response:", gptError, gptResponse);
+                }
+            }
+            if (expenseData && expenseData.item && expenseData.amount && expenseData.store) {
+                userOnboardingState[from] = { pendingExpense: expenseData };
+                await sendTemplateMessage(
+                    from,
+                    "onboarding_personal_expenses", // Use the appropriate approved template for expense confirmation
+                    { "1": `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?` }
+                );
+                return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+            } else {
+                reply = "⚠️ Could not understand your expense message. Please provide a valid expense message.";
+            }
+        }
+        
+        if (!reply) {
+            reply = "⚠️ I couldn't understand your request. Please try again with more details.";
+        }
+        res.set('Content-Type', 'text/xml');
+        console.log(`[DEBUG] Reply sent to ${from}: "${reply}"`);
         return res.send(`<Response><Message>${reply}</Message></Response>`);
-    
     } catch (error) {
         console.error("[ERROR] Processing webhook request failed:", error);
         return res.send(`<Response><Message>⚠️ Internal Server Error. Please try again.</Message></Response>`);
     }
 });
 
-    // ─── NON-ONBOARDING FLOW FOR RETURNING USERS ─────────────
-    let reply;
-    try {
-        // Handle user confirmation with quick replies for pending expense/revenue/bill entries
-        if (userOnboardingState[from]?.pendingExpense || userOnboardingState[from]?.pendingRevenue || userOnboardingState[from]?.pendingBill) {
-            const pendingData = userOnboardingState[from].pendingExpense || userOnboardingState[from].pendingRevenue || userOnboardingState[from].pendingBill;
-            const type = userOnboardingState[from].pendingExpense
-                ? 'expense'
-                : userOnboardingState[from].pendingRevenue
-                ? 'revenue'
-                : 'bill';
-            const activeJob = await getActiveJob(from) || "Uncategorized";
-
-            if (body.toLowerCase() === 'yes') {
-                if (type === 'bill') {
-                    if (pendingData.action === 'edit') {
-                        const updateSuccess = await updateBillInFirebase(from, pendingData);
-                        reply = updateSuccess 
-                            ? `✏️ Bill "${pendingData.billName}" has been updated to ${pendingData.amount} due on ${pendingData.dueDate}.`
-                            : `⚠️ Bill "${pendingData.billName}" was not found to update. Please check the name.`;
-                    } else if (pendingData.action === 'delete') {
-                        const deletionSuccess = await deleteBillFromFirebase(from, pendingData.billName);
-                        reply = deletionSuccess 
-                            ? `🗑️ Bill "${pendingData.billName}" has been deleted.` 
-                            : `⚠️ Bill "${pendingData.billName}" not found for deletion.`;
-                    } else {
-                        await appendToUserSpreadsheet(from, [
-                            pendingData.date,
-                            pendingData.billName,
-                            pendingData.amount,
-                            'Recurring Bill',
-                            activeJob,
-                            'bill',
-                            'recurring'
-                        ]);
-                        reply = `✅ Bill "${pendingData.billName}" has been added for ${pendingData.amount} due on ${pendingData.dueDate}.`;
-                    }
-                } else {
-                    await appendToUserSpreadsheet(from, [
-                        pendingData.date,
-                        pendingData.item || pendingData.source,
-                        pendingData.amount,
-                        pendingData.store || pendingData.source,
-                        activeJob,
-                        type
-                    ]);
-                    reply = `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} confirmed and logged: ${pendingData.item || pendingData.source || pendingData.billName} for ${pendingData.amount} on ${pendingData.date}`;
-                }
-            } else if (body.toLowerCase() === 'no' || body.toLowerCase() === 'edit') {
-                reply = "✏️ Okay, please resend the correct details.";
-                delete userOnboardingState[from].pendingExpense;
-                delete userOnboardingState[from].pendingRevenue;
-                delete userOnboardingState[from].pendingBill;
-            } else if (body.toLowerCase() === 'cancel') {
-                reply = "🚫 Entry canceled.";
-                delete userOnboardingState[from].pendingExpense;
-                delete userOnboardingState[from].pendingRevenue;
-                delete userOnboardingState[from].pendingBill;
-            } else {
-                // Instead of sending a plain text quick reply, use the approved template.
-                // For example, for pending expense entries we use the "onboarding_personal_expenses" template.
-                await sendTemplateMessage(
-                    from,
-                    "onboarding_personal_expenses", // Update with your desired template name
-                    [`Please confirm: ${pendingData.amount} for ${pendingData.item || pendingData.source || pendingData.billName} on ${pendingData.date}`],
-                    ["Yes", "Edit", "Cancel"]
-                );
-                return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
-            }
-            return res.send(`<Response><Message>${reply}</Message></Response>`);
-        }
-
-        // ─── Media Handling: Voice Notes & Receipt Images ─────────────
-        let combinedText = '';
-        if (mediaUrl && mediaType?.includes("audio")) {
-            const audioResponse = await axios.get(mediaUrl, {
-                responseType: 'arraybuffer',
-                auth: {
-                    username: process.env.TWILIO_ACCOUNT_SID,
-                    password: process.env.TWILIO_AUTH_TOKEN
-                }
-            });
-            const audioBuffer = Buffer.from(audioResponse.data, 'binary');
-            const transcription = await transcribeAudio(audioBuffer);
-            if (transcription) {
-                combinedText += transcription + " ";
-                console.log(`[DEBUG] Voice Transcription: "${transcription}"`);
-            }
-        }
-        if (mediaUrl && mediaType?.includes("image")) {
-            const ocrText = await extractTextFromImage(mediaUrl);
-            if (ocrText) {
-                combinedText += ocrText;
-                console.log(`[DEBUG] OCR Text: "${ocrText}"`);
-            }
-        }
-
-        // ─── Expense Parsing from Combined Text ─────────────
-        if (combinedText) {
-            const expenseData = parseExpenseMessage(combinedText);
-            if (expenseData) {
-                // Store pending expense BEFORE sending response
-                userOnboardingState[from] = { pendingExpense: expenseData };
-                await sendTemplateMessage(
-                    from,
-                    "onboarding_personal_expenses", // Use the appropriate approved template for expense confirmation
-                    [`Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?`],
-                    ["Yes", "Edit", "Cancel"]
-                );
-                return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
-            } else {
-                console.log("[DEBUG] Parsing failed. No structured expense data detected.");
-                reply = "⚠️ I couldn't parse the details from your message. Please clarify.";
-            }
-        } else {
-            reply = "⚠️ No media detected or unable to extract information. Please resend.";
-        }
-    } catch (error) {
-        console.error("[ERROR] Media processing failed:", error);
-        reply = "⚠️ Sorry, there was an issue processing your media file. Please try again.";
-    }
-
-    // ─── Job Start, Income Goal, Revenue, & Text-Based Expense Handling ─────────────
-    if (body.toLowerCase().startsWith("start job ")) {
-        reply = await handleStartJob(from, body);
-    } else if (body.includes("how much do i need to make") || body.includes("income goal")) {
-        const incomeGoal = await calculateIncomeGoal(from);
-        if (incomeGoal) {
-            reply = `📈 To cover your expenses next month, you need to make **$${incomeGoal}**. This includes your recurring bills, average variable expenses, and a 10% savings target.`;
-            res.set('Content-Type', 'text/xml');
-            return res.send(`<Response><Message>${reply}</Message></Response>`);
-        } else {
-            reply = "⚠️ I couldn't calculate your income goal right now. Please ensure your expenses and bills are logged correctly.";
-            res.set('Content-Type', 'text/xml');
-            return res.send(`<Response><Message>${reply}</Message></Response>`);
-        }
-    } else if (body.toLowerCase().startsWith("received") || body.toLowerCase().startsWith("earned") || body.toLowerCase().startsWith("income") || body.toLowerCase().startsWith("revenue")) {
-        console.log("[DEBUG] Detected a revenue message:", body);
-        const activeJob = await getActiveJob(from) || "Uncategorized";
-        let revenueData = parseRevenueMessage(body);
-        if (!revenueData) {
-            console.log("[DEBUG] Parsed Revenue Data:", { date, amount, source });
-            console.log("[DEBUG] Regex parsing failed for revenue, using GPT-3.5 for fallback...");
-
-            const gptResponse = await openai.chat.completions.create({
-                model: "gpt-3.5-turbo",
-                messages: [
-                    { role: "system", content: "You are an assistant that extracts structured revenue data from messages." },
-                    { role: "user", content: `Extract the date, amount, and source from this revenue message: \"${body}\". Return in JSON format like this: {"date": "YYYY-MM-DD", "amount": "$AMOUNT", "source": "SOURCE"}.` }
-                ]
-            });
-            console.log("[DEBUG] GPT Response for Revenue:", gptResponse.choices[0].message.content);
-
-            try {
-                revenueData = JSON.parse(gptResponse.choices[0].message.content);
-                console.log("[DEBUG] GPT-3.5 Fallback Revenue Result:", revenueData);
-                if (!revenueData.date) {
-                    revenueData.date = new Date().toISOString().split('T')[0];
-                }
-            } catch (gptError) {
-                console.error("[ERROR] Failed to parse GPT-3.5 revenue response:", gptError, gptResponse);
-            }
-        }
-        if (revenueData && revenueData.amount && revenueData.source) {
-            userOnboardingState[from] = { pendingRevenue: revenueData };
-        
-            console.log("[DEBUG] Sending Twilio pay_confirmation template...");
-            
-            await sendTemplateMessage(
-                from,
-                "HX9382ee3fb669bc5cf11423d137a25308", // ✅ Correct Twilio Template SID
-                { 
-                    amount: revenueData.amount, 
-                    source: revenueData.source, 
-                    date: revenueData.date 
-                }
-            );
-        
-            return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
-        } else {
-            reply = "⚠️ Could not understand your revenue message. Please provide more details.";
-        }
-    } else if (body) {
-        const activeJob = await getActiveJob(from) || "Uncategorized";
-        let expenseData = parseExpenseMessage(body);
-        if (!expenseData) {
-            console.log("[DEBUG] Regex parsing failed, using GPT-3.5 for fallback...");
-            const gptResponse = await openai.chat.completions.create({
-                model: "gpt-3.5-turbo",
-                messages: [
-                    {
-                        role: "system",
-                        content: "You are an assistant that extracts structured expense data from messages."
-                    },
-                    {
-                        role: "user",
-                        content: `Extract the date, item, amount, and store from this message: \"${body}\". Return in JSON format like this: {"date": "YYYY-MM-DD", "item": "ITEM", "amount": "$AMOUNT", "store": "STORE"}.`
-                    }
-                ]
-            });
-            try {
-                expenseData = JSON.parse(gptResponse.choices[0].message.content);
-                console.log("[DEBUG] GPT-3.5 Fallback Result:", expenseData);
-                if (!expenseData.date) {
-                    expenseData.date = new Date().toISOString().split('T')[0];
-                }
-            } catch (gptError) {
-                console.error("[ERROR] Failed to parse GPT-3.5 response:", gptError, gptResponse);
-            }
-        }
-        if (expenseData && expenseData.item && expenseData.amount && expenseData.store) {
-            userOnboardingState[from] = { pendingExpense: expenseData };
-            await sendTemplateMessage(
-                from,
-                "onboarding_personal_expenses", // Use the appropriate approved template for expense confirmation
-                [`Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?`],
-                ["Yes", "Edit", "Cancel"]
-            );
-            return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
-        } else {
-            reply = "⚠️ Could not understand your request. Please provide a valid expense message.";
-        }
-    }
-    
-    if (!reply) {
-        reply = "⚠️ I couldn't understand your request. Please try again with more details.";
-    }    
-    res.set('Content-Type', 'text/xml');
-    console.log(`[DEBUG] Reply sent to ${from}: "${reply}"`);
-    return res.send(`<Response><Message>${reply}</Message></Response>`);
-});
 // ─── Helper Functions for Bill Management ─────────────────────────────
 async function updateBillInFirebase(userId, billData) {
     try {
