@@ -123,58 +123,62 @@ const onboardingTemplates = {
 // ─── NEW FUNCTION: Send Approved Template Message ─────────────────────
 const sendTemplateMessage = async (to, templateName, bodyParameters = [], buttonParameters = []) => {
     // Construct the template payload based on Twilio's expected structure.
-    const templatePayload = {
-        // Replace with your actual approved template namespace if required.
-        namespace: "your_approved_template_namespace",
-        name: templateName,
-        language: { policy: "deterministic", code: "en" },
-        components: []
-    };
-
-    if (bodyParameters.length > 0) {
-        templatePayload.components.push({
-            type: "body",
-            parameters: bodyParameters.map(text => ({
-                type: "text",
-                text: text
-            }))
-        });
-    }
-
-    if (buttonParameters.length > 0) {
-        templatePayload.components.push({
-            type: "button",
-            sub_type: "quick_reply",
-            index: "0", // Adjust index if you have multiple buttons
-            parameters: buttonParameters.map(payload => ({
-                type: "payload",
-                payload: payload
-            }))
-        });
-    }
-
-    try {
-        await axios.post(
-            `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
-            new URLSearchParams({
-                From: process.env.TWILIO_WHATSAPP_NUMBER,
-                To: to,
-                MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-                Template: JSON.stringify(templatePayload)
-            }).toString(),
-            {
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                auth: {
-                    username: process.env.TWILIO_ACCOUNT_SID,
-                    password: process.env.TWILIO_AUTH_TOKEN
+    const sendTemplateMessage = async (to, templateName, bodyParameters = [], buttonParameters = []) => {
+        // Construct the template payload based on Twilio's expected structure.
+        const templatePayload = {
+            // Replace with your actual approved template namespace if required.
+            namespace: "your_approved_template_namespace",
+            name: templateName,
+            language: { policy: "deterministic", code: "en" },
+            components: []
+        };
+    
+        if (bodyParameters.length > 0) {
+            templatePayload.components.push({
+                type: "body",
+                parameters: bodyParameters.map(text => ({
+                    type: "text",
+                    text: text
+                }))
+            });
+        }
+    
+        if (buttonParameters.length > 0) {
+            templatePayload.components.push({
+                type: "button",
+                sub_type: "quick_reply",
+                index: "0", // Adjust index if you have multiple buttons
+                parameters: buttonParameters.map(payload => ({
+                    type: "payload",
+                    payload: payload
+                }))
+            });
+        }
+    
+        try {
+            await axios.post(
+                `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
+                new URLSearchParams({
+                    From: process.env.TWILIO_WHATSAPP_NUMBER,
+                    To: to,
+                    MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+                    Body: "",  // Added Body to satisfy Twilio's requirement
+                    Template: JSON.stringify(templatePayload)
+                }).toString(),
+                {
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                    auth: {
+                        username: process.env.TWILIO_ACCOUNT_SID,
+                        password: process.env.TWILIO_AUTH_TOKEN
+                    }
                 }
-            }
-        );
-        console.log(`[DEBUG] Template message sent to ${to} using template "${templateName}"`);
-    } catch (error) {
-        console.error("[ERROR] Failed to send template message:", error.response?.data || error.message);
-    }
-};
+            );
+            console.log(`[DEBUG] Template message sent to ${to} using template "${templateName}"`);
+        } catch (error) {
+            console.error("[ERROR] Failed to send template message:", error.response?.data || error.message);
+        }
+    };
+};    
 
 // ─── WEBHOOK HANDLER ───────────────────────────────────────────────
 app.post('/webhook', async (req, res) => { 
