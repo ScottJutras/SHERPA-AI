@@ -93,89 +93,59 @@ const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
-// ✅ Onboarding Flow
-if (!userProfile) {
-    if (!userOnboardingState[from]) {
-        const detectedLocation = detectCountryAndRegion(from);  // Use this function
-        userOnboardingState[from] = { step: 0, responses: {}, detectedLocation };
-    }
-    
-    const state = userOnboardingState[from];
+// ─── ONBOARDING STEPS ───────────────────────────────────────────────
+const onboardingSteps = [
+    "Can I get your name?",
+    "Are you in Canada or USA? (Canada/USA)",
+    "Which province or state are you in?",
+    "What type of business do you have? (Sole Proprietorship, Corporation, Charity, Non-Profit, Other)",
+    "What industry do you work in? (Construction, Real Estate, Retail, Freelancer, Other)",
+    "Do you want to track personal expenses too? (Yes/No)",
+    "Do you want to track mileage? (Yes/No)",
+    "Do you want to track home office deductions? (Yes/No)",
+    "What is your primary financial goal? (Save to pay off debts, Save to invest, Spend to lower tax bracket, Spend to invest)",
+    "Would you like to add your yearly, monthly, weekly, or bi-weekly bills to track? (Yes/No)",
+    "Can I get your email address?"
+];
 
-    if (state.step < onboardingSteps.length) {
-        if (state.step > 0) {
-            state.responses[`step_${state.step - 1}`] = body;
-        }
+const userOnboardingState = {};
+// ✅ Function to send interactive WhatsApp Quick Replies
+const sendQuickReply = async (from, text, buttons) => {
+    try {
+        console.log(`[DEBUG] Attempting to send Quick Reply to ${from}`);
 
-        // Skip country/province questions if detected
-        if (state.step === 1 && state.detectedLocation.country !== 'Unknown') {
-            state.responses['country'] = state.detectedLocation.country;
-            state.responses['province'] = state.detectedLocation.region;
-            state.step += 2;  // Skip country and province questions
-        }
+        const buttonOptions = buttons.map(label => ({
+            type: "reply",
+            reply: {
+                id: label.toLowerCase(),
+                title: label
+            }
+        }));
 
-        // ✅ Determine the correct onboarding step
-        const nextStep = onboardingSteps[state.step];
-        state.step++;
-
-        // ✅ Get the correct template SID
-        const templateSid = onboardingTemplates[state.step] || null;
-
-        if (templateSid) {
-            await axios.post(
-                `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
-                new URLSearchParams({
-                    From: process.env.TWILIO_WHATSAPP_NUMBER,
-                    To: from,
-                    MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-                    ContentTemplateSid: templateSid
-                }).toString(),
-                {
-                    headers: {
-                        "Content-Type": "application/x-www-form-urlencoded"
-                    },
-                    auth: {
-                        username: process.env.TWILIO_ACCOUNT_SID,
-                        password: process.env.TWILIO_AUTH_TOKEN
-                    }
+        const response = await axios.post(
+            `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`, 
+            new URLSearchParams({
+                From: process.env.TWILIO_WHATSAPP_NUMBER,
+                To: from,
+                MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+                Body: text,
+                "PersistentAction": buttons.map(b => `reply?text=${b}`).join(',')
+            }).toString(), 
+            {
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                auth: {
+                    username: process.env.TWILIO_ACCOUNT_SID,
+                    password: process.env.TWILIO_AUTH_TOKEN
                 }
-            );
-        } else {
-            // Fallback for non-button questions (like Name or Province)
-            return res.send(`<Response><Message>${nextStep}</Message></Response>`);
-        }
-    } else {
-        state.responses[`step_${state.step - 1}`] = body;
+            }
+        );
 
-        // ✅ Onboarding Complete - Save User Data
-        try {
-            userProfile = {
-                user_id: from,
-                name: state.responses.step_0,
-                country: state.responses.country || state.responses.step_1,
-                province: state.responses.province || state.responses.step_2,
-                business_type: state.responses.step_3,
-                industry: state.responses.step_4,
-                personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
-                track_mileage: state.responses.step_6.toLowerCase() === "yes",
-                track_home_office: state.responses.step_7.toLowerCase() === "yes",
-                financial_goals: state.responses.step_8,
-                add_bills: state.responses.step_9?.toLowerCase() === "yes",
-                email: state.responses.step_10,
-                created_at: new Date().toISOString()
-            };
+        console.log(`[✅ SUCCESS] Twilio API Response:`, response.data);
 
-            await saveUserProfile(userProfile);
-            delete userOnboardingState[from];
-
-            return res.send(`<Response><Message>✅ Onboarding complete, ${userProfile.name}! You can now start logging expenses.</Message></Response>`);
-        } catch (error) {
-            console.error("[ERROR] Failed to save user profile:", error);
-            return res.send(`<Response><Message>⚠️ Sorry, something went wrong while saving your profile. Please try again later.</Message></Response>`);
-        }
+    } catch (error) {
+        console.error("[❌ ERROR] Failed to send Quick Reply:", error.response?.data || error.message);
     }
-}
-
+};
 // ─── WEBHOOK HANDLER ───────────────────────────────────────────────
 app.post('/webhook', async (req, res) => { 
     const from = req.body.From;
