@@ -1,6 +1,7 @@
 // ─── IMPORTS ────────────────────────────────────────────────────────────────
 const { google } = require('googleapis');
 const admin = require('firebase-admin');
+const { sendSpreadsheetEmail } = require('./emailService'); // Import SendGrid function
 
 // ─── FIREBASE ADMIN / FIRESTORE SETUP ─────────────────────────────────────────
 // Initialize Firebase Admin if not already initialized.
@@ -115,15 +116,18 @@ async function getAuthorizedClient() {
  * The spreadsheet is created with one sheet ("Sheet1") that includes header values.
  *
  * @param {string} phoneNumber - The user's phone number.
+ * @param {string} userEmail - The user's email (optional, can be fetched from Firestore).
  * @returns {Promise<string>} The spreadsheet ID.
  */
-async function createSpreadsheetForUser(phoneNumber, userEmail) {
+async function createSpreadsheetForUser(phoneNumber, userEmail = null) {
   try {
     console.log(`[DEBUG] Creating a new spreadsheet for user: ${phoneNumber}`);
+
     const auth = await getAuthorizedClient();
     const sheets = google.sheets({ version: 'v4', auth });
-    const drive = google.drive({ version: 'v3', auth });  // Initialize Google Drive API
-    //Step 1: Create a new spreadsheet
+    const drive = google.drive({ version: 'v3', auth });
+
+    // Step 1: Create a new spreadsheet
     const response = await sheets.spreadsheets.create({
       resource: {
         properties: { title: `Expenses - ${phoneNumber}` },
@@ -148,35 +152,44 @@ async function createSpreadsheetForUser(phoneNumber, userEmail) {
       },
       fields: 'spreadsheetId',
     });
+
     const spreadsheetId = response.data.spreadsheetId;
-    console.log(`[✅ SUCCESS] Spreadsheet created: ${response.data.spreadsheetId}`);
-    //Step 2 : Retrieve the user's email from Firestore (or use a default for testing)
-    const userProfile = await getUserProfile(phoneNumber);
-const emailToUse = userEmail || userProfile?.email || process.env.FALLBACK_EMAIL; // ✅ Use passed-in email first
+    console.log(`[✅ SUCCESS] Spreadsheet created: ${spreadsheetId}`);
 
-if (!emailToUse) {
-  throw new Error(`[ERROR] No email found for user ${phoneNumber}. Cannot share the spreadsheet.`);
-}
+    // Step 2: Retrieve the user's email from Firestore if not provided
+    let emailToUse = userEmail;
 
-// Step 3: Share the spreadsheet with the user
-await drive.permissions.create({
-  fileId: spreadsheetId,
-  requestBody: {
-    role: 'writer', 
-    type: 'anyone',  // ✅ Allow access to anyone with the link
-  }
-});
+    if (!emailToUse) {
+      const userProfile = await getUserProfile(phoneNumber);
+      emailToUse = userProfile?.email || process.env.FALLBACK_EMAIL; // ✅ Use Firestore email or fallback
+    }
 
-console.log(`[✅ SUCCESS] Spreadsheet shared publicly: https://docs.google.com/spreadsheets/d/${spreadsheetId}`);
+    if (!emailToUse) {
+      console.error(`[ERROR] No email found for user ${phoneNumber}. Cannot share the spreadsheet.`);
+      throw new Error(`No valid email found for user: ${phoneNumber}`);
+    }
 
+    // Step 3: Share the spreadsheet publicly
+    await drive.permissions.create({
+      fileId: spreadsheetId,
+      requestBody: {
+        role: 'writer',
+        type: 'anyone', // ✅ Allows access without a Google account
+      }
+    });
 
+    console.log(`[✅ SUCCESS] Spreadsheet shared publicly: https://docs.google.com/spreadsheets/d/${spreadsheetId}`);
+
+    // Step 4: Send email notification with the spreadsheet link
+    await sendSpreadsheetEmail(emailToUse, spreadsheetId);
+
+    console.log(`[✅ SUCCESS] Spreadsheet email sent to ${emailToUse}`);
     return spreadsheetId;
   } catch (error) {
-    console.error(`[❌ ERROR] Failed to share spreadsheet with ${userEmail}:`, error.message);
-    throw new Error(`Spreadsheet created but sharing failed: ${error.message}`);
+    console.error(`[❌ ERROR] Failed to create and share spreadsheet:`, error.message);
+    throw new Error(`Spreadsheet creation failed: ${error.message}`);
   }
 }
-
 
 /**
  * Retrieves (from Firestore) or creates a new spreadsheet for a user.
