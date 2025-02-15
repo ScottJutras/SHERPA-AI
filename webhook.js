@@ -171,6 +171,7 @@ app.post('/webhook', async (req, res) => {
         return res.send(`<Response><Message>⚠️ Sorry, something went wrong. Please try again.</Message></Response>`);
     }
 
+
   // ─── ONBOARDING FLOW WITH TEMPLATE INTEGRATION ─────────────────────────
 if (!userProfile) {
     // Retrieve onboarding state from Firestore
@@ -189,14 +190,12 @@ if (!userProfile) {
       // Advance state to the next question
       state.step++;
       await setOnboardingState(from, state);
-    } else {
-      console.log(`[DEBUG] Received final answer:`, body);
+    
     }
   
     // Check if there are more questions to ask
     if (state.step < onboardingSteps.length) {
       const nextQuestion = onboardingSteps[state.step];
-      console.log(`[DEBUG] Next question (step ${state.step}) for ${from}:`, nextQuestion);
       
       // If a template is mapped for this step, send the interactive template.
       if (onboardingTemplates.hasOwnProperty(state.step)) {
@@ -247,41 +246,132 @@ if (!userProfile) {
       }
     }
   }  
-  // ─── Log Revenue ─────────────────────────────
-try {
-    const message = req.body.message;
-    const userPhone = req.body.phoneNumber;
-    
-    if (!message || !userPhone) {
-        return res.status(400).send({ error: 'Missing required fields' });
+  // ─── WEBHOOK HANDLER ───────────────────────────────────────────────
+app.post('/webhook', async (req, res) => { 
+    console.log(`[DEBUG] Incoming Webhook Request from ${req.body.From}:`, JSON.stringify(req.body));
+
+    const from = req.body.From;
+    const body = req.body.Body?.trim();
+    const mediaUrl = req.body.MediaUrl0;
+    const mediaType = req.body.MediaContentType0;
+
+    if (!from) {
+        return res.status(400).send("Bad Request: Missing 'From'.");
     }
 
-    // Revenue detection pattern
-    const revenuePattern = /received\s*(\$?\d+(?:\.\d{2})?)\s*from\s*(.+)/i;
-    const match = message.match(revenuePattern);
+    let userProfile;
+    try {
+        userProfile = await getUserProfile(from);
+    } catch (error) {
+        console.error("[ERROR] Failed to fetch user profile:", error);
+        return res.send(`<Response><Message>⚠️ Sorry, something went wrong. Please try again.</Message></Response>`);
+    }
 
-    if (match) {
-        const amount = match[1].startsWith('$') ? match[1] : `$${match[1]}`;
-        const source = match[2].trim();
-        const date = new Date().toISOString().split('T')[0]; // Current date
-        const category = "General Revenue";
-        const paymentMethod = "Unknown";
-        const notes = "Logged via WhatsApp";
-
-        const success = await logRevenueEntry(userPhone, date, amount, source, category, paymentMethod, notes);
+    try {
+        // ─── ONBOARDING FLOW WITH TEMPLATE INTEGRATION ─────────────────────────
+        if (!userProfile) {
+            let state = await getOnboardingState(from);
+            if (!state) {
+                state = { step: 0, responses: {}, detectedLocation: detectCountryAndRegion(from) };
+                await setOnboardingState(from, state);
+                console.log(`[DEBUG] Initialized state for ${from}:`, state);
+            }
         
-        if (success) {
-            return res.status(200).send({ message: `Revenue of ${amount} from ${source} logged successfully.` });
-        } else {
-            return res.status(500).send({ error: 'Failed to log revenue.' });
-        }
-    }
+            // Record the user's answer for the current question (if any)
+            if (state.step < onboardingSteps.length) {
+                state.responses[`step_${state.step}`] = body;
+                console.log(`[DEBUG] Recorded response for step ${state.step}:`, body);
+                state.step++;
+                await setOnboardingState(from, state);
+            }
+        
+            if (state.step < onboardingSteps.length) {
+                const nextQuestion = onboardingSteps[state.step];
+                if (onboardingTemplates.hasOwnProperty(state.step)) {
+                    const sent = await sendTemplateMessage(from, onboardingTemplates[state.step], {});
+                    if (!sent) {
+                        console.error("Falling back to plain text question because template message sending failed");
+                        return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
+                    }
+                    return res.send(`<Response></Response>`);
+                } else {
+                    return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
+                }
+            } else {
+                const email = state.responses.step_10;
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (!emailRegex.test(email)) {
+                    return res.send(`<Response><Message>⚠️ The email address you provided doesn't seem valid. Please enter a valid email address.</Message></Response>`);
+                }
+                try {
+                    userProfile = {
+                        user_id: from,
+                        name: state.responses.step_0,
+                        country: state.responses.country || state.responses.step_1,
+                        province: state.responses.province || state.responses.step_2,
+                        business_type: state.responses.step_3,
+                        industry: state.responses.step_4,
+                        personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
+                        track_mileage: state.responses.step_6.toLowerCase() === "yes",
+                        track_home_office: state.responses.step_7.toLowerCase() === "yes",
+                        financial_goals: state.responses.step_8,
+                        add_bills: state.responses.step_9?.toLowerCase() === "yes",
+                        email: state.responses.step_10,
+                        created_at: new Date().toISOString()
+                    };
+                    await saveUserProfile(userProfile);
+                    await deleteOnboardingState(from);
+                    console.log(`[DEBUG] Onboarding complete for ${from}:`, userProfile);
+                    return res.send(`<Response><Message>✅ Onboarding complete, ${userProfile.name}! You can now start logging expenses.</Message></Response>`);
+                } catch (error) {
+                    console.error("[ERROR] Failed to save user profile:", error);
+                    return res.send(`<Response><Message>⚠️ Sorry, something went wrong while saving your profile. Please try again later.</Message></Response>`);
+                }
+            }
+        }  
 
-    return res.status(200).send({ message: 'Message received but no revenue detected.' });
-} catch (error) {
-    console.error('Error processing webhook:', error);
-    return res.status(500).send({ error: 'Internal server error' });
-}
+        // ─── Log Revenue ─────────────────────────────
+        console.log("[DEBUG] Checking for revenue pattern in message:", body);
+        const revenuePattern = /received\s*(\$?\d+(?:\.\d{2})?)\s*from\s*(.+)/i;
+        const match = body.match(revenuePattern);
+
+        if (match) {
+            const amount = match[1].startsWith('$') ? match[1] : `$${match[1]}`;
+            const source = match[2].trim();
+            const date = new Date().toISOString().split('T')[0]; // Current date
+            const category = "General Revenue";
+            const paymentMethod = "Unknown";
+            const notes = "Logged via WhatsApp";
+
+            console.log("[DEBUG] Calling logRevenueEntry with:", {
+                userEmail: userProfile.email,
+                date, amount, source, category, paymentMethod, notes
+            });
+
+            try {
+                const success = await logRevenueEntry(from, date, amount, source, category, paymentMethod, notes);
+                if (success) {
+                    return res.send(`<Response><Message>✅ Revenue of ${amount} from ${source} logged successfully.</Message></Response>`);
+                } else {
+                    return res.send(`<Response><Message>⚠️ Failed to log revenue.</Message></Response>`);
+                }
+            } catch (error) {
+                console.error('Error logging revenue:', error);
+                return res.send(`<Response><Message>⚠️ Internal server error while logging revenue.</Message></Response>`);
+            }
+        }
+
+        // ─── Continue Processing Other Message Types ─────────────────────────────
+        console.log("[DEBUG] Message is not revenue. Continuing to process as regular input...");
+        let reply = "⚠️ I couldn't understand your request. Please try again with more details.";
+        return res.send(`<Response><Message>${reply}</Message></Response>`);
+    
+    } catch (error) {
+        console.error("[ERROR] Processing webhook request failed:", error);
+        return res.send(`<Response><Message>⚠️ Internal Server Error. Please try again.</Message></Response>`);
+    }
+});
+
     // ─── NON-ONBOARDING FLOW FOR RETURNING USERS ─────────────
     let reply;
     try {
@@ -419,6 +509,7 @@ try {
             return res.send(`<Response><Message>${reply}</Message></Response>`);
         }
     } else if (body.toLowerCase().startsWith("received") || body.toLowerCase().startsWith("earned") || body.toLowerCase().startsWith("income") || body.toLowerCase().startsWith("revenue")) {
+        console.log("[DEBUG] Detected a revenue message:", body);
         const activeJob = await getActiveJob(from) || "Uncategorized";
         let revenueData = parseRevenueMessage(body);
         if (!revenueData) {
@@ -432,6 +523,8 @@ try {
                     { role: "user", content: `Extract the date, amount, and source from this revenue message: \"${body}\". Return in JSON format like this: {"date": "YYYY-MM-DD", "amount": "$AMOUNT", "source": "SOURCE"}.` }
                 ]
             });
+            console.log("[DEBUG] GPT Response for Revenue:", gptResponse.choices[0].message.content);
+
             try {
                 revenueData = JSON.parse(gptResponse.choices[0].message.content);
                 console.log("[DEBUG] GPT-3.5 Fallback Revenue Result:", revenueData);
