@@ -93,88 +93,36 @@ const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
-// ✅ Onboarding Flow
-if (!userProfile) {
-    if (!userOnboardingState[from]) {
-        const detectedLocation = detectCountryAndRegion(from);  // Use this function
-        userOnboardingState[from] = { step: 0, responses: {}, detectedLocation };
-    }
-    
-    const state = userOnboardingState[from];
+// ─── GLOBAL ONBOARDING STATE ───────────────────────────────────────────────
+// This keeps track of users currently in the onboarding process
+const userOnboardingState = {};  
 
-    if (state.step < onboardingSteps.length) {
-        if (state.step > 0) {
-            state.responses[`step_${state.step - 1}`] = body;
-        }
+// Define the sequence of onboarding questions
+const onboardingSteps = [
+    "What’s your name?", 
+    "Which country are you based in?",
+    "Which province/state are you in?",
+    "What type of business do you run?",
+    "What industry are you in?",
+    "Do you want to track personal expenses? (Yes/No)",
+    "Would you like to track mileage for tax deductions? (Yes/No)",
+    "Do you have a home office that you’d like to track for tax deductions? (Yes/No)",
+    "What is your primary financial goal?",
+    "Would you like to track and manage your monthly bills? (Yes/No)",
+    "What’s your email address? (Used for sharing your expense sheet)"
+];
 
-        // Skip country/province questions if detected
-        if (state.step === 1 && state.detectedLocation.country !== 'Unknown') {
-            state.responses['country'] = state.detectedLocation.country;
-            state.responses['province'] = state.detectedLocation.region;
-            state.step += 2;  // Skip country and province questions
-        }
+// Define template IDs for quick replies (ensure these match Twilio template SIDs)
+const onboardingTemplates = {
+    1: process.env.TWILIO_TEMPLATE_BUSINESS_TYPE,
+    2: process.env.TWILIO_TEMPLATE_INDUSTRY,
+    3: process.env.TWILIO_TEMPLATE_PERSONAL_EXPENSES,
+    4: process.env.TWILIO_TEMPLATE_MILEAGE_TRACKING,
+    5: process.env.TWILIO_TEMPLATE_HOME_OFFICE,
+    6: process.env.TWILIO_TEMPLATE_FINANCIAL_GOALS,
+    7: process.env.TWILIO_TEMPLATE_ADD_BILLS
+};
 
-        // ✅ Determine the correct onboarding step
-        const nextStep = onboardingSteps[state.step];
-        state.step++;
-
-        // ✅ Get the correct template SID
-        const templateSid = onboardingTemplates[state.step] || null;
-
-        if (templateSid) {
-            await axios.post(
-                `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
-                new URLSearchParams({
-                    From: process.env.TWILIO_WHATSAPP_NUMBER,
-                    To: from,
-                    MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-                    ContentTemplateSid: templateSid
-                }).toString(),
-                {
-                    headers: {
-                        "Content-Type": "application/x-www-form-urlencoded"
-                    },
-                    auth: {
-                        username: process.env.TWILIO_ACCOUNT_SID,
-                        password: process.env.TWILIO_AUTH_TOKEN
-                    }
-                }
-            );
-        } else {
-            // Fallback for non-button questions (like Name or Province)
-            return res.send(`<Response><Message>${nextStep}</Message></Response>`);
-        }
-    } else {
-        state.responses[`step_${state.step - 1}`] = body;
-
-        // ✅ Onboarding Complete - Save User Data
-        try {
-            userProfile = {
-                user_id: from,
-                name: state.responses.step_0,
-                country: state.responses.country || state.responses.step_1,
-                province: state.responses.province || state.responses.step_2,
-                business_type: state.responses.step_3,
-                industry: state.responses.step_4,
-                personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
-                track_mileage: state.responses.step_6.toLowerCase() === "yes",
-                track_home_office: state.responses.step_7.toLowerCase() === "yes",
-                financial_goals: state.responses.step_8,
-                add_bills: state.responses.step_9?.toLowerCase() === "yes",
-                email: state.responses.step_10,
-                created_at: new Date().toISOString()
-            };
-
-            await saveUserProfile(userProfile);
-            delete userOnboardingState[from];
-
-            return res.send(`<Response><Message>✅ Onboarding complete, ${userProfile.name}! You can now start logging expenses.</Message></Response>`);
-        } catch (error) {
-            console.error("[ERROR] Failed to save user profile:", error);
-            return res.send(`<Response><Message>⚠️ Sorry, something went wrong while saving your profile. Please try again later.</Message></Response>`);
-        }
-    }
-}
 
 // ─── WEBHOOK HANDLER ───────────────────────────────────────────────
 app.post('/webhook', async (req, res) => { 
