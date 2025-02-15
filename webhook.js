@@ -1,4 +1,3 @@
-How does this look?
 require('dotenv').config();
 const express = require('express');
 const OpenAI = require('openai');
