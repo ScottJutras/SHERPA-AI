@@ -23,9 +23,6 @@ const { transcribeAudio } = require('./utils/transcriptionService'); // New func
 const fs = require('fs');
 const path = require('path');
 const admin = require("firebase-admin");
-
-const userOnboardingState = {}; // ✅ Fixes "userOnboardingState is not defined"
-
 console.log("[DEBUG] Twilio API URL:", `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`);
 console.log("[DEBUG] TWILIO_ACCOUNT_SID:", process.env.TWILIO_ACCOUNT_SID ? "Loaded" : "MISSING");
 console.log("[DEBUG] TWILIO_AUTH_TOKEN:", process.env.TWILIO_AUTH_TOKEN ? "Loaded" : "MISSING");
@@ -96,6 +93,88 @@ const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
+// ✅ Onboarding Flow
+if (!userProfile) {
+    if (!userOnboardingState[from]) {
+        const detectedLocation = detectCountryAndRegion(from);  // Use this function
+        userOnboardingState[from] = { step: 0, responses: {}, detectedLocation };
+    }
+    
+    const state = userOnboardingState[from];
+
+    if (state.step < onboardingSteps.length) {
+        if (state.step > 0) {
+            state.responses[`step_${state.step - 1}`] = body;
+        }
+
+        // Skip country/province questions if detected
+        if (state.step === 1 && state.detectedLocation.country !== 'Unknown') {
+            state.responses['country'] = state.detectedLocation.country;
+            state.responses['province'] = state.detectedLocation.region;
+            state.step += 2;  // Skip country and province questions
+        }
+
+        // ✅ Determine the correct onboarding step
+        const nextStep = onboardingSteps[state.step];
+        state.step++;
+
+        // ✅ Get the correct template SID
+        const templateSid = onboardingTemplates[state.step] || null;
+
+        if (templateSid) {
+            await axios.post(
+                `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
+                new URLSearchParams({
+                    From: process.env.TWILIO_WHATSAPP_NUMBER,
+                    To: from,
+                    MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+                    ContentTemplateSid: templateSid
+                }).toString(),
+                {
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded"
+                    },
+                    auth: {
+                        username: process.env.TWILIO_ACCOUNT_SID,
+                        password: process.env.TWILIO_AUTH_TOKEN
+                    }
+                }
+            );
+        } else {
+            // Fallback for non-button questions (like Name or Province)
+            return res.send(`<Response><Message>${nextStep}</Message></Response>`);
+        }
+    } else {
+        state.responses[`step_${state.step - 1}`] = body;
+
+        // ✅ Onboarding Complete - Save User Data
+        try {
+            userProfile = {
+                user_id: from,
+                name: state.responses.step_0,
+                country: state.responses.country || state.responses.step_1,
+                province: state.responses.province || state.responses.step_2,
+                business_type: state.responses.step_3,
+                industry: state.responses.step_4,
+                personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
+                track_mileage: state.responses.step_6.toLowerCase() === "yes",
+                track_home_office: state.responses.step_7.toLowerCase() === "yes",
+                financial_goals: state.responses.step_8,
+                add_bills: state.responses.step_9?.toLowerCase() === "yes",
+                email: state.responses.step_10,
+                created_at: new Date().toISOString()
+            };
+
+            await saveUserProfile(userProfile);
+            delete userOnboardingState[from];
+
+            return res.send(`<Response><Message>✅ Onboarding complete, ${userProfile.name}! You can now start logging expenses.</Message></Response>`);
+        } catch (error) {
+            console.error("[ERROR] Failed to save user profile:", error);
+            return res.send(`<Response><Message>⚠️ Sorry, something went wrong while saving your profile. Please try again later.</Message></Response>`);
+        }
+    }
+}
 
 // ─── WEBHOOK HANDLER ───────────────────────────────────────────────
 app.post('/webhook', async (req, res) => { 
