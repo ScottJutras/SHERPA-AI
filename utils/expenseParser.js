@@ -91,4 +91,25 @@ function parseExpenseMessage(message) {
   return { item, amount, store, date, suggestedCategory };
 }
 
-module.exports = { parseExpenseMessage };
+// ─── ADD THIS FUNCTION FOR REVENUE PARSING ───
+function parseRevenueMessage(message) {
+  console.log(`[DEBUG] Parsing revenue message: "${message}"`);
+
+  // Revenue pattern: Extracts phrases like "Received $500 from John"
+  const revenuePattern = /received\s*(\$?\d+(?:\.\d{2})?)\s*from\s*(.+)/i;
+  const match = message.match(revenuePattern);
+
+  if (match) {
+    const amount = match[1].startsWith('$') ? match[1] : `$${match[1]}`;
+    const source = match[2].trim();
+    const date = new Date().toISOString().split('T')[0]; // Current date
+    console.log(`[DEBUG] Parsed Revenue Data: amount="${amount}", source="${source}", date="${date}"`);
+    return { date, amount, source };
+  }
+
+  console.log("[DEBUG] Revenue parsing failed. No match found.");
+  return null;
+}
+
+// ─── FIX EXPORT TO INCLUDE `parseRevenueMessage` ───
+module.exports = { parseExpenseMessage, parseRevenueMessage };
