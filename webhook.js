@@ -171,93 +171,98 @@ app.post('/webhook', async (req, res) => {
     }
 
     // ─── ONBOARDING FLOW WITH TEMPLATE INTEGRATION ─────────────────────────
-    if (!userProfile) {
-        // Retrieve onboarding state from Firestore
-        let state = await getOnboardingState(from);
-        if (!state) {
-          state = { step: 0, responses: {}, detectedLocation: detectCountryAndRegion(from) };
-          await setOnboardingState(from, state);
-        }
-      
-        if (state.step < onboardingSteps.length) {
-          if (state.step > 0) {
-            // Save the previous response
-            state.responses[`step_${state.step - 1}`] = body;
-          }
-      
-          // Skip country/province questions if detected (applies at step 1)
-          if (state.step === 1 && state.detectedLocation.country !== 'Unknown') {
-            state.responses['country'] = state.detectedLocation.country;
-            state.responses['province'] = state.detectedLocation.region;
-            state.step += 3; // directly jump to step 3
-        } else if (state.step > 0) {
-            // Otherwise, record the user's input for the previous step.
-            state.responses[`step_${state.step - 1}`] = body;
-        }
-      
-        const currentStep = state.step;
-        const nextStep = onboardingSteps[currentStep];
-        state.step++;
-        
-        // Save updated state back to Firestore.
-        await setOnboardingState(from, state);
-        
-        // If a template is mapped for this step, send the template message.
-        if (onboardingTemplates.hasOwnProperty(currentStep)) {
-            // Determine ContentVariables based on the template.
-            const contentVariables = (onboardingTemplates[currentStep] === "HX0cb311e5de4bb5e9c34d5c7c4093b5c7")
-                ? {}  // No dynamic placeholders for this template.
-                : { "1": nextStep };  // Otherwise, pass the question text dynamically.
-            
-            const sent = await sendTemplateMessage(
-                from,
-                onboardingTemplates[currentStep],
-                {}
-            );
-            if (!sent) {
-                console.error("Falling back to plain text question because template message sending failed");
-                return res.send(`<Response><Message>${nextStep}</Message></Response>`);
-            }
-            return res.send(`<Response></Response>`);
-        } else {
+if (!userProfile) {
+    // Retrieve onboarding state from Firestore
+    let state = await getOnboardingState(from);
+    if (!state) {
+      state = { step: 0, responses: {}, detectedLocation: detectCountryAndRegion(from) };
+      await setOnboardingState(from, state);
+      console.log(`[DEBUG] Initialized state for ${from}:`, state);
+    }
+  
+    // Determine if we should skip steps 1 and 2 (country/province)
+    if (state.step === 1 && state.detectedLocation.country !== 'Unknown') {
+      console.log(`[DEBUG] Skipping steps 1 and 2 for ${from} because detected location is available.`);
+      state.responses['country'] = state.detectedLocation.country;
+      state.responses['province'] = state.detectedLocation.region;
+      state.step = 3; // Jump directly to step 3
+      await setOnboardingState(from, state);
+    } else if (state.step > 0) {
+      // Record the response for the previous step only if we are not skipping
+      state.responses[`step_${state.step - 1}`] = body;
+      console.log(`[DEBUG] Recorded response for step ${state.step - 1}:`, body);
+    }
+  
+    // Check if there are more questions to ask
+    if (state.step < onboardingSteps.length) {
+      const currentStep = state.step;
+      const nextStep = onboardingSteps[currentStep];
+      // Advance the step once for this incoming message
+      state.step++;
+      await setOnboardingState(from, state);
+      console.log(`[DEBUG] Updated state for ${from}:`, state);
+  
+      // If a template is mapped for this step, send the template message.
+      if (onboardingTemplates.hasOwnProperty(currentStep)) {
+        // Determine the ContentVariables.
+        // For the template "HX0cb311e5de4bb5e9c34d5c7c4093b5c7" (business type question),
+        // no dynamic content is needed.
+        const contentVariables = (onboardingTemplates[currentStep] === "HX0cb311e5de4bb5e9c34d5c7c4093b5c7")
+            ? {}  // No placeholders needed
+            : { "1": nextStep };  // Otherwise, pass the question text dynamically
+  
+        const sent = await sendTemplateMessage(
+            from,
+            onboardingTemplates[currentStep],
+            contentVariables
+        );
+        if (!sent) {
+            // Fallback: send the question as plain text if template sending failed
+            console.error("Falling back to plain text question because template message sending failed");
             return res.send(`<Response><Message>${nextStep}</Message></Response>`);
-        }        
-
-        } else {
-          // Final step: save the last response and complete onboarding
-          state.responses[`step_${state.step - 1}`] = body;
-          // Email validation for final step (step 10)
-          const email = state.responses.step_10;
-          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-          if (!emailRegex.test(email)) {
-            return res.send(`<Response><Message>⚠️ The email address you provided doesn't seem valid. Please enter a valid email address.</Message></Response>`);
-          }
-          try {
-            userProfile = {
-              user_id: from,
-              name: state.responses.step_0,
-              country: state.responses.country || state.responses.step_1,
-              province: state.responses.province || state.responses.step_2,
-              business_type: state.responses.step_3,
-              industry: state.responses.step_4,
-              personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
-              track_mileage: state.responses.step_6.toLowerCase() === "yes",
-              track_home_office: state.responses.step_7.toLowerCase() === "yes",
-              financial_goals: state.responses.step_8,
-              add_bills: state.responses.step_9?.toLowerCase() === "yes",
-              email: state.responses.step_10,
-              created_at: new Date().toISOString()
-            };
-            await saveUserProfile(userProfile);
-            await deleteOnboardingState(from);
-            return res.send(`<Response><Message>✅ Onboarding complete, ${userProfile.name}! You can now start logging expenses.</Message></Response>`);
-          } catch (error) {
-            console.error("[ERROR] Failed to save user profile:", error);
-            return res.send(`<Response><Message>⚠️ Sorry, something went wrong while saving your profile. Please try again later.</Message></Response>`);
-          }
         }
+        console.log(`[DEBUG] Sent interactive template for step ${currentStep} to ${from}`);
+        return res.send(`<Response></Response>`);
+      } else {
+        // If there's no template mapping for the current step, send plain text
+        console.log(`[DEBUG] Sending plain text for step ${currentStep} to ${from}`);
+        return res.send(`<Response><Message>${nextStep}</Message></Response>`);
       }
-      
+    } else {
+      // Final step: record the last response and complete onboarding
+      state.responses[`step_${state.step - 1}`] = body;
+      const email = state.responses.step_10;
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.send(`<Response><Message>⚠️ The email address you provided doesn't seem valid. Please enter a valid email address.</Message></Response>`);
+      }
+      try {
+        userProfile = {
+          user_id: from,
+          name: state.responses.step_0,
+          country: state.responses.country || state.responses.step_1,
+          province: state.responses.province || state.responses.step_2,
+          business_type: state.responses.step_3,
+          industry: state.responses.step_4,
+          personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
+          track_mileage: state.responses.step_6.toLowerCase() === "yes",
+          track_home_office: state.responses.step_7.toLowerCase() === "yes",
+          financial_goals: state.responses.step_8,
+          add_bills: state.responses.step_9?.toLowerCase() === "yes",
+          email: state.responses.step_10,
+          created_at: new Date().toISOString()
+        };
+        await saveUserProfile(userProfile);
+        await deleteOnboardingState(from);
+        console.log(`[DEBUG] Onboarding complete for ${from}:`, userProfile);
+        return res.send(`<Response><Message>✅ Onboarding complete, ${userProfile.name}! You can now start logging expenses.</Message></Response>`);
+      } catch (error) {
+        console.error("[ERROR] Failed to save user profile:", error);
+        return res.send(`<Response><Message>⚠️ Sorry, something went wrong while saving your profile. Please try again later.</Message></Response>`);
+      }
+    }
+  }
+  
     // ─── NON-ONBOARDING FLOW FOR RETURNING USERS ─────────────
     let reply;
     try {
