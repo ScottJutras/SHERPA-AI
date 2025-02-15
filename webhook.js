@@ -200,23 +200,31 @@ app.post('/webhook', async (req, res) => {
           await setOnboardingState(from, state);
       
           // If a template is mapped for this step, send the template message.
-          if (onboardingTemplates.hasOwnProperty(currentStep)) {
-            const sent = await sendTemplateMessage(
-                from,
-                onboardingTemplates[currentStep],
-                { "1": nextStep }  // Ensure "1" matches your template's dynamic variable key
-            );
-            if (!sent) {
-                // Fallback: send the question as plain text if template sending failed
-                console.error("Falling back to plain text question because template message sending failed");
-                return res.send(`<Response><Message>${nextStep}</Message></Response>`);
-            }
-            // If the template message was sent successfully, return an empty response
-            return res.send(`<Response></Response>`);
-        } else {
-            // If there's no template mapping for the current step, send plain text
-            return res.send(`<Response><Message>${nextStep}</Message></Response>`);
-        }        
+if (onboardingTemplates.hasOwnProperty(currentStep)) {
+    // Determine the ContentVariables.
+    // For the template "HX0cb311e5de4bb5e9c34d5c7c4093b5c7" (business type question),
+    // no dynamic content is needed.
+    const contentVariables = (onboardingTemplates[currentStep] === "HX0cb311e5de4bb5e9c34d5c7c4093b5c7")
+        ? {}  // No placeholders needed
+        : { "1": nextStep };  // Otherwise, pass the question text dynamically
+
+    const sent = await sendTemplateMessage(
+        from,
+        onboardingTemplates[currentStep],
+        contentVariables
+    );
+    if (!sent) {
+        // Fallback: send the question as plain text if template sending failed
+        console.error("Falling back to plain text question because template message sending failed");
+        return res.send(`<Response><Message>${nextStep}</Message></Response>`);
+    }
+    // If the template message was sent successfully, return an empty response
+    return res.send(`<Response></Response>`);
+} else {
+    // If there's no template mapping for the current step, send plain text
+    return res.send(`<Response><Message>${nextStep}</Message></Response>`);
+}
+
         } else {
           // Final step: save the last response and complete onboarding
           state.responses[`step_${state.step - 1}`] = body;
