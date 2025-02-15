@@ -1,7 +1,9 @@
 // ─── IMPORTS ────────────────────────────────────────────────────────────────
 const { google } = require('googleapis');
 const admin = require('firebase-admin');
-const { sendSpreadsheetEmail } = require('./emailService'); // Import SendGrid function
+const { sendSpreadsheetEmail } = require('./sendGridService'); // Import SendGrid function
+const { getUserProfile } = require("./firebaseService"); // Ensure this exists
+const { sendSpreadsheetEmail } = require("./sendGridService"); // ✅ Import SendGrid function
 
 // ─── FIREBASE ADMIN / FIRESTORE SETUP ─────────────────────────────────────────
 // Initialize Firebase Admin if not already initialized.
@@ -124,8 +126,8 @@ async function createSpreadsheetForUser(phoneNumber, userEmail = null) {
     console.log(`[DEBUG] Creating a new spreadsheet for user: ${phoneNumber}`);
 
     const auth = await getAuthorizedClient();
-    const sheets = google.sheets({ version: 'v4', auth });
-    const drive = google.drive({ version: 'v3', auth });
+    const sheets = google.sheets({ version: "v4", auth });
+    const drive = google.drive({ version: "v3", auth });
 
     // Step 1: Create a new spreadsheet
     const response = await sheets.spreadsheets.create({
@@ -133,24 +135,24 @@ async function createSpreadsheetForUser(phoneNumber, userEmail = null) {
         properties: { title: `Expenses - ${phoneNumber}` },
         sheets: [
           {
-            properties: { title: 'Sheet1' },
+            properties: { title: "Sheet1" },
             data: {
               rowData: [
                 {
                   values: [
-                    { userEnteredValue: { stringValue: 'Date' } },
-                    { userEnteredValue: { stringValue: 'Item' } },
-                    { userEnteredValue: { stringValue: 'Amount' } },
-                    { userEnteredValue: { stringValue: 'Store' } },
-                    { userEnteredValue: { stringValue: 'Job' } }
-                  ]
-                }
-              ]
-            }
-          }
-        ]
+                    { userEnteredValue: { stringValue: "Date" } },
+                    { userEnteredValue: { stringValue: "Item" } },
+                    { userEnteredValue: { stringValue: "Amount" } },
+                    { userEnteredValue: { stringValue: "Store" } },
+                    { userEnteredValue: { stringValue: "Job" } },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
       },
-      fields: 'spreadsheetId',
+      fields: "spreadsheetId",
     });
 
     const spreadsheetId = response.data.spreadsheetId;
@@ -173,9 +175,9 @@ async function createSpreadsheetForUser(phoneNumber, userEmail = null) {
     await drive.permissions.create({
       fileId: spreadsheetId,
       requestBody: {
-        role: 'writer',
-        type: 'anyone', // ✅ Allows access without a Google account
-      }
+        role: "writer",
+        type: "anyone", // ✅ Allows access without a Google account
+      },
     });
 
     console.log(`[✅ SUCCESS] Spreadsheet shared publicly: https://docs.google.com/spreadsheets/d/${spreadsheetId}`);
