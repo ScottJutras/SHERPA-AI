@@ -162,7 +162,7 @@ const sendTemplateMessage = async (to, templateName, bodyParameters = [], button
                     From: process.env.TWILIO_WHATSAPP_NUMBER,
                     To: to,
                     MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-                    Body: "",  // Added Body to satisfy Twilio's requirement
+                    Body: "Template Message",  // Provide a non-empty text message
                     Template: JSON.stringify(templatePayload)
                 }).toString(),
                 {
