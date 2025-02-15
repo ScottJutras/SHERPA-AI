@@ -170,7 +170,7 @@ app.post('/webhook', async (req, res) => {
         return res.send(`<Response><Message>⚠️ Sorry, something went wrong. Please try again.</Message></Response>`);
     }
 
-   // ─── ONBOARDING FLOW WITH TEMPLATE INTEGRATION ─────────────────────────
+  // ─── ONBOARDING FLOW WITH TEMPLATE INTEGRATION ─────────────────────────
 if (!userProfile) {
     // Retrieve onboarding state from Firestore
     let state = await getOnboardingState(from);
@@ -189,29 +189,15 @@ if (!userProfile) {
       await setOnboardingState(from, state);
     }
   
-    // Record the response for the previous step if state.step > 0
-    if (state.step > 0) {
-      const prevStep = state.step - 1;
-      // If the previous step is mapped as interactive, require interactive response.
-      if (onboardingTemplates.hasOwnProperty(prevStep)) {
-        if (req.body.MessageType === "interactive") {
-          state.responses[`step_${prevStep}`] = body;
-          console.log(`[DEBUG] Recorded interactive response for step ${prevStep}:`, body);
-        } else {
-          // For an interactive step, if we get a non-interactive reply, re-send the prompt.
-          console.log(`[DEBUG] Received non-interactive response "${body}" for interactive step ${prevStep}. Re-sending prompt.`);
-          const questionText = onboardingSteps[prevStep];
-          const contentVariables = (onboardingTemplates[prevStep] === "HX0cb311e5de4bb5e9c34d5c7c4093b5c7")
-            ? {}  // No dynamic content needed
-            : { "1": questionText };
-          await sendTemplateMessage(from, onboardingTemplates[prevStep], contentVariables);
-          return res.send(`<Response></Response>`);
-        }
-      } else {
-        // For plain text steps, record any response.
-        state.responses[`step_${prevStep}`] = body;
-        console.log(`[DEBUG] Recorded plain text response for step ${prevStep}:`, body);
-      }
+    // Record the response for the previous question:
+    // For step 0 (the name question), record regardless of MessageType.
+    if (state.step === 0) {
+      state.responses[`step_0`] = body;
+      console.log(`[DEBUG] Recorded response for step 0:`, body);
+    } else if (state.step > 0) {
+      // For interactive steps (step > 0), now record any response (interactive or plain text)
+      state.responses[`step_${state.step - 1}`] = body;
+      console.log(`[DEBUG] Recorded response for step ${state.step - 1}:`, body);
     }
   
     // Check if there are more questions to ask
@@ -226,11 +212,11 @@ if (!userProfile) {
       // If a template is mapped for this step, send the interactive template.
       if (onboardingTemplates.hasOwnProperty(currentStep)) {
         // Determine the ContentVariables.
-        // For example, if the template SID is "HX0cb311e5de4bb5e9c34d5c7c4093b5c7" (business type question)
-        // and it does not require dynamic content, send an empty object.
+        // For the template "HX0cb311e5de4bb5e9c34d5c7c4093b5c7" (business type question), no dynamic content is needed.
         const contentVariables = (onboardingTemplates[currentStep] === "HX0cb311e5de4bb5e9c34d5c7c4093b5c7")
-          ? {}
-          : { "1": nextStep };
+          ? {} // No placeholders needed
+          : { "1": nextStep }; // Otherwise, pass the question text dynamically
+  
         const sent = await sendTemplateMessage(from, onboardingTemplates[currentStep], contentVariables);
         if (!sent) {
           console.error("Falling back to plain text question because template message sending failed");
@@ -239,7 +225,7 @@ if (!userProfile) {
         console.log(`[DEBUG] Sent interactive template for step ${currentStep} to ${from}`);
         return res.send(`<Response></Response>`);
       } else {
-        // If no template is mapped, send plain text.
+        // If there's no template mapping for the current step, send plain text
         console.log(`[DEBUG] Sending plain text for step ${currentStep} to ${from}`);
         return res.send(`<Response><Message>${nextStep}</Message></Response>`);
       }
@@ -276,7 +262,8 @@ if (!userProfile) {
         return res.send(`<Response><Message>⚠️ Sorry, something went wrong while saving your profile. Please try again later.</Message></Response>`);
       }
     }
-  }  
+  }
+  
     // ─── NON-ONBOARDING FLOW FOR RETURNING USERS ─────────────
     let reply;
     try {
