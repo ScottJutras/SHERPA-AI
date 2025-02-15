@@ -107,78 +107,46 @@ const userOnboardingState = {};
 
 // Mapping of onboarding step indexes to approved template names
 const onboardingTemplates = {
-    1: "onboarding_country",
-    3: "onboarding_business_type",
-    4: "onboarding_industry",
-    5: "onboarding_personal_expenses",
-    6: "onboarding_mileage_tracking",
-    7: "onboarding_home_office",
-    8: "copy_onboarding_financial_goal",
-    9: "copy_onboarding_bill_tracking"
+    1: "HX4cf7529ecaf5a488fdfa96b931025023", // onboarding_country
+    3: "HX0cb311e5de4bb5e9c34d5c7c4093b5c7", // onboarding_business_type
+    4: "HX1d4c5b90e5f5d7417283f3ee522436f4", // onboarding_industry
+    5: "HX5c80469d7ba195623a4a3654a27c19d7", // onboarding_personal_expenses
+    6: "HXd1fcd47418eaeac8a94c57b930f86674", // onboarding_mileage_tracking
+    7: "HX3e231458c97ba2ca1c5588b54e87c081", // onboarding_home_office
+    8: "HX20b1be5490ea39f3730fb9e70d5275df", // copy_onboarding_financial_goal
+    9: "HX99fd5cad1d49ab68e9afc6a70fe4d24a"  // copy_onboarding_bill_tracking
 };
 // ─── EXISTING QUICK REPLY FUNCTION (Legacy) ─────────────────────────
 // (Retained here for reference; new messages will use sendTemplateMessage)
 // const sendQuickReply = async (from, text, buttons) => { ... };
 
 // ─── NEW FUNCTION: Send Approved Template Message ─────────────────────
-const sendTemplateMessage = async (to, templateName, bodyParameters = [], buttonParameters = []) => {
-    // Construct the template payload based on Twilio's expected structure.
-    const sendTemplateMessage = async (to, templateName, bodyParameters = [], buttonParameters = []) => {
-        // Construct the template payload based on Twilio's expected structure.
-        const templatePayload = {
-            // Replace with your actual approved template namespace if required.
-            namespace: "your_approved_template_namespace",
-            name: templateName,
-            language: { policy: "deterministic", code: "en" },
-            components: []
-        };
-    
-        if (bodyParameters.length > 0) {
-            templatePayload.components.push({
-                type: "body",
-                parameters: bodyParameters.map(text => ({
-                    type: "text",
-                    text: text
-                }))
-            });
-        }
-    
-        if (buttonParameters.length > 0) {
-            templatePayload.components.push({
-                type: "button",
-                sub_type: "quick_reply",
-                index: "0", // Adjust index if you have multiple buttons
-                parameters: buttonParameters.map(payload => ({
-                    type: "payload",
-                    payload: payload
-                }))
-            });
-        }
-    
-        try {
-            await axios.post(
-                `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
-                new URLSearchParams({
-                    From: process.env.TWILIO_WHATSAPP_NUMBER,
-                    To: to,
-                    MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-                    Body: "Template Message",  // Provide a non-empty text message
-                    Template: JSON.stringify(templatePayload)
-                }).toString(),
-                {
-                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                    auth: {
-                        username: process.env.TWILIO_ACCOUNT_SID,
-                        password: process.env.TWILIO_AUTH_TOKEN
-                    }
+const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
+    try {
+        await axios.post(
+            `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
+            new URLSearchParams({
+                From: process.env.TWILIO_WHATSAPP_NUMBER,
+                To: to,
+                MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+                Body: "Template Message",  // Minimal fallback body (must be non-empty)
+                ContentSid: contentSid,
+                ContentVariables: JSON.stringify(contentVariables)
+            }).toString(),
+            {
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                auth: {
+                    username: process.env.TWILIO_ACCOUNT_SID,
+                    password: process.env.TWILIO_AUTH_TOKEN
                 }
-            );
-            console.log(`[DEBUG] Template message sent to ${to} using template "${templateName}"`);
-        } catch (error) {
-            console.error("[ERROR] Failed to send template message:", error.response?.data || error.message);
-        }
-    };
-};    
+            }
+        );
+        console.log(`[DEBUG] Template message sent to ${to} using ContentSid "${contentSid}"`);
+    } catch (error) {
+        console.error("[ERROR] Failed to send template message:", error.response?.data || error.message);
+    }
+};
+
 
 // ─── WEBHOOK HANDLER ───────────────────────────────────────────────
 app.post('/webhook', async (req, res) => { 
@@ -233,11 +201,11 @@ app.post('/webhook', async (req, res) => {
           // If a template is mapped for this step, send the template message.
           if (onboardingTemplates.hasOwnProperty(currentStep)) {
             await sendTemplateMessage(
-              from,
-              onboardingTemplates[currentStep],
-              [nextStep] // Pass the question text as a body parameter
-              // Optionally, pass button payloads if needed
+                from,
+                onboardingTemplates[currentStep],
+                { "1": nextStep }  // Provide the question text as a dynamic variable (adjust the key as needed)
             );
+        
             // Respond with a minimal acknowledgment (template message was sent)
             return res.send(`<Response><Message>✅ Template message sent.</Message></Response>`);
           } else {
