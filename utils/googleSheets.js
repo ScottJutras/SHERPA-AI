@@ -122,6 +122,7 @@ async function logRevenueEntry(userEmail, date, amount, source, category, paymen
 
       // Format the revenue entry
       const values = [[date, amount, source, category, paymentMethod, notes]];
+      console.log("[DEBUG] Logging Revenue Entry:", { userEmail, date, amount, source, category, paymentMethod, notes });
 
       // Append the revenue entry
       await sheets.spreadsheets.values.append({
