@@ -212,7 +212,7 @@ app.post('/webhook', async (req, res) => {
             const sent = await sendTemplateMessage(
                 from,
                 onboardingTemplates[currentStep],
-                contentVariables
+                {}
             );
             if (!sent) {
                 console.error("Falling back to plain text question because template message sending failed");
