@@ -108,7 +108,7 @@ const userOnboardingState = {};
 // Mapping of onboarding step indexes to approved template names
 const onboardingTemplates = {
     1: "HX4cf7529ecaf5a488fdfa96b931025023", // onboarding_country
-    3: "HX0cb311e5de4bb5e9c34d5c7c4093b5c7", // onboarding_business_type
+    3: "HX066a88aad4089ba4336a21116e923557", // onboarding_business_type
     4: "HX1d4c5b90e5f5d7417283f3ee522436f4", // onboarding_industry
     5: "HX5c80469d7ba195623a4a3654a27c19d7", // onboarding_personal_expenses
     6: "HXd1fcd47418eaeac8a94c57b930f86674", // onboarding_mileage_tracking
