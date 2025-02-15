@@ -170,7 +170,7 @@ app.post('/webhook', async (req, res) => {
         return res.send(`<Response><Message>⚠️ Sorry, something went wrong. Please try again.</Message></Response>`);
     }
 
-    // ─── ONBOARDING FLOW WITH TEMPLATE INTEGRATION ─────────────────────────
+   // ─── ONBOARDING FLOW WITH TEMPLATE INTEGRATION ─────────────────────────
 if (!userProfile) {
     // Retrieve onboarding state from Firestore
     let state = await getOnboardingState(from);
@@ -180,24 +180,43 @@ if (!userProfile) {
       console.log(`[DEBUG] Initialized state for ${from}:`, state);
     }
   
-    // Determine if we should skip steps 1 and 2 (country/province)
+    // Skip steps 1 and 2 if detected location is available (applies when state.step is 1)
     if (state.step === 1 && state.detectedLocation.country !== 'Unknown') {
       console.log(`[DEBUG] Skipping steps 1 and 2 for ${from} because detected location is available.`);
       state.responses['country'] = state.detectedLocation.country;
       state.responses['province'] = state.detectedLocation.region;
       state.step = 3; // Jump directly to step 3
       await setOnboardingState(from, state);
-    } else if (state.step > 0) {
-      // Record the response for the previous step only if we are not skipping
-      state.responses[`step_${state.step - 1}`] = body;
-      console.log(`[DEBUG] Recorded response for step ${state.step - 1}:`, body);
+    }
+  
+    // For steps > 0, record response only if the message is interactive.
+    // Otherwise, do not record and re-send the interactive prompt.
+    if (state.step > 0) {
+      if (req.body.MessageType === "interactive") {
+        state.responses[`step_${state.step - 1}`] = body;
+        console.log(`[DEBUG] Recorded interactive response for step ${state.step - 1}:`, body);
+      } else {
+        // Received non-interactive response; re-send the current prompt without advancing state.
+        console.log(`[DEBUG] Received non-interactive response "${body}" at step ${state.step - 1}. Re-sending prompt.`);
+        const currentStep = state.step - 1;
+        const questionText = onboardingSteps[currentStep];
+        if (onboardingTemplates.hasOwnProperty(currentStep)) {
+          const contentVariables = (onboardingTemplates[currentStep] === "HX0cb311e5de4bb5e9c34d5c7c4093b5c7")
+            ? {}  // No dynamic content needed for this template
+            : { "1": questionText };
+          await sendTemplateMessage(from, onboardingTemplates[currentStep], contentVariables);
+          return res.send(`<Response></Response>`);
+        } else {
+          return res.send(`<Response><Message>${questionText}</Message></Response>`);
+        }
+      }
     }
   
     // Check if there are more questions to ask
     if (state.step < onboardingSteps.length) {
       const currentStep = state.step;
       const nextStep = onboardingSteps[currentStep];
-      // Advance the step once for this incoming message
+      // Advance the step for this incoming message
       state.step++;
       await setOnboardingState(from, state);
       console.log(`[DEBUG] Updated state for ${from}:`, state);
@@ -205,26 +224,24 @@ if (!userProfile) {
       // If a template is mapped for this step, send the template message.
       if (onboardingTemplates.hasOwnProperty(currentStep)) {
         // Determine the ContentVariables.
-        // For the template "HX0cb311e5de4bb5e9c34d5c7c4093b5c7" (business type question),
-        // no dynamic content is needed.
+        // If the template for this step is fixed (e.g., business type with SID "HX0cb311e5de4bb5e9c34d5c7c4093b5c7"),
+        // then send an empty object; otherwise, pass the dynamic question text.
         const contentVariables = (onboardingTemplates[currentStep] === "HX0cb311e5de4bb5e9c34d5c7c4093b5c7")
-            ? {}  // No placeholders needed
-            : { "1": nextStep };  // Otherwise, pass the question text dynamically
+          ? {}
+          : { "1": nextStep };
   
         const sent = await sendTemplateMessage(
-            from,
-            onboardingTemplates[currentStep],
-            contentVariables
+          from,
+          onboardingTemplates[currentStep],
+          contentVariables
         );
         if (!sent) {
-            // Fallback: send the question as plain text if template sending failed
-            console.error("Falling back to plain text question because template message sending failed");
-            return res.send(`<Response><Message>${nextStep}</Message></Response>`);
+          console.error("Falling back to plain text question because template message sending failed");
+          return res.send(`<Response><Message>${nextStep}</Message></Response>`);
         }
         console.log(`[DEBUG] Sent interactive template for step ${currentStep} to ${from}`);
         return res.send(`<Response></Response>`);
       } else {
-        // If there's no template mapping for the current step, send plain text
         console.log(`[DEBUG] Sending plain text for step ${currentStep} to ${from}`);
         return res.send(`<Response><Message>${nextStep}</Message></Response>`);
       }
@@ -261,8 +278,7 @@ if (!userProfile) {
         return res.send(`<Response><Message>⚠️ Sorry, something went wrong while saving your profile. Please try again later.</Message></Response>`);
       }
     }
-  }
-  
+  }  
     // ─── NON-ONBOARDING FLOW FOR RETURNING USERS ─────────────
     let reply;
     try {
