@@ -180,57 +180,41 @@ if (!userProfile) {
       console.log(`[DEBUG] Initialized state for ${from}:`, state);
     }
   
-    // Skip steps 1 and 2 if detected location is available (applies when state.step is 1)
-    if (state.step === 1 && state.detectedLocation.country !== 'Unknown') {
-      console.log(`[DEBUG] Skipping steps 1 and 2 for ${from} because detected location is available.`);
-      state.responses['country'] = state.detectedLocation.country;
-      state.responses['province'] = state.detectedLocation.region;
-      state.step = 3; // Jump directly to step 3
+    // Record the user's answer for the current question (if any)
+    // (We assume every incoming message is an answer to the question at index state.step)
+    if (state.step < onboardingSteps.length) {
+      state.responses[`step_${state.step}`] = body;
+      console.log(`[DEBUG] Recorded response for step ${state.step}:`, body);
+      // Advance state to the next question
+      state.step++;
       await setOnboardingState(from, state);
-    }
-  
-    // Record the response for the previous question:
-    // For step 0 (the name question), record regardless of MessageType.
-    if (state.step === 0) {
-      state.responses[`step_0`] = body;
-      console.log(`[DEBUG] Recorded response for step 0:`, body);
-    } else if (state.step > 0) {
-      // For interactive steps (step > 0), now record any response (interactive or plain text)
-      state.responses[`step_${state.step - 1}`] = body;
-      console.log(`[DEBUG] Recorded response for step ${state.step - 1}:`, body);
+    } else {
+      console.log(`[DEBUG] Received final answer:`, body);
     }
   
     // Check if there are more questions to ask
-if (state.step < onboardingSteps.length) {
-    const currentStep = state.step;
-    const nextStep = onboardingSteps[currentStep];
-    // Advance the state for this incoming message
-    state.step++;
-    await setOnboardingState(from, state);
-    console.log(`[DEBUG] Updated state for ${from}:`, state);
-  
-    // If a template is mapped for this step, send the interactive template.
-    if (onboardingTemplates.hasOwnProperty(currentStep)) {
-      // Since your templates are static, we pass an empty object.
-      const sent = await sendTemplateMessage(
-        from,
-        onboardingTemplates[currentStep],
-        {}
-      );
-      if (!sent) {
-        console.error("Falling back to plain text question because template message sending failed");
-        return res.send(`<Response><Message>${nextStep}</Message></Response>`);
+    if (state.step < onboardingSteps.length) {
+      const nextQuestion = onboardingSteps[state.step];
+      console.log(`[DEBUG] Next question (step ${state.step}) for ${from}:`, nextQuestion);
+      
+      // If a template is mapped for this step, send the interactive template.
+      if (onboardingTemplates.hasOwnProperty(state.step)) {
+        // Since your templates are static, pass an empty object for ContentVariables.
+        const sent = await sendTemplateMessage(from, onboardingTemplates[state.step], {});
+        if (!sent) {
+          console.error("Falling back to plain text question because template message sending failed");
+          return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
+        }
+        console.log(`[DEBUG] Sent interactive template for step ${state.step} to ${from}`);
+        // Return an empty response so only the interactive template appears
+        return res.send(`<Response></Response>`);
+      } else {
+        // If no interactive template is mapped for this step, send the question as plain text.
+        console.log(`[DEBUG] Sending plain text for step ${state.step} to ${from}`);
+        return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
       }
-      console.log(`[DEBUG] Sent interactive template for step ${currentStep} to ${from}`);
-      return res.send(`<Response></Response>`);
     } else {
-      console.log(`[DEBUG] Sending plain text for step ${currentStep} to ${from}`);
-      return res.send(`<Response><Message>${nextStep}</Message></Response>`);
-    }
-  
-    } else {
-      // Final step: record the last response and complete onboarding
-      state.responses[`step_${state.step - 1}`] = body;
+      // Final step: process final answer and complete onboarding
       const email = state.responses.step_10;
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(email)) {
@@ -261,8 +245,7 @@ if (state.step < onboardingSteps.length) {
         return res.send(`<Response><Message>⚠️ Sorry, something went wrong while saving your profile. Please try again later.</Message></Response>`);
       }
     }
-  }
-  
+  }  
     // ─── NON-ONBOARDING FLOW FOR RETURNING USERS ─────────────
     let reply;
     try {
