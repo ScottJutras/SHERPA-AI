@@ -189,26 +189,28 @@ if (!userProfile) {
       await setOnboardingState(from, state);
     }
   
-    // For steps > 0, record response only if the message is interactive.
-    // Otherwise, do not record and re-send the interactive prompt.
+    // Record the response for the previous step if state.step > 0
     if (state.step > 0) {
-      if (req.body.MessageType === "interactive") {
-        state.responses[`step_${state.step - 1}`] = body;
-        console.log(`[DEBUG] Recorded interactive response for step ${state.step - 1}:`, body);
-      } else {
-        // Received non-interactive response; re-send the current prompt without advancing state.
-        console.log(`[DEBUG] Received non-interactive response "${body}" at step ${state.step - 1}. Re-sending prompt.`);
-        const currentStep = state.step - 1;
-        const questionText = onboardingSteps[currentStep];
-        if (onboardingTemplates.hasOwnProperty(currentStep)) {
-          const contentVariables = (onboardingTemplates[currentStep] === "HX0cb311e5de4bb5e9c34d5c7c4093b5c7")
-            ? {}  // No dynamic content needed for this template
-            : { "1": questionText };
-          await sendTemplateMessage(from, onboardingTemplates[currentStep], contentVariables);
-          return res.send(`<Response></Response>`);
+      const prevStep = state.step - 1;
+      // If the previous step is mapped as interactive, require interactive response.
+      if (onboardingTemplates.hasOwnProperty(prevStep)) {
+        if (req.body.MessageType === "interactive") {
+          state.responses[`step_${prevStep}`] = body;
+          console.log(`[DEBUG] Recorded interactive response for step ${prevStep}:`, body);
         } else {
-          return res.send(`<Response><Message>${questionText}</Message></Response>`);
+          // For an interactive step, if we get a non-interactive reply, re-send the prompt.
+          console.log(`[DEBUG] Received non-interactive response "${body}" for interactive step ${prevStep}. Re-sending prompt.`);
+          const questionText = onboardingSteps[prevStep];
+          const contentVariables = (onboardingTemplates[prevStep] === "HX0cb311e5de4bb5e9c34d5c7c4093b5c7")
+            ? {}  // No dynamic content needed
+            : { "1": questionText };
+          await sendTemplateMessage(from, onboardingTemplates[prevStep], contentVariables);
+          return res.send(`<Response></Response>`);
         }
+      } else {
+        // For plain text steps, record any response.
+        state.responses[`step_${prevStep}`] = body;
+        console.log(`[DEBUG] Recorded plain text response for step ${prevStep}:`, body);
       }
     }
   
@@ -216,25 +218,20 @@ if (!userProfile) {
     if (state.step < onboardingSteps.length) {
       const currentStep = state.step;
       const nextStep = onboardingSteps[currentStep];
-      // Advance the step for this incoming message
+      // Advance the state for this incoming message
       state.step++;
       await setOnboardingState(from, state);
       console.log(`[DEBUG] Updated state for ${from}:`, state);
   
-      // If a template is mapped for this step, send the template message.
+      // If a template is mapped for this step, send the interactive template.
       if (onboardingTemplates.hasOwnProperty(currentStep)) {
         // Determine the ContentVariables.
-        // If the template for this step is fixed (e.g., business type with SID "HX0cb311e5de4bb5e9c34d5c7c4093b5c7"),
-        // then send an empty object; otherwise, pass the dynamic question text.
+        // For example, if the template SID is "HX0cb311e5de4bb5e9c34d5c7c4093b5c7" (business type question)
+        // and it does not require dynamic content, send an empty object.
         const contentVariables = (onboardingTemplates[currentStep] === "HX0cb311e5de4bb5e9c34d5c7c4093b5c7")
           ? {}
           : { "1": nextStep };
-  
-        const sent = await sendTemplateMessage(
-          from,
-          onboardingTemplates[currentStep],
-          contentVariables
-        );
+        const sent = await sendTemplateMessage(from, onboardingTemplates[currentStep], contentVariables);
         if (!sent) {
           console.error("Falling back to plain text question because template message sending failed");
           return res.send(`<Response><Message>${nextStep}</Message></Response>`);
@@ -242,6 +239,7 @@ if (!userProfile) {
         console.log(`[DEBUG] Sent interactive template for step ${currentStep} to ${from}`);
         return res.send(`<Response></Response>`);
       } else {
+        // If no template is mapped, send plain text.
         console.log(`[DEBUG] Sending plain text for step ${currentStep} to ${from}`);
         return res.send(`<Response><Message>${nextStep}</Message></Response>`);
       }
