@@ -1,3 +1,4 @@
+How does this look?
 require('dotenv').config();
 const express = require('express');
 const OpenAI = require('openai');
@@ -23,12 +24,6 @@ const { transcribeAudio } = require('./utils/transcriptionService'); // New func
 const fs = require('fs');
 const path = require('path');
 const admin = require("firebase-admin");
-console.log("[DEBUG] Twilio API URL:", `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`);
-console.log("[DEBUG] TWILIO_ACCOUNT_SID:", process.env.TWILIO_ACCOUNT_SID ? "Loaded" : "MISSING");
-console.log("[DEBUG] TWILIO_AUTH_TOKEN:", process.env.TWILIO_AUTH_TOKEN ? "Loaded" : "MISSING");
-console.log("[DEBUG] TWILIO_WHATSAPP_NUMBER:", process.env.TWILIO_WHATSAPP_NUMBER ? "Loaded" : "MISSING");
-console.log("[DEBUG] TWILIO_MESSAGING_SERVICE_SID:", process.env.TWILIO_MESSAGING_SERVICE_SID ? "Loaded" : "MISSING");
-
 
 // ─── FIREBASE ADMIN SETUP ────────────────────────────────────────────
 if (!admin.apps.length) {
@@ -112,8 +107,6 @@ const userOnboardingState = {};
 // ✅ Function to send interactive WhatsApp Quick Replies
 const sendQuickReply = async (from, text, buttons) => {
     try {
-        console.log(`[DEBUG] Attempting to send Quick Reply to ${from}`);
-
         const buttonOptions = buttons.map(label => ({
             type: "reply",
             reply: {
@@ -122,34 +115,33 @@ const sendQuickReply = async (from, text, buttons) => {
             }
         }));
 
-        const response = await axios.post(
-            `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`, 
-            new URLSearchParams({
-                From: process.env.TWILIO_WHATSAPP_NUMBER,
-                To: from,
-                MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-                Body: text,
-                "PersistentAction": buttons.map(b => `reply?text=${b}`).join(',')
-            }).toString(), 
-            {
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                auth: {
-                    username: process.env.TWILIO_ACCOUNT_SID,
-                    password: process.env.TWILIO_AUTH_TOKEN
-                }
+        await axios.post(`https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`, 
+        new URLSearchParams({
+            From: process.env.TWILIO_WHATSAPP_NUMBER,
+            To: from,
+            MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,  // 🛠️ Ensure this is in .env
+            Body: text,
+            "PersistentAction": buttons.map(b => `reply?text=${b}`).join(',')
+        }).toString(), 
+        {
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            auth: {
+                username: process.env.TWILIO_ACCOUNT_SID,
+                password: process.env.TWILIO_AUTH_TOKEN
             }
-        );
+        });
 
-        console.log(`[✅ SUCCESS] Twilio API Response:`, response.data);
-
+        console.log(`[DEBUG] Quick Reply Sent to ${from}: ${text}`);
     } catch (error) {
-        console.error("[❌ ERROR] Failed to send Quick Reply:", error.response?.data || error.message);
+        console.error("[ERROR] Failed to send Quick Reply:", error.response?.data || error.message);
     }
 };
+
+
 // ─── WEBHOOK HANDLER ───────────────────────────────────────────────
 app.post('/webhook', async (req, res) => { 
     const from = req.body.From;
-    const body = req.body.ButtonResponse?.id || req.body.Body?.trim();
+    const body = req.body.Body?.trim();
     const mediaUrl = req.body.MediaUrl0;
     const mediaType = req.body.MediaContentType0;
 
@@ -187,25 +179,7 @@ app.post('/webhook', async (req, res) => {
 
             const nextStep = onboardingSteps[state.step];
             state.step++;
-            await axios.post(
-                `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
-                new URLSearchParams({
-                    From: process.env.TWILIO_WHATSAPP_NUMBER,
-                    To: from,
-                    MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-                    ContentTemplateSid: "YOUR_TEMPLATE_SID_HERE" // Use the appropriate Twilio template SID for this question
-                }).toString(),
-                {
-                    headers: {
-                        "Content-Type": "application/x-www-form-urlencoded"
-                    },
-                    auth: {
-                        username: process.env.TWILIO_ACCOUNT_SID,
-                        password: process.env.TWILIO_AUTH_TOKEN
-                    }
-                }
-            );
-            
+            return res.send(`<Response><Message>${nextStep}</Message></Response>`);
         } else {
             state.responses[`step_${state.step - 1}`] = body;
             
@@ -248,31 +222,26 @@ app.post('/webhook', async (req, res) => {
  // ✅ Non-Onboarding Flow for Returning Users
 let reply;
 try {
-    if (userOnboardingState[from]?.pendingExpense) {
+    if (body?.toLowerCase() === 'yes' && userOnboardingState[from]?.pendingExpense) {
+        // ✅ User confirmed the parsed expense
         const confirmedExpense = userOnboardingState[from].pendingExpense;
+        const activeJob = await getActiveJob(from) || "Uncategorized";
     
-        if (body.toLowerCase() === 'yes' || body.toLowerCase() === 'yea' || body.toLowerCase() === 'yep') {
-            const activeJob = await getActiveJob(from) || "Uncategorized";
-    
-            await appendToUserSpreadsheet(from, [
-                confirmedExpense.date,
-                confirmedExpense.item,
-                confirmedExpense.amount,
-                confirmedExpense.store,
-                activeJob
-            ]);
-    
-            delete userOnboardingState[from].pendingExpense; // Clear the pending state
-    
-            return res.send(`<Response><Message>✅ Expense confirmed and logged: ${confirmedExpense.item} for ${confirmedExpense.amount} at ${confirmedExpense.store} on ${confirmedExpense.date}</Message></Response>`);
-        } else if (body.toLowerCase() === 'no' || body.toLowerCase() === 'edit') {
-            delete userOnboardingState[from].pendingExpense; // Clear the pending state
-            return res.send(`<Response><Message>✏️ Okay, please resend the correct details.</Message></Response>`);
-        } else {
-            return res.send(`<Response><Message>⚠️ Please reply with 'Yes' to confirm, 'No' to cancel, or 'Edit' to correct.</Message></Response>`);
+        if (!confirmedExpense.amount || !confirmedExpense.item || !confirmedExpense.store) {
+            console.log("[❌ ERROR] Missing essential expense data. Aborting log.");
+            return res.send(`<Response><Message>⚠️ Sorry, I couldn't process that expense. Please provide the full details.</Message></Response>`);
         }
-    }
     
+        await appendToUserSpreadsheet(from, [
+            confirmedExpense.date,
+            confirmedExpense.item,
+            confirmedExpense.amount,
+            confirmedExpense.store,
+            activeJob
+        ]);
+        delete userOnboardingState[from].pendingExpense;
+        return res.send(`<Response><Message>✅ Expense confirmed and logged: ${confirmedExpense.item} for ${confirmedExpense.amount} at ${confirmedExpense.store} on ${confirmedExpense.date}</Message></Response>`);
+    }
     // 🎤 Voice Note Handling   
     if (mediaUrl && mediaType?.includes("audio")) {
         const authHeader = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
