@@ -110,6 +110,55 @@ async function getAuthorizedClient() {
   }
 }
 
+// ─── REVENUE LOGGING ─────────────────────────────────────────────────────────
+async function logRevenueEntry(userEmail, date, amount, source, category, paymentMethod, notes) {
+  const auth = await getAuthorizedClient();
+  const sheets = google.sheets({ version: 'v4', auth });
+  const sheetName = 'Revenue';
+
+  try {
+      // Ensure the sheet exists, create if necessary
+      await ensureSheetExists(sheets, sheetName);
+
+      // Format the revenue entry
+      const values = [[date, amount, source, category, paymentMethod, notes]];
+
+      // Append the revenue entry
+      await sheets.spreadsheets.values.append({
+          spreadsheetId: process.env.SPREADSHEET_ID,
+          range: `${sheetName}!A:F`,
+          valueInputOption: 'USER_ENTERED',
+          resource: { values },
+      });
+
+      console.log(`Revenue entry logged: ${amount} from ${source}`);
+      return true;
+  } catch (error) {
+      console.error('Error logging revenue entry:', error);
+      return false;
+  }
+}
+
+async function ensureSheetExists(sheets, sheetName) {
+  try {
+      const response = await sheets.spreadsheets.get({ spreadsheetId: process.env.SPREADSHEET_ID });
+      const sheetExists = response.data.sheets.some(sheet => sheet.properties.title === sheetName);
+      
+      if (!sheetExists) {
+          await sheets.spreadsheets.batchUpdate({
+              spreadsheetId: process.env.SPREADSHEET_ID,
+              resource: {
+                  requests: [{
+                      addSheet: { properties: { title: sheetName } }
+                  }]
+              }
+          });
+          console.log(`Sheet '${sheetName}' created.`);
+      }
+  } catch (error) {
+      console.error('Error ensuring sheet exists:', error);
+  }
+}
 // ─── SPREADSHEET CREATION & RETRIEVAL ─────────────────────────────────────────
 /**
  * Creates a new spreadsheet for a user using the Google Sheets API.
@@ -536,5 +585,7 @@ module.exports = {
   calculateExpenseAnalytics,
   parseReceiptText,
   calculateIncomeGoal,
+  logRevenueEntry,
+  ensureSheetExists
 };
 

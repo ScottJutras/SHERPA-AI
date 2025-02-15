@@ -8,6 +8,7 @@ const { parseExpenseMessage, parseRevenueMessage } = require('./utils/expensePar
 const {
     getUserProfile,
     saveUserProfile,
+    logRevenueEntry,
     appendToUserSpreadsheet,
     getOrCreateUserSpreadsheet,
     fetchExpenseData,
@@ -466,7 +467,41 @@ if (!userProfile) {
     console.log(`[DEBUG] Reply sent to ${from}: "${reply}"`);
     return res.send(`<Response><Message>${reply}</Message></Response>`);
 });
+// ─── Log Revenue ─────────────────────────────
+try {
+    const message = req.body.message;
+    const userPhone = req.body.phoneNumber;
+    
+    if (!message || !userPhone) {
+        return res.status(400).send({ error: 'Missing required fields' });
+    }
 
+    // Revenue detection pattern
+    const revenuePattern = /received\s*(\$?\d+(?:\.\d{2})?)\s*from\s*(.+)/i;
+    const match = message.match(revenuePattern);
+
+    if (match) {
+        const amount = match[1].startsWith('$') ? match[1] : `$${match[1]}`;
+        const source = match[2].trim();
+        const date = new Date().toISOString().split('T')[0]; // Current date
+        const category = "General Revenue";
+        const paymentMethod = "Unknown";
+        const notes = "Logged via WhatsApp";
+
+        const success = await logRevenueEntry(userPhone, date, amount, source, category, paymentMethod, notes);
+        
+        if (success) {
+            return res.status(200).send({ message: `Revenue of ${amount} from ${source} logged successfully.` });
+        } else {
+            return res.status(500).send({ error: 'Failed to log revenue.' });
+        }
+    }
+
+    return res.status(200).send({ message: 'Message received but no revenue detected.' });
+} catch (error) {
+    console.error('Error processing webhook:', error);
+    return res.status(500).send({ error: 'Internal server error' });
+}
 // ─── Helper Functions for Bill Management ─────────────────────────────
 async function updateBillInFirebase(userId, billData) {
     try {
