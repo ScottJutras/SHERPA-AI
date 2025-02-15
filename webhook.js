@@ -93,88 +93,6 @@ const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
-// ✅ Onboarding Flow
-if (!userProfile) {
-    if (!userOnboardingState[from]) {
-        const detectedLocation = detectCountryAndRegion(from);  // Use this function
-        userOnboardingState[from] = { step: 0, responses: {}, detectedLocation };
-    }
-    
-    const state = userOnboardingState[from];
-
-    if (state.step < onboardingSteps.length) {
-        if (state.step > 0) {
-            state.responses[`step_${state.step - 1}`] = body;
-        }
-
-        // Skip country/province questions if detected
-        if (state.step === 1 && state.detectedLocation.country !== 'Unknown') {
-            state.responses['country'] = state.detectedLocation.country;
-            state.responses['province'] = state.detectedLocation.region;
-            state.step += 2;  // Skip country and province questions
-        }
-
-        // ✅ Determine the correct onboarding step
-        const nextStep = onboardingSteps[state.step];
-        state.step++;
-
-        // ✅ Get the correct template SID
-        const templateSid = onboardingTemplates[state.step] || null;
-
-        if (templateSid) {
-            await axios.post(
-                `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
-                new URLSearchParams({
-                    From: process.env.TWILIO_WHATSAPP_NUMBER,
-                    To: from,
-                    MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-                    ContentTemplateSid: templateSid
-                }).toString(),
-                {
-                    headers: {
-                        "Content-Type": "application/x-www-form-urlencoded"
-                    },
-                    auth: {
-                        username: process.env.TWILIO_ACCOUNT_SID,
-                        password: process.env.TWILIO_AUTH_TOKEN
-                    }
-                }
-            );
-        } else {
-            // Fallback for non-button questions (like Name or Province)
-            return res.send(`<Response><Message>${nextStep}</Message></Response>`);
-        }
-    } else {
-        state.responses[`step_${state.step - 1}`] = body;
-
-        // ✅ Onboarding Complete - Save User Data
-        try {
-            userProfile = {
-                user_id: from,
-                name: state.responses.step_0,
-                country: state.responses.country || state.responses.step_1,
-                province: state.responses.province || state.responses.step_2,
-                business_type: state.responses.step_3,
-                industry: state.responses.step_4,
-                personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
-                track_mileage: state.responses.step_6.toLowerCase() === "yes",
-                track_home_office: state.responses.step_7.toLowerCase() === "yes",
-                financial_goals: state.responses.step_8,
-                add_bills: state.responses.step_9?.toLowerCase() === "yes",
-                email: state.responses.step_10,
-                created_at: new Date().toISOString()
-            };
-
-            await saveUserProfile(userProfile);
-            delete userOnboardingState[from];
-
-            return res.send(`<Response><Message>✅ Onboarding complete, ${userProfile.name}! You can now start logging expenses.</Message></Response>`);
-        } catch (error) {
-            console.error("[ERROR] Failed to save user profile:", error);
-            return res.send(`<Response><Message>⚠️ Sorry, something went wrong while saving your profile. Please try again later.</Message></Response>`);
-        }
-    }
-}
 
 // ─── WEBHOOK HANDLER ───────────────────────────────────────────────
 app.post('/webhook', async (req, res) => { 
@@ -310,27 +228,91 @@ app.post('/webhook', async (req, res) => {
             }
         }
 
-        // ✅ Handling Voice Notes with GPT-3.5 fallback
+        // ✅ Handling Voice Notes
         if (mediaUrl && mediaType?.includes("audio")) {
-            reply = await handleVoiceNote(from, mediaUrl);
-        } 
+            const authHeader = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
+
+            const audioResponse = await axios.get(mediaUrl, {
+                responseType: 'arraybuffer',
+                headers: {
+                    Authorization: `Basic ${authHeader}`
+                }
+            });
+
+            const audioBuffer = Buffer.from(audioResponse.data, 'binary');
+            const transcription = await transcribeAudio(audioBuffer);
+
+            if (transcription) {
+                console.log(`[DEBUG] Transcription Result: "${transcription}"`);
+                let expenseData = parseExpenseMessage(transcription);
+
+                if (!expenseData) {
+                    // 🔄 Fallback to GPT-3.5 if Regex Parsing Fails
+                    console.log("[DEBUG] Regex parsing failed, using GPT-3.5 fallback...");
+
+                    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+                    const gptResponse = await openai.chat.completions.create({
+                        model: "gpt-3.5-turbo",
+                        messages: [
+                            {
+                                role: "system",
+                                content: "You are an assistant that extracts structured expense data from messages."
+                            },
+                            {
+                                role: "user",
+                                content: `Extract the date, item, amount, and store from this message: "${transcription}". Return in JSON format like this: {"date": "YYYY-MM-DD", "item": "ITEM", "amount": "$AMOUNT", "store": "STORE"}.`
+                            }
+                        ]
+                    });
+
+                    try {
+                        expenseData = JSON.parse(gptResponse.choices[0].message.content);
+                    } catch (error) {
+                        console.error("[ERROR] GPT-3.5 Parsing Error:", error);
+                        expenseData = null;
+                    }
+                }
+
+                if (expenseData) {
+                    userOnboardingState[from] = { pendingExpense: expenseData };
+
+                    await sendQuickReply(from, 
+                        `Did you mean: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?`, 
+                        ["Yes", "Edit", "Cancel"]
+                    );
+
+                    return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+                } else {
+                    reply = "⚠️ Could not extract expense details. Please try again.";
+                }
+            } else {
+                reply = "⚠️ Sorry, I couldn't understand the voice note.";
+            }
+        }
+
         // ✅ Handling Receipt Images
         else if (mediaUrl && mediaType?.includes("image")) {
             reply = await handleReceiptImage(from, mediaUrl);
-        } 
+        }
+
         // ✅ Handling Job Tracking
         else if (body?.toLowerCase().startsWith("start job ")) {
             const jobName = body.slice(10).trim();
             await setActiveJob(from, jobName);
             reply = `✅ Job '${jobName}' is now active.`;
-        } 
+        }
+
         // ✅ Expense Summary
         else if (body?.toLowerCase().startsWith("expense summary")) {
-            reply = await getExpenseSummary(from);
-        } 
-        // ✅ Default Expense Logging Flow
-        else {
-            reply = await handleExpenseLogging(from, body);
+            const activeJob = await getActiveJob(from) || "Uncategorized";
+            const expenseData = await fetchExpenseData(from, activeJob);
+            const analytics = calculateExpenseAnalytics(expenseData);
+
+            reply = `📊 *Expense Summary for ${activeJob}* 📊
+💰 Total Spent: ${analytics.totalSpent}
+🏪 Top Store: ${analytics.topStore}
+📌 Biggest Purchase: ${analytics.biggestPurchase}
+🔄 Most Frequent Expense: ${analytics.mostFrequentItem}`;
         }
 
         res.send(`<Response><Message>${reply}</Message></Response>`);
@@ -340,6 +322,7 @@ app.post('/webhook', async (req, res) => {
         res.send(`<Response><Message>⚠️ Error processing request.</Message></Response>`);
     }
 });
+
 
 // ✅ Debugging: Log Environment Variables
 console.log("[DEBUG] Checking environment variables...");
