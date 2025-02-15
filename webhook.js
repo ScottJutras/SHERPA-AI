@@ -422,7 +422,9 @@ try {
         const activeJob = await getActiveJob(from) || "Uncategorized";
         let revenueData = parseRevenueMessage(body);
         if (!revenueData) {
+            console.log("[DEBUG] Parsed Revenue Data:", { date, amount, source });
             console.log("[DEBUG] Regex parsing failed for revenue, using GPT-3.5 for fallback...");
+
             const gptResponse = await openai.chat.completions.create({
                 model: "gpt-3.5-turbo",
                 messages: [
