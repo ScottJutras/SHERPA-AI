@@ -47,6 +47,20 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
+// Helper functions for onboarding state persistence in Firestore
+const getOnboardingState = async (from) => {
+  const stateDoc = await db.collection('onboardingStates').doc(from).get();
+  return stateDoc.exists ? stateDoc.data() : null;
+};
+
+const setOnboardingState = async (from, state) => {
+  await db.collection('onboardingStates').doc(from).set(state);
+};
+
+const deleteOnboardingState = async (from) => {
+  await db.collection('onboardingStates').doc(from).delete();
+};
+
 // ─── UTILITY FUNCTIONS ─────────────────────────────────────────────
 function detectCountryAndRegion(phoneNumber) {
     if (!phoneNumber.startsWith("+")) {
@@ -184,79 +198,83 @@ app.post('/webhook', async (req, res) => {
     }
 
     // ─── ONBOARDING FLOW WITH TEMPLATE INTEGRATION ─────────────────────────
-if (!userProfile) {
-    if (!userOnboardingState[from]) {
-        const detectedLocation = detectCountryAndRegion(from);
-        userOnboardingState[from] = { step: 0, responses: {}, detectedLocation };
-    }
-    const state = userOnboardingState[from];
-
-    if (state.step < onboardingSteps.length) {
-        if (state.step > 0) {
+    if (!userProfile) {
+        // Retrieve onboarding state from Firestore
+        let state = await getOnboardingState(from);
+        if (!state) {
+          state = { step: 0, responses: {}, detectedLocation: detectCountryAndRegion(from) };
+          await setOnboardingState(from, state);
+        }
+      
+        if (state.step < onboardingSteps.length) {
+          if (state.step > 0) {
             // Save the previous response
             state.responses[`step_${state.step - 1}`] = body;
-        }
-
-        // Skip country/province questions if detected (for step 1)
-        if (state.step === 1 && state.detectedLocation.country !== 'Unknown') {
+          }
+      
+          // Skip country/province questions if detected (applies at step 1)
+          if (state.step === 1 && state.detectedLocation.country !== 'Unknown') {
             state.responses['country'] = state.detectedLocation.country;
             state.responses['province'] = state.detectedLocation.region;
-            state.step += 2;  // Skip steps 1 and 2
-        }
-
-        const currentStep = state.step;
-        const nextStep = onboardingSteps[currentStep];
-        state.step++;
-
-        // If a template is mapped for this step, send the template message.
-        if (onboardingTemplates.hasOwnProperty(currentStep)) {
+            state.step += 2; // Skip steps 1 and 2
+          }
+      
+          const currentStep = state.step;
+          const nextStep = onboardingSteps[currentStep];
+          state.step++;
+      
+          // Save the updated state back to Firestore
+          await setOnboardingState(from, state);
+      
+          // If a template is mapped for this step, send the template message.
+          if (onboardingTemplates.hasOwnProperty(currentStep)) {
             await sendTemplateMessage(
-                from,
-                onboardingTemplates[currentStep],
-                [nextStep]  // Pass the question text as a body parameter
-                // If your template includes buttons defined in the approval, you can pass button payloads here.
+              from,
+              onboardingTemplates[currentStep],
+              [nextStep] // Pass the question text as a body parameter
+              // Optionally, pass button payloads if needed
             );
-            // Respond with a minimal acknowledgment (or you can omit this if the template is enough).
+            // Respond with a minimal acknowledgment (template message was sent)
             return res.send(`<Response><Message>✅ Template message sent.</Message></Response>`);
-        } else {
-            // Fallback to plain text message if no template is defined for this step.
+          } else {
+            // Otherwise, send a plain text message for the question
             return res.send(`<Response><Message>${nextStep}</Message></Response>`);
-        }
-    } else {
-        state.responses[`step_${state.step - 1}`] = body;
-        // Email validation for the final step (step 10)
-        const email = state.responses.step_10;
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email)) {
+          }
+        } else {
+          // Final step: save the last response and complete onboarding
+          state.responses[`step_${state.step - 1}`] = body;
+          // Email validation for final step (step 10)
+          const email = state.responses.step_10;
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(email)) {
             return res.send(`<Response><Message>⚠️ The email address you provided doesn't seem valid. Please enter a valid email address.</Message></Response>`);
-        }
-        try {
-            // Save completed onboarding profile
+          }
+          try {
             userProfile = {
-                user_id: from,
-                name: state.responses.step_0,
-                country: state.responses.country || state.responses.step_1,
-                province: state.responses.province || state.responses.step_2,
-                business_type: state.responses.step_3,
-                industry: state.responses.step_4,
-                personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
-                track_mileage: state.responses.step_6.toLowerCase() === "yes",
-                track_home_office: state.responses.step_7.toLowerCase() === "yes",
-                financial_goals: state.responses.step_8,
-                add_bills: state.responses.step_9?.toLowerCase() === "yes",
-                email: state.responses.step_10,
-                created_at: new Date().toISOString()
+              user_id: from,
+              name: state.responses.step_0,
+              country: state.responses.country || state.responses.step_1,
+              province: state.responses.province || state.responses.step_2,
+              business_type: state.responses.step_3,
+              industry: state.responses.step_4,
+              personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
+              track_mileage: state.responses.step_6.toLowerCase() === "yes",
+              track_home_office: state.responses.step_7.toLowerCase() === "yes",
+              financial_goals: state.responses.step_8,
+              add_bills: state.responses.step_9?.toLowerCase() === "yes",
+              email: state.responses.step_10,
+              created_at: new Date().toISOString()
             };
             await saveUserProfile(userProfile);
-            delete userOnboardingState[from];
+            await deleteOnboardingState(from);
             return res.send(`<Response><Message>✅ Onboarding complete, ${userProfile.name}! You can now start logging expenses.</Message></Response>`);
-        } catch (error) {
+          } catch (error) {
             console.error("[ERROR] Failed to save user profile:", error);
             return res.send(`<Response><Message>⚠️ Sorry, something went wrong while saving your profile. Please try again later.</Message></Response>`);
+          }
         }
-    }
-}
-
+      }
+      
     // ─── NON-ONBOARDING FLOW FOR RETURNING USERS ─────────────
     let reply;
     try {
