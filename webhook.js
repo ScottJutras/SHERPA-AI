@@ -142,11 +142,12 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
             }
         );
         console.log(`[DEBUG] Template message sent to ${to} using ContentSid "${contentSid}"`);
+        return true;
     } catch (error) {
         console.error("[ERROR] Failed to send template message:", error.response?.data || error.message);
+        return false;
     }
 };
-
 
 // ─── WEBHOOK HANDLER ───────────────────────────────────────────────
 app.post('/webhook', async (req, res) => { 
@@ -200,19 +201,22 @@ app.post('/webhook', async (req, res) => {
       
           // If a template is mapped for this step, send the template message.
           if (onboardingTemplates.hasOwnProperty(currentStep)) {
-            await sendTemplateMessage(
+            const sent = await sendTemplateMessage(
                 from,
                 onboardingTemplates[currentStep],
-                { "1": nextStep }  // Provide the question text as a dynamic variable (adjust the key as needed)
+                { "1": nextStep }  // Ensure "1" matches your template's dynamic variable key
             );
-        
-            // Return an empty response to prevent sending an additional text message
+            if (!sent) {
+                // Fallback: send the question as plain text if template sending failed
+                console.error("Falling back to plain text question because template message sending failed");
+                return res.send(`<Response><Message>${nextStep}</Message></Response>`);
+            }
+            // If the template message was sent successfully, return an empty response
             return res.send(`<Response></Response>`);
-
-          } else {
-            // Otherwise, send a plain text message for the question
+        } else {
+            // If there's no template mapping for the current step, send plain text
             return res.send(`<Response><Message>${nextStep}</Message></Response>`);
-          }
+        }        
         } else {
           // Final step: save the last response and complete onboarding
           state.responses[`step_${state.step - 1}`] = body;
