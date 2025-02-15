@@ -124,15 +124,33 @@ const onboardingTemplates = {
 // ─── NEW FUNCTION: Send Approved Template Message ─────────────────────
 const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
     try {
-        await axios.post(
+        if (!contentSid) {
+            console.error("[ERROR] Missing ContentSid for Twilio template message.");
+            return false;
+        }
+        if (!to || !process.env.TWILIO_WHATSAPP_NUMBER) {
+            console.error("[ERROR] Missing required phone numbers for Twilio message.");
+            return false;
+        }
+
+        // Twilio requires ContentVariables to be a JSON string
+        const formattedVariables = JSON.stringify(contentVariables);
+
+        console.log("[DEBUG] Sending Twilio template message with:", {
+            To: to,
+            ContentSid: contentSid,
+            ContentVariables: formattedVariables
+        });
+
+        const response = await axios.post(
             `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
             new URLSearchParams({
                 From: process.env.TWILIO_WHATSAPP_NUMBER,
                 To: to,
                 MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-                Body: "Template Message",  // Minimal fallback body (must be non-empty)
+                Body: "Template Message", // Fallback body (required)
                 ContentSid: contentSid,
-                ContentVariables: JSON.stringify(contentVariables)
+                ContentVariables: formattedVariables
             }).toString(),
             {
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -142,13 +160,15 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
                 }
             }
         );
-        console.log(`[DEBUG] Template message sent to ${to} using ContentSid "${contentSid}"`);
+
+        console.log(`[✅] Twilio template message sent successfully to ${to} with ContentSid "${contentSid}"`);
         return true;
     } catch (error) {
-        console.error("[ERROR] Failed to send template message:", error.response?.data || error.message);
+        console.error("[ERROR] Twilio template message failed:", error.response?.data || error.message);
         return false;
     }
 };
+
 
 // ─── WEBHOOK HANDLER ───────────────────────────────────────────────
 app.post('/webhook', async (req, res) => { 
@@ -537,13 +557,19 @@ app.post('/webhook', async (req, res) => {
         }
         if (revenueData && revenueData.amount && revenueData.source) {
             userOnboardingState[from] = { pendingRevenue: revenueData };
-            // Use an approved template for revenue confirmation (e.g., "copy_onboarding_financial_goal")
+        
+            console.log("[DEBUG] Sending Twilio pay_confirmation template...");
+            
             await sendTemplateMessage(
                 from,
-                "copy_onboarding_financial_goal", // Update with the appropriate template name
-                [`Did you mean: ${revenueData.amount} from ${revenueData.source} on ${revenueData.date}?`],
-                ["Yes", "Edit", "Cancel"]
+                "HX9382ee3fb669bc5cf11423d137a25308", // ✅ Correct Twilio Template SID
+                { 
+                    amount: revenueData.amount, 
+                    source: revenueData.source, 
+                    date: revenueData.date 
+                }
             );
+        
             return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
         } else {
             reply = "⚠️ Could not understand your revenue message. Please provide more details.";
