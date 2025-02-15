@@ -206,8 +206,9 @@ app.post('/webhook', async (req, res) => {
                 { "1": nextStep }  // Provide the question text as a dynamic variable (adjust the key as needed)
             );
         
-            // Respond with a minimal acknowledgment (template message was sent)
-            return res.send(`<Response><Message>✅ Template message sent.</Message></Response>`);
+            // Return an empty response to prevent sending an additional text message
+            return res.send(`<Response></Response>`);
+
           } else {
             // Otherwise, send a plain text message for the question
             return res.send(`<Response><Message>${nextStep}</Message></Response>`);
