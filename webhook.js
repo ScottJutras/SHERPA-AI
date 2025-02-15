@@ -189,41 +189,39 @@ app.post('/webhook', async (req, res) => {
           if (state.step === 1 && state.detectedLocation.country !== 'Unknown') {
             state.responses['country'] = state.detectedLocation.country;
             state.responses['province'] = state.detectedLocation.region;
-            state.step += 2; // Skip steps 1 and 2
-          }
+            state.step += 3; // directly jump to step 3
+        } else if (state.step > 0) {
+            // Otherwise, record the user's input for the previous step.
+            state.responses[`step_${state.step - 1}`] = body;
+        }
       
-          const currentStep = state.step;
-          const nextStep = onboardingSteps[currentStep];
-          state.step++;
-      
-          // Save the updated state back to Firestore
-          await setOnboardingState(from, state);
-      
-          // If a template is mapped for this step, send the template message.
-if (onboardingTemplates.hasOwnProperty(currentStep)) {
-    // Determine the ContentVariables.
-    // For the template "HX0cb311e5de4bb5e9c34d5c7c4093b5c7" (business type question),
-    // no dynamic content is needed.
-    const contentVariables = (onboardingTemplates[currentStep] === "HX0cb311e5de4bb5e9c34d5c7c4093b5c7")
-        ? {}  // No placeholders needed
-        : { "1": nextStep };  // Otherwise, pass the question text dynamically
-
-    const sent = await sendTemplateMessage(
-        from,
-        onboardingTemplates[currentStep],
-        contentVariables
-    );
-    if (!sent) {
-        // Fallback: send the question as plain text if template sending failed
-        console.error("Falling back to plain text question because template message sending failed");
-        return res.send(`<Response><Message>${nextStep}</Message></Response>`);
-    }
-    // If the template message was sent successfully, return an empty response
-    return res.send(`<Response></Response>`);
-} else {
-    // If there's no template mapping for the current step, send plain text
-    return res.send(`<Response><Message>${nextStep}</Message></Response>`);
-}
+        const currentStep = state.step;
+        const nextStep = onboardingSteps[currentStep];
+        state.step++;
+        
+        // Save updated state back to Firestore.
+        await setOnboardingState(from, state);
+        
+        // If a template is mapped for this step, send the template message.
+        if (onboardingTemplates.hasOwnProperty(currentStep)) {
+            // Determine ContentVariables based on the template.
+            const contentVariables = (onboardingTemplates[currentStep] === "HX0cb311e5de4bb5e9c34d5c7c4093b5c7")
+                ? {}  // No dynamic placeholders for this template.
+                : { "1": nextStep };  // Otherwise, pass the question text dynamically.
+            
+            const sent = await sendTemplateMessage(
+                from,
+                onboardingTemplates[currentStep],
+                contentVariables
+            );
+            if (!sent) {
+                console.error("Falling back to plain text question because template message sending failed");
+                return res.send(`<Response><Message>${nextStep}</Message></Response>`);
+            }
+            return res.send(`<Response></Response>`);
+        } else {
+            return res.send(`<Response><Message>${nextStep}</Message></Response>`);
+        }        
 
         } else {
           // Final step: save the last response and complete onboarding
