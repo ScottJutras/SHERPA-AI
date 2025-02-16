@@ -223,46 +223,59 @@ if (!userProfile) {
         }
     } else {
                 // Final step: complete onboarding
-                const email = state.responses.step_10;
-                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-                if (!emailRegex.test(email)) {
-                    return res.send(`<Response><Message>⚠️ The email address you provided doesn't seem valid. Please enter a valid email address.</Message></Response>`);
-                }
-                try {
-                    userProfile = {
-                        user_id: from,
-                        name: state.responses.step_0,
-                        country: state.responses.country || state.responses.step_1,
-                        province: state.responses.province || state.responses.step_2,
-                        business_type: state.responses.step_3,
-                        industry: state.responses.step_4,
-                        personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
-                        track_mileage: state.responses.step_6.toLowerCase() === "yes",
-                        track_home_office: state.responses.step_7.toLowerCase() === "yes",
-                        financial_goals: state.responses.step_8,
-                        add_bills: state.responses.step_9?.toLowerCase() === "yes",
-                        email: state.responses.step_10,
-                        created_at: new Date().toISOString()
-                    };
-                    await saveUserProfile(userProfile);
-                    await deleteOnboardingState(from);
-                    console.log(`[DEBUG] Onboarding complete for ${from}:`, userProfile);
-                    return res.send(`<Response><Message>✅ Onboarding complete, ${userProfile.name}! You can now start logging expenses.</Message></Response>`);
-                } catch (error) {
-                    console.error("[ERROR] Failed to save user profile:", error);
-                    return res.send(`<Response><Message>⚠️ Sorry, something went wrong while saving your profile. Please try again later.</Message></Response>`);
-                }
+const email = state.responses.step_10;
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+if (!emailRegex.test(email)) {
+  return res.send(`<Response><Message>⚠️ The email address you provided doesn't seem valid. Please enter a valid email address.</Message></Response>`);
+}
+
+try {
+  userProfile = {
+    user_id: from,
+    name: state.responses.step_0,
+    country: state.responses.country || state.responses.step_1,
+    province: state.responses.province || state.responses.step_2,
+    business_type: state.responses.step_3,
+    industry: state.responses.step_4,
+    personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
+    track_mileage: state.responses.step_6.toLowerCase() === "yes",
+    track_home_office: state.responses.step_7.toLowerCase() === "yes",
+    financial_goals: state.responses.step_8,
+    add_bills: state.responses.step_9?.toLowerCase() === "yes",
+    email: state.responses.step_10,
+    created_at: new Date().toISOString()
+  };
+
+  await saveUserProfile(userProfile);
+
+  // Create or retrieve the spreadsheet for the user.
+  // If you're using createSpreadsheetForUser:
+  const spreadsheetId = await createSpreadsheetForUser(from, userProfile.email);
+  
+  // Optionally, if you have a separate function to send the email (but your createSpreadsheetForUser might already do it)
+  // await sendSpreadsheetEmail(userProfile.email, spreadsheetId);
+
+  // Then delete the onboarding state
+  await deleteOnboardingState(from);
+
+  console.log(`[DEBUG] Onboarding complete for ${from}:`, userProfile);
+  return res.send(`<Response><Message>✅ Onboarding complete, ${userProfile.name}! Your spreadsheet has been emailed to you.</Message></Response>`);
+} catch (error) {
+  console.error("[ERROR] Failed to complete onboarding:", error);
+  return res.send(`<Response><Message>⚠️ Sorry, something went wrong while completing your profile. Please try again later.</Message></Response>`);
+}
+
             }
         }
 // ─── NON-ONBOARDING FLOW (RETURNING USERS) ─────────────────────────
 else {
     let reply;
   
-    // 0. Job Start and Income Goal Commands
+    // 0. Job Start and Income Goal Commands (already handled above)
     if (/^(start job|job start)\s+(.+)/i.test(body)) {
       const jobMatch = body.match(/^(start job|job start)\s+(.+)/i);
       const jobName = jobMatch[2].trim();
-      // Optionally, store pending job for later confirmation if needed
+      // Store pending job for confirmation
       userOnboardingState[from] = { pendingJob: jobName };
       await sendTemplateMessage(
         from,
@@ -280,6 +293,30 @@ else {
         : "⚠️ I couldn't calculate your income goal right now. Please ensure your expenses and bills are logged correctly.";
       res.set('Content-Type', 'text/xml');
       return res.send(`<Response><Message>${reply}</Message></Response>`);
+    }
+  
+    // 0.5 Pending Job Confirmation (if a pending job exists)
+    if (userOnboardingState[from]?.pendingJob) {
+      const pendingJob = userOnboardingState[from].pendingJob;
+      if (body.toLowerCase() === 'yes') {
+        await setActiveJob(from, pendingJob);
+        delete userOnboardingState[from].pendingJob;
+        return res.send(`<Response><Message>✅ Job "${pendingJob}" confirmed and activated.</Message></Response>`);
+      } else if (body.toLowerCase() === 'edit') {
+        // Prompt user to re-enter the job name
+        return res.send(`<Response><Message>Please enter the new job name.</Message></Response>`);
+      } else if (body.toLowerCase() === 'cancel') {
+        delete userOnboardingState[from].pendingJob;
+        return res.send(`<Response><Message>🚫 Job start cancelled.</Message></Response>`);
+      } else {
+        // Re-send the job confirmation quick reply if the response is unrecognized
+        await sendTemplateMessage(
+          from,
+          confirmationTemplates.startJob,
+          { "1": `Please confirm: Start job "${pendingJob}"?` }
+        );
+        return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+      }
     }
   
     // 1. Pending Confirmations (Expense, Revenue, or Bill)
@@ -324,17 +361,16 @@ else {
             reply = `✅ Bill "${pendingData.billName}" has been added for ${pendingData.amount} due on ${pendingData.dueDate}.`;
           }
         } else if (type === 'revenue') {
-          // For pending revenue, log it immediately upon confirmation
           try {
             const success = await logRevenueEntry(
-              userProfile.email,    // Use the user's email
+              userProfile.email,
               pendingData.date,
               pendingData.amount,
               pendingData.source,
               "General Revenue",
               "Unknown",
               "Logged via WhatsApp",
-              userProfile.spreadsheetId  // Pass the spreadsheetId here
+              userProfile.spreadsheetId
             );
             reply = success
               ? `✅ Revenue of ${pendingData.amount} from ${pendingData.source} logged successfully.`
@@ -344,7 +380,6 @@ else {
             reply = "⚠️ Internal server error while logging revenue.";
           }
         } else {
-          // Expense confirmation: log the expense
           await appendToUserSpreadsheet(from, [
             pendingData.date,
             pendingData.item || pendingData.source,
@@ -366,7 +401,6 @@ else {
         delete userOnboardingState[from].pendingRevenue;
         delete userOnboardingState[from].pendingBill;
       } else {
-        // Re-send the appropriate quick reply prompt
         if (type === 'expense' || type === 'bill') {
           await sendTemplateMessage(
             from,
@@ -385,7 +419,7 @@ else {
       return res.send(`<Response><Message>${reply}</Message></Response>`);
     }
   
-    // 2. Revenue Logging Branch for New Revenue Messages
+    // 2. Revenue Logging Branch (for new revenue messages)
     else if (
       body.toLowerCase().startsWith("received") ||
       body.toLowerCase().startsWith("earned") ||
@@ -430,7 +464,6 @@ else {
         console.log("[DEBUG] Revenue data ready:", revenueData);
         // Store revenue data for pending confirmation
         userOnboardingState[from] = { pendingRevenue: revenueData };
-        // Send a revenue confirmation quick reply using the revenue confirmation template
         await sendTemplateMessage(
           from,
           confirmationTemplates.revenue,
@@ -528,7 +561,8 @@ else {
     res.set('Content-Type', 'text/xml');
     console.log(`[DEBUG] Reply sent to ${from}: "${reply}"`);
     return res.send(`<Response><Message>${reply}</Message></Response>`);
-}
+  }
+  
     } catch (error) {
         console.error("[ERROR] Processing webhook request failed:", error);
         return res.send(`<Response><Message>⚠️ Internal Server Error. Please try again.</Message></Response>`);
