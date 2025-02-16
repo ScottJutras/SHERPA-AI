@@ -116,6 +116,13 @@ const onboardingTemplates = {
     8: "HX20b1be5490ea39f3730fb9e70d5275df", // copy_onboarding_financial_goal
     9: "HX99fd5cad1d49ab68e9afc6a70fe4d24a"  // copy_onboarding_bill_tracking
 };
+const confirmationTemplates = {
+    revenue: "HX9382ee3fb669bc5cf11423d137a25308",  // Revenue Confirmation
+    expense: "HX00a562789f55a45fcbd13dc67f8249b6",  // Expense Confirmation
+    bill:    "HXe7a1b06a28554ec2bced55944e05c465",  // Bill Confirmation
+    startJob:"HXa4f19d568b70b3493e64933ce5e6a040"   // Start Job
+  };
+  
 
 // ─── NEW FUNCTION: Send Approved Template Message ─────────────────────
 const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
@@ -247,11 +254,21 @@ app.post('/webhook', async (req, res) => {
 else {
     let reply;
 
-    // 0. Check for job start and income goal commands first
+    // 0. Check for job start commands and send a confirmation quick reply
     if (/^(start job|job start)\s+(.+)/i.test(body)) {
-        reply = await handleStartJob(from, body);
-        return res.send(`<Response><Message>${reply}</Message></Response>`);
-    } else if (
+        const jobMatch = body.match(/^(start job|job start)\s+(.+)/i);
+        const jobName = jobMatch[2].trim();
+        // Optionally, store the pending job for confirmation handling later.
+        userOnboardingState[from] = { pendingJob: jobName };
+        await sendTemplateMessage(
+            from,
+            confirmationTemplates.startJob,
+            { "1": `Please confirm: Start job "${jobName}"?` }
+        );
+        return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+    }
+    // 0.5 Optionally, check for income goal commands first (if not handled elsewhere)
+    else if (
         body.toLowerCase().includes("how much do i need to make") ||
         body.toLowerCase().includes("income goal")
     ) {
@@ -306,7 +323,28 @@ else {
                     ]);
                     reply = `✅ Bill "${pendingData.billName}" has been added for ${pendingData.amount} due on ${pendingData.dueDate}.`;
                 }
+            } else if (type === 'revenue') {
+                // For revenue confirmations, log revenue now
+                try {
+                    const success = await logRevenueEntry(
+                        userProfile.email,    // Use the user's email
+                        pendingData.date,
+                        pendingData.amount,
+                        pendingData.source,
+                        "General Revenue",
+                        "Unknown",
+                        "Logged via WhatsApp",
+                        userProfile.spreadsheetId  // Pass the spreadsheetId here
+                    );
+                    reply = success
+                        ? `✅ Revenue of ${pendingData.amount} from ${pendingData.source} logged successfully.`
+                        : `⚠️ Failed to log revenue.`;
+                } catch (error) {
+                    console.error("[ERROR] Error logging revenue:", error);
+                    reply = "⚠️ Internal server error while logging revenue.";
+                }
             } else {
+                // For expense confirmations
                 await appendToUserSpreadsheet(from, [
                     pendingData.date,
                     pendingData.item || pendingData.source,
@@ -328,16 +366,25 @@ else {
             delete userOnboardingState[from].pendingRevenue;
             delete userOnboardingState[from].pendingBill;
         } else {
-            await sendTemplateMessage(
-                from,
-                "onboarding_personal_expenses", // Use your desired template SID for expense confirmation
-                { "1": `Please confirm: ${pendingData.amount} for ${pendingData.item || pendingData.source || pendingData.billName} on ${pendingData.date}` }
-            );
+            // Send a quick reply based on the confirmation type
+            if (type === 'expense' || type === 'bill') {
+                await sendTemplateMessage(
+                    from,
+                    confirmationTemplates.expense,
+                    { "1": `Please confirm: ${pendingData.amount} for ${pendingData.item || pendingData.source || pendingData.billName} on ${pendingData.date}` }
+                );
+            } else if (type === 'revenue') {
+                await sendTemplateMessage(
+                    from,
+                    confirmationTemplates.revenue,
+                    { "1": `Please confirm: Revenue of ${pendingData.amount} from ${pendingData.source} on ${pendingData.date}` }
+                );
+            }
             return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
         }
         return res.send(`<Response><Message>${reply}</Message></Response>`);
     }
-    // 2. Revenue Logging Branch
+    // 2. Revenue Logging Branch (for new revenue messages)
     else if (
         body.toLowerCase().startsWith("received") ||
         body.toLowerCase().startsWith("earned") ||
@@ -380,36 +427,15 @@ else {
         }
         if (revenueData && revenueData.amount && revenueData.source) {
             console.log("[DEBUG] Revenue data ready:", revenueData);
-            console.log("[DEBUG] Calling logRevenueEntry with:", {
-                userEmail: userProfile.email,
-                date: revenueData.date,
-                amount: revenueData.amount,
-                source: revenueData.source,
-                category: "General Revenue",
-                paymentMethod: "Unknown",
-                notes: "Logged via WhatsApp",
-                spreadsheetId: userProfile.spreadsheetId
-            });
-            try {
-                const success = await logRevenueEntry(
-                    userProfile.email,    // Use the user's email
-                    revenueData.date,
-                    revenueData.amount,
-                    revenueData.source,
-                    "General Revenue",
-                    "Unknown",
-                    "Logged via WhatsApp",
-                    userProfile.spreadsheetId  // Pass the spreadsheetId here
-                );
-                if (success) {
-                    return res.send(`<Response><Message>✅ Revenue of ${revenueData.amount} from ${revenueData.source} logged successfully.</Message></Response>`);
-                } else {
-                    return res.send(`<Response><Message>⚠️ Failed to log revenue.</Message></Response>`);
-                }
-            } catch (error) {
-                console.error("[ERROR] Error logging revenue:", error);
-                return res.send(`<Response><Message>⚠️ Internal server error while logging revenue.</Message></Response>`);
-            }
+            // Store revenue data for pending confirmation
+            userOnboardingState[from] = { pendingRevenue: revenueData };
+            // Send a revenue confirmation quick reply using the revenue confirmation template
+            await sendTemplateMessage(
+                from,
+                confirmationTemplates.revenue,
+                { "1": `Please confirm: Revenue of ${revenueData.amount} from ${revenueData.source} on ${revenueData.date}` }
+            );
+            return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
         } else {
             console.log("[DEBUG] Revenue data missing required fields.");
             reply = "⚠️ Could not understand your revenue message. Please provide more details.";
@@ -447,7 +473,7 @@ else {
                 userOnboardingState[from] = { pendingExpense: expenseData };
                 await sendTemplateMessage(
                     from,
-                    onboardingTemplates[5],
+                    confirmationTemplates.expense,
                     { "1": `Please confirm: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?` }
                 );
                 return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
@@ -485,7 +511,7 @@ else {
             userOnboardingState[from] = { pendingExpense: expenseData };
             await sendTemplateMessage(
                 from,
-                onboardingTemplates[5],
+                confirmationTemplates.expense,
                 { "1": `Please confirm: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?` }
             );
             return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
