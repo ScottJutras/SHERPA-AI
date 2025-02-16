@@ -15,6 +15,7 @@ const {
     calculateExpenseAnalytics,
     setActiveJob,
     getActiveJob,
+    createSpreadsheetForUser,
     calculateIncomeGoal  // Ensure this is exported from googleSheets
 } = require("./utils/googleSheets");
 
