@@ -18,7 +18,7 @@ async function sendSpreadsheetEmail(userEmail, spreadsheetId) {
 
   const msg = {
     to: userEmail,
-    from: "scott@scottjutras.com", // ✅ Must match your verified sender email
+    from: "scott@scottjutras.com", // Must match your verified sender email
     subject: "Your Expense Tracking Spreadsheet is Ready!",
     text: `Hello,\n\nYour expense tracking spreadsheet has been created. You can access it here: ${spreadsheetUrl}.\n\nBest,\nSherpAi Team`,
     html: `

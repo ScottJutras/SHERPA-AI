@@ -1,7 +1,7 @@
 // ─── IMPORTS ────────────────────────────────────────────────────────────────
 const { google } = require('googleapis');
 const admin = require('firebase-admin');
-const { sendSpreadsheetEmail } = require("./sendGridService"); // ✅ Import SendGrid function
+const { sendSpreadsheetEmail } = require("./sendGridService"); // Import SendGrid function
 
 // ─── FIREBASE ADMIN / FIRESTORE SETUP ─────────────────────────────────────────
 // Initialize Firebase Admin if not already initialized.
@@ -208,10 +208,9 @@ async function createSpreadsheetForUser(phoneNumber, userEmail = null) {
 
     // Step 2: Retrieve the user's email from Firestore if not provided
     let emailToUse = userEmail;
-
     if (!emailToUse) {
       const userProfile = await getUserProfile(phoneNumber);
-      emailToUse = userProfile?.email || process.env.FALLBACK_EMAIL; // ✅ Use Firestore email or fallback
+      emailToUse = userProfile?.email || process.env.FALLBACK_EMAIL; // Use Firestore email or fallback
     }
 
     if (!emailToUse) {
@@ -224,7 +223,7 @@ async function createSpreadsheetForUser(phoneNumber, userEmail = null) {
       fileId: spreadsheetId,
       requestBody: {
         role: "writer",
-        type: "anyone", // ✅ Allows access without a Google account
+        type: "anyone", // Allows access without a Google account
       },
     });
 
@@ -232,7 +231,6 @@ async function createSpreadsheetForUser(phoneNumber, userEmail = null) {
 
     // Step 4: Send email notification with the spreadsheet link
     await sendSpreadsheetEmail(emailToUse, spreadsheetId);
-
     console.log(`[✅ SUCCESS] Spreadsheet email sent to ${emailToUse}`);
     return spreadsheetId;
   } catch (error) {
