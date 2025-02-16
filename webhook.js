@@ -347,7 +347,6 @@ app.post('/webhook', async (req, res) => {
                     if (!revenueData || !revenueData.amount || !revenueData.source) {
                         return res.send(`<Response><Message>⚠️ Could not understand your revenue message. Please provide more details.</Message></Response>`);
                     }
-                    
                 }
                 
                 if (revenueData && revenueData.amount && revenueData.source) {
@@ -359,7 +358,8 @@ app.post('/webhook', async (req, res) => {
                         source: revenueData.source,
                         category: "General Revenue",
                         paymentMethod: "Unknown",
-                        notes: "Logged via WhatsApp"
+                        notes: "Logged via WhatsApp",
+                        spreadsheetId: userProfile.spreadsheetId
                     });
                     try {
                         const success = await logRevenueEntry(
@@ -369,7 +369,8 @@ app.post('/webhook', async (req, res) => {
                             revenueData.source,
                             "General Revenue",
                             "Unknown",
-                            "Logged via WhatsApp"
+                            "Logged via WhatsApp",
+                            userProfile.spreadsheetId  // Pass the spreadsheetId here
                         );
                         if (success) {
                             return res.send(`<Response><Message>✅ Revenue of ${revenueData.amount} from ${revenueData.source} logged successfully.</Message></Response>`);
@@ -385,6 +386,7 @@ app.post('/webhook', async (req, res) => {
                     reply = "⚠️ Could not understand your revenue message. Please provide more details.";
                 }
             }
+            
             
     
             // Media Handling: Voice Notes & Receipt Images
