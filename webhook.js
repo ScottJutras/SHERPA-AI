@@ -272,54 +272,96 @@ try {
 else {
     let reply;
   
-    // 0. Job Start and Income Goal Commands (already handled above)
-    if (/^(start job|job start)\s+(.+)/i.test(body)) {
-      const jobMatch = body.match(/^(start job|job start)\s+(.+)/i);
-      const jobName = jobMatch[2].trim();
-      // Store pending job for confirmation
-      userOnboardingState[from] = { pendingJob: jobName };
-      await sendTemplateMessage(
-        from,
-        confirmationTemplates.startJob,
-        { "1": `Please confirm: Start job "${jobName}"?` }
-      );
-      return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
-    } else if (
-      body.toLowerCase().includes("how much do i need to make") ||
-      body.toLowerCase().includes("income goal")
-    ) {
-      const incomeGoal = await calculateIncomeGoal(from);
-      reply = incomeGoal
-        ? `📈 To cover your expenses next month, you need to make **$${incomeGoal}**. This includes your recurring bills, average variable expenses, and a 10% savings target.`
-        : "⚠️ I couldn't calculate your income goal right now. Please ensure your expenses and bills are logged correctly.";
-      res.set('Content-Type', 'text/xml');
-      return res.send(`<Response><Message>${reply}</Message></Response>`);
+    // ─── Non‐Onboarding Flow (Returning Users) ─────────────────────────
+
+// 0. Start Job Command
+if (/^(start job|job start)\s+(.+)/i.test(body)) {
+    let jobName;
+    const jobMatch = body.match(/^(start job|job start)\s+(.+)/i);
+    if (jobMatch && jobMatch[2]) {
+      jobName = jobMatch[2].trim();
     }
-  
-    // 0.5 Pending Job Confirmation (if a pending job exists)
-    if (userOnboardingState[from]?.pendingJob) {
-      const pendingJob = userOnboardingState[from].pendingJob;
-      if (body.toLowerCase() === 'yes') {
-        await setActiveJob(from, pendingJob);
-        delete userOnboardingState[from].pendingJob;
-        return res.send(`<Response><Message>✅ Job "${pendingJob}" confirmed and activated.</Message></Response>`);
-      } else if (body.toLowerCase() === 'edit') {
-        // Prompt user to re-enter the job name
-        return res.send(`<Response><Message>Please enter the new job name.</Message></Response>`);
-      } else if (body.toLowerCase() === 'cancel') {
-        delete userOnboardingState[from].pendingJob;
-        return res.send(`<Response><Message>🚫 Job start cancelled.</Message></Response>`);
-      } else {
-        // Re-send the job confirmation quick reply if the response is unrecognized
-        await sendTemplateMessage(
-          from,
-          confirmationTemplates.startJob,
-          { "1": `Please confirm: Start job "${pendingJob}"?` }
-        );
-        return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+    // If regex didn't capture a valid job name, fall back to GPT‑3.5
+    if (!jobName) {
+      try {
+        const gptResponse = await openai.chat.completions.create({
+          model: "gpt-3.5-turbo",
+          messages: [
+            {
+              role: "system",
+              content: "Extract the job name from the following message. Return only the job name as plain text."
+            },
+            { role: "user", content: `Message: "${body}"` }
+          ],
+          max_tokens: 20,
+          temperature: 0.3
+        });
+        jobName = gptResponse.choices[0].message.content.trim();
+      } catch (error) {
+        console.error("[ERROR] GPT fallback for start job failed:", error);
       }
     }
+    if (jobName) {
+      await setActiveJob(from, jobName);
+      return res.send(`<Response><Message>✅ Job "${jobName}" is now active. All expenses will be assigned to this job.</Message></Response>`);
+    } else {
+      return res.send(`<Response><Message>⚠️ Could not determine the job name. Please specify the job name.</Message></Response>`);
+    }
+  }
   
+  // 0.5 Add Bill Command (if you want a dedicated branch for bills)
+  // (Assuming that a bill message contains the word "bill" and some details)
+  else if (body.toLowerCase().includes("bill")) {
+    // Try to extract basic bill details using a simple regex or split logic
+    // For example, we expect a message like "bill [name] $[amount] due [date]"
+    let billData = null;
+    const billRegex = /bill\s+([\w\s]+)\s+\$([\d,]+(?:\.\d{1,2})?)\s+due\s+([\w\d-]+)/i;
+    const billMatch = body.match(billRegex);
+    if (billMatch) {
+      billData = {
+        billName: billMatch[1].trim(),
+        amount: `$${parseFloat(billMatch[2].replace(/,/g, '')).toFixed(2)}`,
+        dueDate: billMatch[3].trim()
+      };
+    }
+    // If the regex fails to extract all fields, fall back to GPT‑3.5
+    if (!billData || !billData.billName || !billData.amount || !billData.dueDate) {
+      try {
+        const gptResponse = await openai.chat.completions.create({
+          model: "gpt-3.5-turbo",
+          messages: [
+            {
+              role: "system",
+              content: "Extract bill details from the following message. Return a JSON object with keys: billName, amount, dueDate."
+            },
+            { role: "user", content: `Message: "${body}"` }
+          ],
+          max_tokens: 60,
+          temperature: 0.3
+        });
+        billData = JSON.parse(gptResponse.choices[0].message.content);
+      } catch (error) {
+        console.error("[ERROR] GPT fallback for bill parsing failed:", error);
+      }
+    }
+    if (billData && billData.billName && billData.amount && billData.dueDate) {
+      // Process the bill (e.g., add it to the spreadsheet)
+      const activeJob = (await getActiveJob(from)) || "Uncategorized";
+      await appendToUserSpreadsheet(from, [
+        billData.dueDate,
+        billData.billName,
+        billData.amount,
+        'Recurring Bill',
+        activeJob,
+        'bill',
+        'recurring'
+      ]);
+      return res.send(`<Response><Message>✅ Bill "${billData.billName}" for ${billData.amount} due on ${billData.dueDate} added.</Message></Response>`);
+    } else {
+      return res.send(`<Response><Message>⚠️ Could not parse bill details. Please provide the details in the format: "bill [name] $[amount] due [date]".</Message></Response>`);
+    }
+  }
+    
     // 1. Pending Confirmations (Expense, Revenue, or Bill)
     if (
       userOnboardingState[from]?.pendingExpense ||
@@ -421,67 +463,68 @@ else {
     }
   
     // 2. Revenue Logging Branch (for new revenue messages)
-    else if (
-      body.toLowerCase().startsWith("received") ||
-      body.toLowerCase().startsWith("earned") ||
-      body.toLowerCase().startsWith("income") ||
-      body.toLowerCase().startsWith("revenue")
-    ) {
-      console.log("[DEBUG] Detected a revenue message:", body);
-      const activeJob = await getActiveJob(from) || "Uncategorized";
-      let revenueData = parseRevenueMessage(body);
-      if (!revenueData) {
-        console.log("[DEBUG] Regex parsing failed for revenue, using GPT-3.5 for fallback...");
+else if (
+    body.toLowerCase().startsWith("received") ||
+    body.toLowerCase().startsWith("earned") ||
+    body.toLowerCase().startsWith("income") ||
+    body.toLowerCase().startsWith("revenue")
+  ) {
+    console.log("[DEBUG] Detected a revenue message:", body);
+    const activeJob = (await getActiveJob(from)) || "Uncategorized";
+    let revenueData = parseRevenueMessage(body);
+    // If regex fails to extract required fields, fall back to GPT‑3.5
+    if (!revenueData || !revenueData.amount || !revenueData.source) {
+      console.log("[DEBUG] Regex parsing failed for revenue, using GPT-3.5 for fallback...");
+      try {
         const gptResponse = await openai.chat.completions.create({
           model: "gpt-3.5-turbo",
           messages: [
             {
               role: "system",
-              content: "You are an assistant that extracts structured revenue data from messages."
+              content: "Extract structured revenue data from the following message. Return JSON with keys: date, amount, source."
             },
             {
               role: "user",
-              content: `Extract the date, amount, and source from this revenue message: "${body}". Return in JSON format like this: {"date": "YYYY-MM-DD", "amount": "$AMOUNT", "source": "SOURCE"}.`
+              content: `Message: "${body}"`
             }
-          ]
+          ],
+          max_tokens: 60,
+          temperature: 0.3
         });
-        console.log("[DEBUG] GPT Response for Revenue:", gptResponse.choices[0].message.content);
-        try {
-          revenueData = JSON.parse(gptResponse.choices[0].message.content);
-          revenueData.amount = revenueData.amount ? revenueData.amount.trim() : "";
-          revenueData.source = revenueData.source ? revenueData.source.trim() : "";
-          console.log("[DEBUG] GPT-3.5 Fallback Revenue Result:", revenueData);
-          if (!revenueData.date) {
-            revenueData.date = new Date().toISOString().split('T')[0];
-          }
-        } catch (gptError) {
-          console.error("[ERROR] Failed to parse GPT-3.5 revenue response:", gptError, gptResponse);
+        revenueData = JSON.parse(gptResponse.choices[0].message.content);
+        // Trim whitespace and set a default date if missing
+        revenueData.amount = revenueData.amount ? revenueData.amount.trim() : "";
+        revenueData.source = revenueData.source ? revenueData.source.trim() : "";
+        if (!revenueData.date) {
+          revenueData.date = new Date().toISOString().split("T")[0];
         }
-        if (!revenueData || !revenueData.amount || !revenueData.source) {
-          return res.send(`<Response><Message>⚠️ Could not understand your revenue message. Please provide more details.</Message></Response>`);
-        }
+        console.log("[DEBUG] GPT-3.5 Fallback Revenue Result:", revenueData);
+      } catch (error) {
+        console.error("[ERROR] GPT-3.5 revenue parsing failed:", error);
       }
-      if (revenueData && revenueData.amount && revenueData.source) {
-        console.log("[DEBUG] Revenue data ready:", revenueData);
-        // Store revenue data for pending confirmation
-        userOnboardingState[from] = { pendingRevenue: revenueData };
-        await sendTemplateMessage(
-          from,
-          confirmationTemplates.revenue,
-          { "1": `Please confirm: Revenue of ${revenueData.amount} from ${revenueData.source} on ${revenueData.date}` }
-        );
-        return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
-      } else {
-        console.log("[DEBUG] Revenue data missing required fields.");
-        reply = "⚠️ Could not understand your revenue message. Please provide more details.";
+      if (!revenueData || !revenueData.amount || !revenueData.source) {
+        return res.send(`<Response><Message>⚠️ Could not understand your revenue message. Please provide more details.</Message></Response>`);
       }
-      
     }
-    // 3. Media Handling for Expense Logging (if media is attached)
-    else if (mediaUrl) {
-      console.log("[DEBUG] Checking media in message...");
-      let combinedText = "";
-      if (mediaUrl && mediaType?.includes("audio")) {
+    console.log("[DEBUG] Revenue data ready:", revenueData);
+    // Store revenue data for pending confirmation
+    userOnboardingState[from] = { pendingRevenue: revenueData };
+    // Use the revenue confirmation quick reply template
+    await sendTemplateMessage(
+      from,
+      confirmationTemplates.revenue, // e.g., "HX9382ee3fb669bc5cf11423d137a25308"
+      { "1": `Please confirm: Revenue of ${revenueData.amount} from ${revenueData.source} on ${revenueData.date}` }
+    );
+    return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+    }
+// ─── Media Handling for Expense Logging (if media is attached) ─────────────────────────
+else if (mediaUrl) {
+    console.log("[DEBUG] Checking media in message...");
+    let combinedText = "";
+    
+    // Audio: Transcribe voice recordings
+    if (mediaType && mediaType.includes("audio")) {
+      try {
         const audioResponse = await axios.get(mediaUrl, {
           responseType: 'arraybuffer',
           auth: {
@@ -494,71 +537,128 @@ else {
         if (transcription) {
           combinedText += transcription + " ";
           console.log(`[DEBUG] Voice Transcription: "${transcription}"`);
-        }
-      }
-      if (mediaUrl && mediaType?.includes("image")) {
-        const ocrText = await extractTextFromImage(mediaUrl);
-        if (ocrText) {
-          combinedText += ocrText;
-          console.log(`[DEBUG] OCR Text: "${ocrText}"`);
-        }
-      }
-      if (combinedText) {
-        const expenseData = parseExpenseMessage(combinedText);
-        if (expenseData && expenseData.item && expenseData.amount && expenseData.store) {
-          userOnboardingState[from] = { pendingExpense: expenseData };
-          await sendTemplateMessage(
-            from,
-            confirmationTemplates.expense,
-            { "1": `Please confirm: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?` }
-          );
-          return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
         } else {
-          reply = "⚠️ I couldn't parse the details from the media. Please try again.";
+          console.log("[DEBUG] No transcription returned from audio.");
         }
-      } else {
-        reply = "⚠️ No media detected or unable to extract information. Please resend.";
+      } catch (error) {
+        console.error("[ERROR] Failed to process audio:", error);
       }
     }
-    // 4. Expense Logging for Text Messages
-    else if (body) {
-      const activeJob = await getActiveJob(from) || "Uncategorized";
-      let expenseData = parseExpenseMessage(body);
-      if (!expenseData) {
-        console.log("[DEBUG] Regex parsing failed for expense, using GPT-3.5 for fallback...");
-        const gptResponse = await openai.chat.completions.create({
-          model: "gpt-3.5-turbo",
-          messages: [
-            { role: "system", content: "You are an assistant that extracts structured expense data from messages." },
-            { role: "user", content: `Extract the date, item, amount, and store from this message: "${body}". Return in JSON format like this: {"date": "YYYY-MM-DD", "item": "ITEM", "amount": "$AMOUNT", "store": "STORE"}.` }
-          ]
-        });
+    
+    // Image: First try OCR; if that fails, fall back to Document AI
+    if (mediaType && mediaType.includes("image")) {
+      let ocrText = "";
+      try {
+        ocrText = await extractTextFromImage(mediaUrl);
+        console.log(`[DEBUG] OCR Text: "${ocrText}"`);
+      } catch (err) {
+        console.error("[ERROR] OCR extraction error:", err);
+      }
+      // If OCR didn't return text, try Document AI fallback
+      if (!ocrText || ocrText.trim() === "") {
+        console.log("[DEBUG] OCR extraction returned empty, falling back to Document AI...");
         try {
+          // Make sure you have implemented extractTextFromDocumentAI appropriately.
+          const documentAIText = await extractTextFromDocumentAI(mediaUrl);
+          ocrText = documentAIText;
+          console.log(`[DEBUG] Document AI extracted text: "${documentAIText}"`);
+        } catch (error) {
+          console.error("[ERROR] Document AI extraction failed:", error);
+        }
+      }
+      combinedText += ocrText + " ";
+    }
+    
+    // If we have any combined text from media, try parsing expense data
+    if (combinedText) {
+      let expenseData = parseExpenseMessage(combinedText);
+      // If regex parsing fails or returns incomplete data, fall back to GPT‑3.5
+      if (!expenseData || !expenseData.item || !expenseData.amount || !expenseData.store) {
+        console.log("[DEBUG] Regex parsing failed for expense from media, using GPT-3.5 for fallback...");
+        try {
+          const gptResponse = await openai.chat.completions.create({
+            model: "gpt-3.5-turbo",
+            messages: [
+              {
+                role: "system",
+                content: "Extract structured expense data from the following text. Return JSON with keys: date, item, amount, store."
+              },
+              {
+                role: "user",
+                content: `Text: "${combinedText.trim()}"`
+              }
+            ],
+            max_tokens: 60,
+            temperature: 0.3
+          });
           expenseData = JSON.parse(gptResponse.choices[0].message.content);
-          console.log("[DEBUG] GPT-3.5 Fallback Expense Result:", expenseData);
           if (!expenseData.date) {
-            expenseData.date = new Date().toISOString().split('T')[0];
+            expenseData.date = new Date().toISOString().split("T")[0];
           }
-        } catch (gptError) {
-          console.error("[ERROR] Failed to parse GPT-3.5 expense response:", gptError, gptResponse);
+          console.log("[DEBUG] GPT-3.5 Fallback Expense Result:", expenseData);
+        } catch (error) {
+          console.error("[ERROR] GPT-3.5 expense parsing failed:", error);
         }
       }
       if (expenseData && expenseData.item && expenseData.amount && expenseData.store) {
         userOnboardingState[from] = { pendingExpense: expenseData };
         await sendTemplateMessage(
           from,
-          confirmationTemplates.expense,
+          confirmationTemplates.expense, // e.g., "HX00a562789f55a45fcbd13dc67f8249b6"
           { "1": `Please confirm: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?` }
         );
         return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
       } else {
-        reply = "⚠️ Could not understand your expense message. Please provide a valid expense message.";
+        return res.send(`<Response><Message>⚠️ I couldn't parse the expense details from the media. Please try again.</Message></Response>`);
+      }
+    } else {
+      return res.send(`<Response><Message>⚠️ No media detected or unable to extract information. Please resend.</Message></Response>`);
+    }
+  }
+    // 4. Expense Logging for Text Messages
+else if (body) {
+    const activeJob = (await getActiveJob(from)) || "Uncategorized";
+    let expenseData = parseExpenseMessage(body);
+    // If regex fails or any required field is missing, fall back to GPT‑3.5
+    if (!expenseData || !expenseData.item || !expenseData.amount || !expenseData.store) {
+      console.log("[DEBUG] Regex parsing failed for expense, using GPT-3.5 for fallback...");
+      try {
+        const gptResponse = await openai.chat.completions.create({
+          model: "gpt-3.5-turbo",
+          messages: [
+            {
+              role: "system",
+              content: "Extract structured expense data from the following message. Return JSON with keys: date, item, amount, store."
+            },
+            {
+              role: "user",
+              content: `Message: "${body}"`
+            }
+          ],
+          max_tokens: 60,
+          temperature: 0.3
+        });
+        expenseData = JSON.parse(gptResponse.choices[0].message.content);
+        if (!expenseData.date) {
+          expenseData.date = new Date().toISOString().split("T")[0];
+        }
+        console.log("[DEBUG] GPT-3.5 Fallback Expense Result:", expenseData);
+      } catch (error) {
+        console.error("[ERROR] GPT-3.5 expense parsing failed:", error);
       }
     }
-    
-    if (!reply) {
-      reply = "⚠️ I couldn't understand your request. Please try again with more details.";
+    if (expenseData && expenseData.item && expenseData.amount && expenseData.store) {
+      userOnboardingState[from] = { pendingExpense: expenseData };
+      await sendTemplateMessage(
+        from,
+        confirmationTemplates.expense, // e.g., "HX00a562789f55a45fcbd13dc67f8249b6"
+        { "1": `Please confirm: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?` }
+      );
+      return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+    } else {
+      reply = "⚠️ Could not understand your expense message. Please provide a valid expense message.";
     }
+  }
     res.set('Content-Type', 'text/xml');
     console.log(`[DEBUG] Reply sent to ${from}: "${reply}"`);
     return res.send(`<Response><Message>${reply}</Message></Response>`);
