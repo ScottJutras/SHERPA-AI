@@ -187,37 +187,41 @@ app.post('/webhook', async (req, res) => {
     }
     try {
         // ─── ONBOARDING FLOW ─────────────────────────
-        if (!userProfile) {
-            let state = await getOnboardingState(from);
-            if (!state) {
-                state = { step: 0, responses: {}, detectedLocation: detectCountryAndRegion(from) };
-                await setOnboardingState(from, state);
-                console.log(`[DEBUG] Initialized state for ${from}:`, state);
+if (!userProfile) {
+    let state = await getOnboardingState(from);
+    // If no state exists, initialize and send the first question without recording the incoming message.
+    if (!state) {
+        state = { step: 0, responses: {}, detectedLocation: detectCountryAndRegion(from) };
+        await setOnboardingState(from, state);
+        console.log(`[DEBUG] Initialized state for ${from}:`, state);
+        const firstQuestion = onboardingSteps[0]; // "Can I get your name?"
+        console.log(`[DEBUG] Sending first question to ${from}:`, firstQuestion);
+        return res.send(`<Response><Message>${firstQuestion}</Message></Response>`);
+    }
+    // Otherwise, if state exists, record the user's answer for the current question
+    if (state.step < onboardingSteps.length) {
+        state.responses[`step_${state.step}`] = body;
+        console.log(`[DEBUG] Recorded response for step ${state.step}:`, body);
+        state.step++;
+        await setOnboardingState(from, state);
+    }
+    // Send the next question if available
+    if (state.step < onboardingSteps.length) {
+        const nextQuestion = onboardingSteps[state.step];
+        console.log(`[DEBUG] Next question (step ${state.step}) for ${from}:`, nextQuestion);
+        if (onboardingTemplates.hasOwnProperty(state.step)) {
+            const sent = await sendTemplateMessage(from, onboardingTemplates[state.step], {});
+            if (!sent) {
+                console.error("Falling back to plain text question because template message sending failed");
+                return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
             }
-            // Record answer for current question and advance state
-            if (state.step < onboardingSteps.length) {
-                state.responses[`step_${state.step}`] = body;
-                console.log(`[DEBUG] Recorded response for step ${state.step}:`, body);
-                state.step++;
-                await setOnboardingState(from, state);
-            }
-            // Send next question if available
-            if (state.step < onboardingSteps.length) {
-                const nextQuestion = onboardingSteps[state.step];
-                console.log(`[DEBUG] Next question (step ${state.step}) for ${from}:`, nextQuestion);
-                if (onboardingTemplates.hasOwnProperty(state.step)) {
-                    const sent = await sendTemplateMessage(from, onboardingTemplates[state.step], {});
-                    if (!sent) {
-                        console.error("Falling back to plain text question because template message sending failed");
-                        return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
-                    }
-                    console.log(`[DEBUG] Sent interactive template for step ${state.step} to ${from}`);
-                    return res.send(`<Response></Response>`);
-                } else {
-                    console.log(`[DEBUG] Sending plain text for step ${state.step} to ${from}`);
-                    return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
-                }
-            } else {
+            console.log(`[DEBUG] Sent interactive template for step ${state.step} to ${from}`);
+            return res.send(`<Response></Response>`);
+        } else {
+            console.log(`[DEBUG] Sending plain text for step ${state.step} to ${from}`);
+            return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
+        }
+    } else {
                 // Final step: complete onboarding
                 const email = state.responses.step_10;
                 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
