@@ -92,7 +92,6 @@ function detectCountryAndRegion(phoneNumber) {
   }
   return { country, region };
 }
-}
 
 // ─── EXPRESS APP SETUP ───────────────────────────────────────────────
 const app = express();
