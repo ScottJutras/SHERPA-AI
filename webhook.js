@@ -142,10 +142,13 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
             console.error("[ERROR] Missing required phone numbers for Twilio message.");
             return false;
         }
+        // Ensure the "to" number starts with "whatsapp:".
+        const toNumber = to.startsWith("whatsapp:") ? to : `whatsapp:${to}`;
+
         // Twilio requires ContentVariables to be a JSON string
         const formattedVariables = JSON.stringify(contentVariables);
         console.log("[DEBUG] Sending Twilio template message with:", {
-            To: to,
+            To: tonumber,
             ContentSid: contentSid,
             ContentVariables: formattedVariables
         });
@@ -153,7 +156,7 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
             `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
             new URLSearchParams({
                 From: process.env.TWILIO_WHATSAPP_NUMBER,
-                To: to,
+                To: toNumber,
                 MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
                 Body: "Template Message", // Fallback body (required)
                 ContentSid: contentSid,
@@ -167,7 +170,7 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
                 }
             }
         );
-        console.log(`[✅] Twilio template message sent successfully to ${to} with ContentSid "${contentSid}"`);
+        console.log(`[✅] Twilio template message sent successfully to ${toNumber} with ContentSid "${contentSid}"`);
         return true;
     } catch (error) {
         console.error("[ERROR] Twilio template message failed:", error.response?.data || error.message);
