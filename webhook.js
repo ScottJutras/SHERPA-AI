@@ -255,7 +255,7 @@ try {
 const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
 
 // Optionally, if you have a separate function to send the email (but your createSpreadsheetForUser might already do it)
-await sendSpreadsheetEmail(userProfile.email, spreadsheetId);
+await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
 // Delete onboarding state, etc.
 await deleteOnboardingState(from);
 
