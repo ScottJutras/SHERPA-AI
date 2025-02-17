@@ -202,7 +202,7 @@ app.post('/webhook', async (req, res) => {
     try {
         // ─── ONBOARDING FLOW ─────────────────────────
 if (!userProfile) {
-    let state = await getOnboardingState(from);
+    let state = await getOnboardingState(phone);
     // If no state exists, initialize and send the first question without recording the incoming message.
     if (!state) {
         state = { step: 0, responses: {}, detectedLocation: detectCountryAndRegion(from) };
