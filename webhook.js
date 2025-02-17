@@ -179,9 +179,9 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
 app.post('/webhook', async (req, res) => {
     // Normalize the incoming phone number
     const rawPhone = req.body.From;
-    const from = normalizePhoneNumber(rawPhone);
+    const phone = normalizePhoneNumber(rawPhone);
     
-    console.log(`[DEBUG] Incoming Webhook Request from ${req.body.From}:`, JSON.stringify(req.body));
+    console.log(`[DEBUG] Incoming Webhook Request from ${phone}:`, JSON.stringify(req.body));
    
 
     const body = req.body.Body?.trim();
