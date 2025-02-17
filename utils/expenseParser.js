@@ -14,7 +14,7 @@ function parseExpenseMessage(message) {
     : null;
 
   // Store name extraction: combines regex and predefined store list
-  let storeMatch = message.match(/(?:at|from)\s+([\w\s&'’-]+)(?=\s*(?:today|yesterday|on|$|\n|\.))|(?:at|from)\s+([\w\s&'’-]+)(?:\s|$|\.)/i);
+  let storeMatch = message.match(/(?:at|from)\s+([\w\s&'’-]+?)(?=\s*(?:today|yesterday|on|$|\n|\.))|(?:at|from)\s+([\w\s&'’-]+?)(?:\s|$|\.)/i);
   let store = storeMatch ? (storeMatch[1] || storeMatch[2]).trim() : null;
 
   // Check against predefined store list if regex fails
@@ -34,10 +34,11 @@ function parseExpenseMessage(message) {
   // Improved item extraction: captures items after "on", "worth of", or common verbs
   let item = null;
   const patterns = [
-    /(?:bought|purchased|got|spent on|spend on|paid for|on)\s+(?:\d+\s*(?:dollars)?\s*)?(?:worth of\s+)?([\w\d\s-]+?)(?=\s(?:at|from|\$|\d|today|yesterday|on|\.|$))/i,
+    /(?:bought|purchased|got|spent on|spend on|paid for|on)\s+(?:\d+\s*(?:dollars)?\s*)?(?:worth of\s+)?([\w\d\s-]+?)(?=\s(?:at|from|\$|\d|today|yesterday|on|for|\.|$))/i,
     /(?:just got|picked up|ordered)\s+([\w\d\s-]+?)(?=\s(?:for|at|from|\$|\d|today|yesterday|on|\.|$))/i,
-    /([\d]+x[\d]+(?:\s\w+)?)/i // e.g., "20 2x4"
+    /([\d]+x[\d]+(?:\s\w+)?)/i
   ];
+  
 
   for (const pattern of patterns) {
     const match = message.match(pattern);
