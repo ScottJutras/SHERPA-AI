@@ -180,7 +180,7 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
 // ─── WEBHOOK HANDLER  ─────────────────────────────
 app.post('/webhook', async (req, res) => {
     // Extract the raw phone number from the incoming request
-    const rawPhone = phone;
+    const rawPhone = req.body.From;
     const phone = normalizePhoneNumber(rawPhone);
     
     console.log(`[DEBUG] Incoming Webhook Request from ${phone}:`, JSON.stringify(req.body));
