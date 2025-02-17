@@ -19,8 +19,10 @@ const {
     calculateIncomeGoal  // Ensure this is exported from googleSheets
 } = require("./utils/googleSheets");
 
-const { extractTextFromImage, handleReceiptImage } = require('./utils/visionService');
+const { extractTextFromImage } = require('./utils/visionService');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
+const rawPhone = phone;
+const phone = normalizePhoneNumber(rawPhone);
 const { transcribeAudio } = require('./utils/transcriptionService');
 const fs = require('fs');
 const path = require('path');
@@ -63,27 +65,33 @@ const deleteOnboardingState = async (from) => {
 };
 
 // ─── UTILITY FUNCTIONS ─────────────────────────────────────────────
-function detectCountryAndRegion(phoneNumber) {
+function normalizePhoneNumber(phone) {
+    return phone.replace(/^whatsapp:/i, '').trim();
+  }
+  
+  function detectCountryAndRegion(phoneNumber) {
+    // Optionally, you can normalize the phone here if needed,
+    // or assume the phone is already normalized.
     if (!phoneNumber.startsWith("+")) {
-        phoneNumber = `+${phoneNumber}`;  // Normalize phone number
+      phoneNumber = `+${phoneNumber}`;  // Normalize phone number
     }
     const phoneInfo = parsePhoneNumberFromString(phoneNumber);
     if (!phoneInfo || !phoneInfo.isValid()) {
-        return { country: "Unknown", region: "Unknown" };
+      return { country: "Unknown", region: "Unknown" };
     }
     const country = phoneInfo.country;
     const nationalNumber = phoneInfo.nationalNumber; 
     const areaCode = nationalNumber.substring(0, 3);
     let region = "Unknown";
     if (country === 'US') {
-        const usAreaCodes = { "212": "New York", "213": "Los Angeles", "305": "Miami" /*...*/ };
-        region = usAreaCodes[areaCode] || "Unknown State";
+      const usAreaCodes = { "212": "New York", "213": "Los Angeles", "305": "Miami" /*...*/ };
+      region = usAreaCodes[areaCode] || "Unknown State";
     } else if (country === 'CA') {
-        const caAreaCodes = { "416": "Toronto, Ontario", "604": "Vancouver, British Columbia" /*...*/ };
-        region = caAreaCodes[areaCode] || "Unknown Province";
+      const caAreaCodes = { "416": "Toronto, Ontario", "604": "Vancouver, British Columbia" /*...*/ };
+      region = caAreaCodes[areaCode] || "Unknown Province";
     }
     return { country, region };
-}
+  }
 
 // ─── EXPRESS APP SETUP ───────────────────────────────────────────────
 const app = express();
@@ -171,17 +179,23 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
 
 // ─── WEBHOOK HANDLER  ─────────────────────────────
 app.post('/webhook', async (req, res) => {
-    console.log(`[DEBUG] Incoming Webhook Request from ${req.body.From}:`, JSON.stringify(req.body));
-    const from = req.body.From;
+    // Extract the raw phone number from the incoming request
+    const rawPhone = phone;
+    const phone = normalizePhoneNumber(rawPhone);
+    
+    console.log(`[DEBUG] Incoming Webhook Request from ${phone}:`, JSON.stringify(req.body));
+
     const body = req.body.Body?.trim();
     const mediaUrl = req.body.MediaUrl0;
     const mediaType = req.body.MediaContentType0;
-    if (!from) {
+
+    if (!phone) {
         return res.status(400).send("Bad Request: Missing 'From'.");
     }
+
     let userProfile;
     try {
-        userProfile = await getUserProfile(from);
+        userProfile = await getUserProfile(phone);
     } catch (error) {
         console.error("[ERROR] Failed to fetch user profile:", error);
         return res.send(`<Response><Message>⚠️ Sorry, something went wrong. Please try again.</Message></Response>`);
@@ -231,36 +245,31 @@ if (!emailRegex.test(email)) {
 }
 
 try {
-  userProfile = {
-    user_id: from,
-    name: state.responses.step_0,
-    country: state.responses.country || state.responses.step_1,
-    province: state.responses.province || state.responses.step_2,
-    business_type: state.responses.step_3,
-    industry: state.responses.step_4,
-    personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
-    track_mileage: state.responses.step_6.toLowerCase() === "yes",
-    track_home_office: state.responses.step_7.toLowerCase() === "yes",
-    financial_goals: state.responses.step_8,
-    add_bills: state.responses.step_9?.toLowerCase() === "yes",
-    email: state.responses.step_10,
-    created_at: new Date().toISOString()
-  };
+    const userProfileData = {
+        user_id: phone, // use the normalized phone number here
+        name: state.responses.step_0,
+        country: state.responses.country || state.responses.step_1,
+        province: state.responses.province || state.responses.step_2,
+        business_type: state.responses.step_3,
+        industry: state.responses.step_4,
+        personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
+        track_mileage: state.responses.step_6.toLowerCase() === "yes",
+        track_home_office: state.responses.step_7.toLowerCase() === "yes",
+        financial_goals: state.responses.step_8,
+        add_bills: state.responses.step_9?.toLowerCase() === "yes",
+        email: state.responses.step_10,
+        created_at: new Date().toISOString()
+    };
+    await saveUserProfile(userProfileData);
 
-  await saveUserProfile(userProfile);
+// Create or retrieve the spreadsheet for the user.
+const spreadsheetId = await createSpreadsheetForUser(phone, userProfileData.email);
 
-  // Create or retrieve the spreadsheet for the user.
-  // If you're using createSpreadsheetForUser:
-  const spreadsheetId = await createSpreadsheetForUser(from, userProfile.email);
-  
-  // Optionally, if you have a separate function to send the email (but your createSpreadsheetForUser might already do it)
-  // await sendSpreadsheetEmail(userProfile.email, spreadsheetId);
+// Delete onboarding state, etc.
+await deleteOnboardingState(from);
 
-  // Then delete the onboarding state
-  await deleteOnboardingState(from);
-
-  console.log(`[DEBUG] Onboarding complete for ${from}:`, userProfile);
-  return res.send(`<Response><Message>✅ Onboarding complete, ${userProfile.name}! Your spreadsheet has been emailed to you.</Message></Response>`);
+console.log(`[DEBUG] Onboarding complete for ${phone}:`, userProfileData);
+return res.send(`<Response><Message>✅ Onboarding complete, ${userProfileData.name}! Your spreadsheet has been emailed to you.</Message></Response>`);
 } catch (error) {
   console.error("[ERROR] Failed to complete onboarding:", error);
   return res.send(`<Response><Message>⚠️ Sorry, something went wrong while completing your profile. Please try again later.</Message></Response>`);

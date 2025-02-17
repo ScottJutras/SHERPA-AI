@@ -23,7 +23,7 @@ app.get('/', (req, res) => {
 app.post('/webhook', async (req, res) => {
     console.log("[DEBUG] Incoming Twilio Webhook:", req.body);
 
-    const from = req.body.From;
+    const from = phone;
     const body = req.body.Body?.trim();
 
     if (!from) {
