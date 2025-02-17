@@ -128,7 +128,7 @@ const onboardingTemplates = {
 };
 const confirmationTemplates = {
     revenue: "HX9382ee3fb669bc5cf11423d137a25308",  // Revenue Confirmation
-    expense: "HX00a562789f55a45fcbd13dc67f8249b6",  // Expense Confirmation
+    expense: "HX3d96daedc394f7385629ecd026e69760",  // Expense Confirmation
     bill:    "HXe7a1b06a28554ec2bced55944e05c465",  // Bill Confirmation
     startJob:"HXa4f19d568b70b3493e64933ce5e6a040"   // Start Job
   };
@@ -473,12 +473,27 @@ if (/^(start job|job start)\s+(.+)/i.test(body)) {
     }
   
     // 2. Revenue Logging Branch (for new revenue messages)
-else if (
-    body.toLowerCase().startsWith("received") ||
-    body.toLowerCase().startsWith("earned") ||
-    body.toLowerCase().startsWith("income") ||
-    body.toLowerCase().startsWith("revenue")
-  ) {
+    else if (
+        body.toLowerCase().startsWith("received") ||
+        body.toLowerCase().startsWith("earned") ||
+        body.toLowerCase().startsWith("income") ||
+        body.toLowerCase().startsWith("revenue") ||
+        body.toLowerCase().includes("was paid") ||
+        body.toLowerCase().startsWith("way payed") ||
+        body.toLowerCase().includes("got payed") ||
+        body.toLowerCase().includes("collected") ||
+        body.toLowerCase().includes("got a cheque") || 
+        body.toLowerCase().includes("received a cheque") ||
+        body.toLowerCase().includes("collected a cheque") ||
+        body.toLowerCase().includes("got a check") || 
+        body.toLowerCase().includes("received a check") ||
+        body.toLowerCase().includes("collected a check") ||
+        body.toLowerCase().includes("got a cashapp") || 
+        body.toLowerCase().includes("got an etransfer") ||
+        body.toLowerCase().includes("received an etransfer") ||
+        body.toLowerCase().includes("got paid")
+        
+      ) {
     console.log("[DEBUG] Detected a revenue message:", body);
     const activeJob = (await getActiveJob(from)) || "Uncategorized";
     let revenueData = parseRevenueMessage(body);
