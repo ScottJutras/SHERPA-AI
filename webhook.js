@@ -21,8 +21,6 @@ const {
 
 const { extractTextFromImage } = require('./utils/visionService');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
-const rawPhone = req.body.From;
-const phone = normalizePhoneNumber(rawPhone);
 const { transcribeAudio } = require('./utils/transcriptionService');
 const fs = require('fs');
 const path = require('path');
