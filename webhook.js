@@ -21,6 +21,7 @@ const {
 
 const { extractTextFromImage, handleReceiptImage } = require('./utils/visionService');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
+const { sendSpreadsheetEmail } = require('./sendGridService');
 const { transcribeAudio } = require('./utils/transcriptionService');
 const fs = require('fs');
 const path = require('path');
