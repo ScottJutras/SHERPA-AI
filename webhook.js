@@ -21,6 +21,8 @@ const {
 
 const { extractTextFromImage } = require('./utils/visionService');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
+const rawPhone = phone;
+const phone = normalizePhoneNumber(rawPhone);
 const { transcribeAudio } = require('./utils/transcriptionService');
 const fs = require('fs');
 const path = require('path');
@@ -64,32 +66,33 @@ const deleteOnboardingState = async (from) => {
 
 // ─── UTILITY FUNCTIONS ─────────────────────────────────────────────
 function normalizePhoneNumber(phone) {
-    return phone.replace(/^whatsapp:/i, '').trim();
+  return phone.replace(/^whatsapp:/i, '').trim();
+}
+
+function detectCountryAndRegion(phoneNumber) {
+  // Optionally, you can normalize the phone here if needed,
+  // or assume the phone is already normalized.
+  if (!phoneNumber.startsWith("+")) {
+    phoneNumber = `+${phoneNumber}`;  // Normalize phone number
   }
-  
-  function detectCountryAndRegion(phoneNumber) {
-    // Optionally, you can normalize the phone here if needed,
-    // or assume the phone is already normalized.
-    if (!phoneNumber.startsWith("+")) {
-      phoneNumber = `+${phoneNumber}`;  // Normalize phone number
-    }
-    const phoneInfo = parsePhoneNumberFromString(phoneNumber);
-    if (!phoneInfo || !phoneInfo.isValid()) {
-      return { country: "Unknown", region: "Unknown" };
-    }
-    const country = phoneInfo.country;
-    const nationalNumber = phoneInfo.nationalNumber; 
-    const areaCode = nationalNumber.substring(0, 3);
-    let region = "Unknown";
-    if (country === 'US') {
-      const usAreaCodes = { "212": "New York", "213": "Los Angeles", "305": "Miami" /*...*/ };
-      region = usAreaCodes[areaCode] || "Unknown State";
-    } else if (country === 'CA') {
-      const caAreaCodes = { "416": "Toronto, Ontario", "604": "Vancouver, British Columbia" /*...*/ };
-      region = caAreaCodes[areaCode] || "Unknown Province";
-    }
-    return { country, region };
+  const phoneInfo = parsePhoneNumberFromString(phoneNumber);
+  if (!phoneInfo || !phoneInfo.isValid()) {
+    return { country: "Unknown", region: "Unknown" };
   }
+  const country = phoneInfo.country;
+  const nationalNumber = phoneInfo.nationalNumber; 
+  const areaCode = nationalNumber.substring(0, 3);
+  let region = "Unknown";
+  if (country === 'US') {
+    const usAreaCodes = { "212": "New York", "213": "Los Angeles", "305": "Miami" /*...*/ };
+    region = usAreaCodes[areaCode] || "Unknown State";
+  } else if (country === 'CA') {
+    const caAreaCodes = { "416": "Toronto, Ontario", "604": "Vancouver, British Columbia" /*...*/ };
+    region = caAreaCodes[areaCode] || "Unknown Province";
+  }
+  return { country, region };
+}
+}
 
 // ─── EXPRESS APP SETUP ───────────────────────────────────────────────
 const app = express();
@@ -177,11 +180,12 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
 
 // ─── WEBHOOK HANDLER  ─────────────────────────────
 app.post('/webhook', async (req, res) => {
-    // Extract the raw phone number from the incoming request
-    const rawPhone = req.body.From;
+    console.log(`[DEBUG] Incoming Webhook Request from ${req.body.From}:`, JSON.stringify(req.body));
+    const from = req.body.From
+
+    // Normalize the incoming phone number
+    const rawPhone = phone;
     const phone = normalizePhoneNumber(rawPhone);
-    
-    console.log(`[DEBUG] Incoming Webhook Request from ${phone}:`, JSON.stringify(req.body));
 
     const body = req.body.Body?.trim();
     const mediaUrl = req.body.MediaUrl0;
