@@ -28,7 +28,10 @@ const path = require('path');
 const admin = require("firebase-admin");
 
 function normalizePhoneNumber(phone) {
-    return phone.replace(/^whatsapp:/i, '').trim();
+    return phone
+      .replace(/^whatsapp:/i, '')
+      .replace(/^\+/, '')
+      .trim();
 }
 // ─── FIREBASE ADMIN SETUP ────────────────────────────────────────────
 if (!admin.apps.length) {
