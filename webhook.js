@@ -474,12 +474,12 @@ if (/^(start job|job start)\s+(.+)/i.test(body)) {
   
     // 2. Revenue Logging Branch (for new revenue messages)
     else if (
-        body.toLowerCase().startsWith("received") ||
-        body.toLowerCase().startsWith("earned") ||
-        body.toLowerCase().startsWith("income") ||
-        body.toLowerCase().startsWith("revenue") ||
+        body.toLowerCase().includes("received") ||
+        body.toLowerCase().includes("earned") ||
+        body.toLowerCase().includes("income") ||
+        body.toLowerCase().includes("revenue") ||
         body.toLowerCase().includes("was paid") ||
-        body.toLowerCase().startsWith("was payed") ||
+        body.toLowerCase().includes("was payed") ||
         body.toLowerCase().includes("got payed") ||
         body.toLowerCase().includes("collected") ||
         body.toLowerCase().includes("got a cheque") || 
