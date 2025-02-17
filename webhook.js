@@ -148,7 +148,7 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
         // Twilio requires ContentVariables to be a JSON string
         const formattedVariables = JSON.stringify(contentVariables);
         console.log("[DEBUG] Sending Twilio template message with:", {
-            To: tonumber,
+            To: toNumber,
             ContentSid: contentSid,
             ContentVariables: formattedVariables
         });
