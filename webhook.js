@@ -479,7 +479,7 @@ if (/^(start job|job start)\s+(.+)/i.test(body)) {
         body.toLowerCase().startsWith("income") ||
         body.toLowerCase().startsWith("revenue") ||
         body.toLowerCase().includes("was paid") ||
-        body.toLowerCase().startsWith("way payed") ||
+        body.toLowerCase().startsWith("was payed") ||
         body.toLowerCase().includes("got payed") ||
         body.toLowerCase().includes("collected") ||
         body.toLowerCase().includes("got a cheque") || 
