@@ -27,6 +27,9 @@ const fs = require('fs');
 const path = require('path');
 const admin = require("firebase-admin");
 
+function normalizePhoneNumber(phone) {
+    return phone.replace(/^whatsapp:/i, '').trim();
+}
 // ─── FIREBASE ADMIN SETUP ────────────────────────────────────────────
 if (!admin.apps.length) {
     const firebaseCredentialsBase64 = process.env.FIREBASE_CREDENTIALS_BASE64;
@@ -174,8 +177,9 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
 
 // ─── WEBHOOK HANDLER  ─────────────────────────────
 app.post('/webhook', async (req, res) => {
+    const rawPhone = req.body.From;
+    const from = normalizePhoneNumber(rawPhone);
     console.log(`[DEBUG] Incoming Webhook Request from ${req.body.From}:`, JSON.stringify(req.body));
-    const from = normalizePhoneNumber(req.body.From);
     const body = req.body.Body?.trim();
     const mediaUrl = req.body.MediaUrl0;
     const mediaType = req.body.MediaContentType0;
