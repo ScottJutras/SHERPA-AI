@@ -21,8 +21,6 @@ const {
 
 const { extractTextFromImage } = require('./utils/visionService');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
-const rawPhone = phone;
-const phone = normalizePhoneNumber(rawPhone);
 const { transcribeAudio } = require('./utils/transcriptionService');
 const fs = require('fs');
 const path = require('path');
@@ -179,12 +177,12 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
 
 // ─── WEBHOOK HANDLER  ─────────────────────────────
 app.post('/webhook', async (req, res) => {
-    console.log(`[DEBUG] Incoming Webhook Request from ${req.body.From}:`, JSON.stringify(req.body));
-    const from = req.body.From
-
     // Normalize the incoming phone number
-    const rawPhone = phone;
-    const phone = normalizePhoneNumber(rawPhone);
+    const rawPhone = req.body.From;
+    const from = normalizePhoneNumber(rawPhone);
+    
+    console.log(`[DEBUG] Incoming Webhook Request from ${req.body.From}:`, JSON.stringify(req.body));
+   
 
     const body = req.body.Body?.trim();
     const mediaUrl = req.body.MediaUrl0;
