@@ -19,7 +19,7 @@ const {
     calculateIncomeGoal  // Ensure this is exported from googleSheets
 } = require("./utils/googleSheets");
 
-const { extractTextFromImage } = require('./utils/visionService');
+const { extractTextFromImage, handleReceiptImage } = require('./utils/visionService');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
 const { transcribeAudio } = require('./utils/transcriptionService');
 const fs = require('fs');
@@ -63,10 +63,6 @@ const deleteOnboardingState = async (from) => {
 };
 
 // ─── UTILITY FUNCTIONS ─────────────────────────────────────────────
-function normalizePhoneNumber(phone) {
-  return phone.replace(/^whatsapp:/i, '').trim();
-}
-
 function detectCountryAndRegion(phoneNumber) {
   // Optionally, you can normalize the phone here if needed,
   // or assume the phone is already normalized.
@@ -177,24 +173,17 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
 
 // ─── WEBHOOK HANDLER  ─────────────────────────────
 app.post('/webhook', async (req, res) => {
-    // Normalize the incoming phone number
-    const rawPhone = req.body.From;
-    const phone = normalizePhoneNumber(rawPhone);
-    
-    console.log(`[DEBUG] Incoming Webhook Request from ${phone}:`, JSON.stringify(req.body));
-   
-
+    console.log(`[DEBUG] Incoming Webhook Request from ${req.body.From}:`, JSON.stringify(req.body));
+    const from = req.body.From;
     const body = req.body.Body?.trim();
     const mediaUrl = req.body.MediaUrl0;
     const mediaType = req.body.MediaContentType0;
-
-    if (!phone) {
+    if (!from) {
         return res.status(400).send("Bad Request: Missing 'From'.");
     }
-
     let userProfile;
     try {
-        userProfile = await getUserProfile(phone);
+        userProfile = await getUserProfile(from);
     } catch (error) {
         console.error("[ERROR] Failed to fetch user profile:", error);
         return res.send(`<Response><Message>⚠️ Sorry, something went wrong. Please try again.</Message></Response>`);
@@ -202,7 +191,7 @@ app.post('/webhook', async (req, res) => {
     try {
         // ─── ONBOARDING FLOW ─────────────────────────
 if (!userProfile) {
-    let state = await getOnboardingState(phone);
+    let state = await getOnboardingState(from);
     // If no state exists, initialize and send the first question without recording the incoming message.
     if (!state) {
         state = { step: 0, responses: {}, detectedLocation: detectCountryAndRegion(from) };
@@ -245,7 +234,7 @@ if (!emailRegex.test(email)) {
 
 try {
     const userProfileData = {
-        user_id: phone, // use the normalized phone number here
+        user_id: from, // use the normalized phone number here
         name: state.responses.step_0,
         country: state.responses.country || state.responses.step_1,
         province: state.responses.province || state.responses.step_2,
@@ -262,12 +251,14 @@ try {
     await saveUserProfile(userProfileData);
 
 // Create or retrieve the spreadsheet for the user.
-const spreadsheetId = await createSpreadsheetForUser(phone, userProfileData.email);
+const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
 
+// Optionally, if you have a separate function to send the email (but your createSpreadsheetForUser might already do it)
+await sendSpreadsheetEmail(userProfile.email, spreadsheetId);
 // Delete onboarding state, etc.
 await deleteOnboardingState(from);
 
-console.log(`[DEBUG] Onboarding complete for ${phone}:`, userProfileData);
+console.log(`[DEBUG] Onboarding complete for ${from}:`, userProfileData);
 return res.send(`<Response><Message>✅ Onboarding complete, ${userProfileData.name}! Your spreadsheet has been emailed to you.</Message></Response>`);
 } catch (error) {
   console.error("[ERROR] Failed to complete onboarding:", error);
