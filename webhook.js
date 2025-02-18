@@ -101,70 +101,37 @@ app.use(bodyParser.json());
 
 // ─── ONBOARDING STEPS & STATE ─────────────────────────────────────────
 const onboardingSteps = [
-  "Can I get your name?",
-  "Are you in Canada or USA? (Canada/USA)",
-  "Which province or state are you in?",
-  "What type of business do you have? (Sole Proprietorship, Corporation, Charity, Non-Profit, Other)",
-  "What industry do you work in? (Construction, Real Estate, Retail, Freelancer, Other)",
-  "Do you want to track personal expenses too? (Yes/No)",
-  "Do you want to track mileage? (Yes/No)",
-  "Do you want to track home office deductions? (Yes/No)",
-  "What is your primary financial goal? (Save to pay off debts, Save to invest, Spend to lower tax bracket, Spend to invest)",
-  "Would you like to add your yearly, monthly, weekly, or bi-weekly bills to track? (Yes/No)",
-  "Do you have employees?", // Step 10
-  "Do you want to onboard your employees now or after your onboarding is complete?", // Step 10.1
-  "To onboard your employees we'll need some information about them, lets start off with your first employee's name:", // Step 10.2
-  "What is {employee 1's name} wage?", // Step 10.3
-  "Does {employee 1's name} get paid for lunch break?", // Step 10.4
-  "Does {employee 1's name} get paid overtime?", // Step 10.5
-  "How many hours does {employee 1's name} need to work before they get overtime pay?", // Step 10.5.1
-  "What is {employee 1's name} paid for overtime. Please provide their hourly rate.", // Step 10.5.2
-  "Does {employee 1's name} get employee benefits?", // Step 10.6
-  "How much do {employee 1's name} benefits cost per month?", // Step 10.6.1
-  "Does {employee 1's name} get paid to drive to the job?", // Step 10.7
-  "Does {employee 1's name} get paid to drive back from the job?", // Step 10.71
-  "Can I get your email address?" // Step 11 - Adjusted to be after all employee questions
+    "Can I get your name?",                                      // Step 0
+    "Are you in Canada or USA? (Canada/USA)",                    // Step 1
+    "Which province or state are you in?",                       // Step 2
+    "What type of business do you have? (Sole Proprietorship, Corporation, Charity, Non-Profit, Other)",  // Step 3
+    "What industry do you work in? (Construction, Real Estate, Retail, Freelancer, Other)",                 // Step 4
+    "Do you want to track personal expenses too? (Yes/No)",      // Step 5
+    "Do you want to track mileage? (Yes/No)",                     // Step 6
+    "Do you want to track home office deductions? (Yes/No)",      // Step 7
+    "What is your primary financial goal? (Save to pay off debts, Save to invest, Spend to lower tax bracket, Spend to invest)", // Step 8
+    "Would you like to add your yearly, monthly, weekly, or bi-weekly bills to track? (Yes/No)",                // Step 9
+    "Can I get your email address?"                              // Step 10
 ];
 const userOnboardingState = {}; // Retained for legacy use if needed
 
 // Mapping of onboarding step indexes to approved template SIDs
 const onboardingTemplates = {
-  1: "HX4cf7529ecaf5a488fdfa96b931025023", // onboarding_country - Existing
-  3: "HX066a88aad4089ba4336a21116e923557", // onboarding_business_type - Existing
-  4: "HX1d4c5b90e5f5d7417283f3ee522436f4", // onboarding_industry - Existing
-  5: "HX5c80469d7ba195623a4a3654a27c19d7", // onboarding_personal_expenses - Existing
-  6: "HXd1fcd47418eaeac8a94c57b930f86674", // onboarding_mileage_tracking - Existing
-  7: "HX3e231458c97ba2ca1c5588b54e87c081", // onboarding_home_office - Existing
-  8: "HX20b1be5490ea39f3730fb9e70d5275df", // copy_onboarding_financial_goal - Existing
-  9: "HX99fd5cad1d49ab68e9afc6a70fe4d24a", // copy_onboarding_bill_tracking - Existing
-  10: "HX02466719f51713***************548", // Do you have employees? - New
-  "10.1": "HXanotherSID", // Onboard now or later? - New
-  "10.2": "HXemployeeName", // Employee name - New
-  "10.3": "HXemployeeWage", // Employee wage - New
-  "10.31": "HXconfirmWage", // Confirm wage - New
-  "10.4": "HXlunchBreak", // Lunch break pay - New
-  "10.41": "HXconfirmLunchBreak", // Confirm lunch break pay - New
-  "10.5": "HXovertime", // Overtime - New
-  "10.51": "HXovertimeHours", // Overtime hours - New
-  "10.52": "HXovertimeRate", // Overtime rate - New
-  "10.53": "HXconfirmOvertime", // Confirm overtime - New
-  "10.6": "HXbenefits", // Benefits - New
-  "10.61": "HXbenefitsCost", // Benefits cost - New
-  "10.62": "HXconfirmBenefits", // Confirm benefits - New
-  "10.7": "HXdriveToJob", // Drive to job - New
-  "10.71": "HXconfirmDriveNo", // Confirm no pay for drive to job - New
-  "10.72": "HXconfirmDriveYes", // Confirm pay for drive to job - New
-  "10.710": "HXdriveBackJob", // Drive back from job - New
-  "10.711": "HXconfirmDriveBackNo", // Confirm no pay for drive back from job - New
-  "10.712": "HXconfirmDriveBackYes", // Confirm pay for drive back from job - New
-  // Note: You'll need to replace these placeholders with actual Twilio SIDs
+    1: "HX4cf7529ecaf5a488fdfa96b931025023", // onboarding_country
+    3: "HX066a88aad4089ba4336a21116e923557", // onboarding_business_type
+    4: "HX1d4c5b90e5f5d7417283f3ee522436f4", // onboarding_industry
+    5: "HX5c80469d7ba195623a4a3654a27c19d7", // onboarding_personal_expenses
+    6: "HXd1fcd47418eaeac8a94c57b930f86674", // onboarding_mileage_tracking
+    7: "HX3e231458c97ba2ca1c5588b54e87c081", // onboarding_home_office
+    8: "HX20b1be5490ea39f3730fb9e70d5275df", // copy_onboarding_financial_goal
+    9: "HX99fd5cad1d49ab68e9afc6a70fe4d24a"  // copy_onboarding_bill_tracking
 };
 const confirmationTemplates = {
     revenue: "HX9382ee3fb669bc5cf11423d137a25308",  // Revenue Confirmation
     expense: "HX3d96daedc394f7385629ecd026e69760",  // Expense Confirmation
     bill:    "HXe7a1b06a28554ec2bced55944e05c465",  // Bill Confirmation
     startJob:"HXa4f19d568b70b3493e64933ce5e6a040"   // Start Job
-};
+  };
   
 
 // ─── NEW FUNCTION: Send Approved Template Message ─────────────────────
@@ -214,195 +181,106 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
     }
 };
 
+// ─── WEBHOOK HANDLER  ─────────────────────────────
 app.post('/webhook', async (req, res) => {
-  const rawPhone = req.body.From;
-  const from = normalizePhoneNumber(rawPhone);
-  console.log(`[DEBUG] Incoming Webhook Request from ${req.body.From}:`, JSON.stringify(req.body));
-  const body = req.body.Body?.trim();
-  const mediaUrl = req.body.MediaUrl0;
-  const mediaType = req.body.MediaContentType0;
-  if (!from) {
-      return res.status(400).send("Bad Request: Missing 'From'.");
-  }
-  let userProfile;
-  try {
-      userProfile = await getUserProfile(from);
-  } catch (error) {
-      console.error("[ERROR] Failed to fetch user profile:", error);
-      return res.send(`<Response><Message>⚠️ Sorry, something went wrong. Please try again.</Message></Response>`);
-  }
-  try {
-      if (!userProfile) {
-          let state = await getOnboardingState(from);
-          if (!state) {
-              state = { step: 0, responses: {}, detectedLocation: detectCountryAndRegion(from), employees: [] };
-              await setOnboardingState(from, state);
-              console.log(`[DEBUG] Initialized state for ${from}:`, state);
-              const firstQuestion = onboardingSteps[0]; // "Can I get your name?"
-              console.log(`[DEBUG] Sending first question to ${from}:`, firstQuestion);
-              return res.send(`<Response><Message>${firstQuestion}</Message></Response>`);
-          }
+    const rawPhone = req.body.From;
+    const from = normalizePhoneNumber(rawPhone);
+    console.log(`[DEBUG] Incoming Webhook Request from ${req.body.From}:`, JSON.stringify(req.body));
+    const body = req.body.Body?.trim();
+    const mediaUrl = req.body.MediaUrl0;
+    const mediaType = req.body.MediaContentType0;
+    if (!from) {
+        return res.status(400).send("Bad Request: Missing 'From'.");
+    }
+    let userProfile;
+    try {
+        userProfile = await getUserProfile(from);
+    } catch (error) {
+        console.error("[ERROR] Failed to fetch user profile:", error);
+        return res.send(`<Response><Message>⚠️ Sorry, something went wrong. Please try again.</Message></Response>`);
+    }
+    try {
+        // ─── ONBOARDING FLOW ─────────────────────────
+if (!userProfile) {
+    let state = await getOnboardingState(from);
+    // If no state exists, initialize and send the first question without recording the incoming message.
+    if (!state) {
+        state = { step: 0, responses: {}, detectedLocation: detectCountryAndRegion(from) };
+        await setOnboardingState(from, state);
+        console.log(`[DEBUG] Initialized state for ${from}:`, state);
+        const firstQuestion = onboardingSteps[0]; // "Can I get your name?"
+        console.log(`[DEBUG] Sending first question to ${from}:`, firstQuestion);
+        return res.send(`<Response><Message>${firstQuestion}</Message></Response>`);
+    }
+    // Otherwise, if state exists, record the user's answer for the current question
+    if (state.step < onboardingSteps.length) {
+        state.responses[`step_${state.step}`] = body;
+        console.log(`[DEBUG] Recorded response for step ${state.step}:`, body);
+        state.step++;
+        await setOnboardingState(from, state);
+    }
+    // Send the next question if available
+    if (state.step < onboardingSteps.length) {
+        const nextQuestion = onboardingSteps[state.step];
+        console.log(`[DEBUG] Next question (step ${state.step}) for ${from}:`, nextQuestion);
+        if (onboardingTemplates.hasOwnProperty(state.step)) {
+            const sent = await sendTemplateMessage(from, onboardingTemplates[state.step], {});
+            if (!sent) {
+                console.error("Falling back to plain text question because template message sending failed");
+                return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
+            }
+            console.log(`[DEBUG] Sent interactive template for step ${state.step} to ${from}`);
+            return res.send(`<Response></Response>`);
+        } else {
+            console.log(`[DEBUG] Sending plain text for step ${state.step} to ${from}`);
+            return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
+        }
+    } else {
+                // Final step: complete onboarding
+const email = state.responses.step_10;
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+if (!emailRegex.test(email)) {
+  return res.send(`<Response><Message>⚠️ The email address you provided doesn't seem valid. Please enter a valid email address.</Message></Response>`);
+}
 
-          // Handle responses for each step
-          if (state.step < onboardingSteps.length) {
-              state.responses[`step_${state.step}`] = body;
-              console.log(`[DEBUG] Recorded response for step ${state.step}:`, body);
+try {
+    const userProfileData = {
+        user_id: from, // use the normalized phone number here
+        name: state.responses.step_0,
+        country: state.responses.country || state.responses.step_1,
+        province: state.responses.province || state.responses.step_2,
+        business_type: state.responses.step_3,
+        industry: state.responses.step_4,
+        personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
+        track_mileage: state.responses.step_6.toLowerCase() === "yes",
+        track_home_office: state.responses.step_7.toLowerCase() === "yes",
+        financial_goals: state.responses.step_8,
+        add_bills: state.responses.step_9?.toLowerCase() === "yes",
+        email: state.responses.step_10,
+        created_at: new Date().toISOString()
+    };
+    await saveUserProfile(userProfileData);
 
-              // Handle new employee onboarding steps
-              if (state.step === 10) { // Do you have employees?
-                  if (body.toLowerCase() === 'yes') {
-                      state.step = 10.1;
-                  } else {
-                      state.step = 11;
-                  }
-              } else if (state.step === 10.1) { // Onboard now or later?
-                  if (body.toLowerCase() === 'now') {
-                      state.step = 10.2;
-                  } else {
-                      state.step = 11;
-                  }
-              } else if (state.step === 10.2) { // Employee's name
-                  state.currentEmployee = { name: body };
-                  state.step = 10.3;
-              } else if (state.step === 10.3) { // Wage
-                  state.currentEmployee.wage = parseWage(body);
-                  state.step = 10.31; // Confirmation step for wage
-              } else if (state.step === 10.31) { // Confirm Wage
-                  if (body.toLowerCase() === 'confirm') {
-                      state.step = 10.4;
-                  } else if (body.toLowerCase() === 'edit') {
-                      state.step = 10.3; // Back to wage input
-                  } else {
-                      state.step = 10.2; // Cancel back to name
-                      delete state.currentEmployee; // Clear employee data
-                  }
-              } else if (state.step === 10.4) { // Lunch break pay
-                  state.currentEmployee.lunchBreak = body.toLowerCase() === 'yes';
-                  state.step = state.currentEmployee.lunchBreak ? 10.41 : 10.5;
-              } else if (state.step === 10.41) { // Confirm lunch break pay
-                  if (body.toLowerCase() === 'confirm') {
-                      state.step = 10.5;
-                  } else if (body.toLowerCase() === 'edit') {
-                      state.step = 10.4; // Back to lunch break pay
-                  } else {
-                      state.step = 10.3; // Cancel back to wage
-                      delete state.currentEmployee.lunchBreak;
-                  }
-              } else if (state.step === 10.5) { // Overtime
-                  state.currentEmployee.overtime = body.toLowerCase() === 'yes';
-                  state.step = state.currentEmployee.overtime ? 10.51 : 10.6;
-              } else if (state.step === 10.51) { // Overtime hours
-                  state.currentEmployee.overtimeHours = parseInt(body);
-                  state.step = 10.52;
-              } else if (state.step === 10.52) { // Overtime rate
-                  state.currentEmployee.overtimeRate = parseWage(body);
-                  state.step = 10.53;
-              } else if (state.step === 10.53) { // Confirm overtime
-                  if (body.toLowerCase() === 'confirm') {
-                      state.step = 10.6;
-                  } else if (body.toLowerCase() === 'edit') {
-                      state.step = 10.52; // Back to overtime rate
-                  } else {
-                      state.step = 10.5; // Cancel back to overtime eligibility
-                      delete state.currentEmployee.overtime;
-                      delete state.currentEmployee.overtimeHours;
-                      delete state.currentEmployee.overtimeRate;
-                  }
-              } else if (state.step === 10.6) { // Benefits
-                  state.currentEmployee.benefits = body.toLowerCase() === 'yes';
-                  state.step = state.currentEmployee.benefits ? 10.61 : 10.7;
-              } else if (state.step === 10.61) { // Benefits cost
-                  state.currentEmployee.benefitsCost = parseWage(body);
-                  state.step = 10.62;
-              } else if (state.step === 10.62) { // Confirm benefits
-                  if (body.toLowerCase() === 'confirm') {
-                      state.step = 10.7;
-                  } else if (body.toLowerCase() === 'edit') {
-                      state.step = 10.61; // Back to benefits cost
-                  } else {
-                      state.step = 10.6; // Cancel back to benefits eligibility
-                      delete state.currentEmployee.benefits;
-                      delete state.currentEmployee.benefitsCost;
-                  }
-              } else if (state.step === 10.7) { // Drive to job
-                  state.currentEmployee.driveToJob = body.toLowerCase() === 'yes';
-                  state.step = 10.71;
-              } else if (state.step === 10.71) { // Drive back from job
-                  state.currentEmployee.driveBackFromJob = body.toLowerCase() === 'yes';
-                  state.step = 11; // Move to email collection or next step
+// Create or retrieve the spreadsheet for the user.
+const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
 
-                  // Save employee data
-                  if (state.currentEmployee) {
-                      state.employees.push(state.currentEmployee);
-                      state.currentEmployee = null; // Reset for next employee if needed
-                  }
-              } else if (state.step === 11) { // Email collection
-                  const email = state.responses.step_11;
-                  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-                  if (!emailRegex.test(email)) {
-                      return res.send(`<Response><Message>⚠️ The email address you provided doesn't seem valid. Please enter a valid email address.</Message></Response>`);
-                  }
+// Optionally, if you have a separate function to send the email (but your createSpreadsheetForUser might already do it)
+await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
+// Delete onboarding state, etc.
+await deleteOnboardingState(from);
 
-                  try {
-                      const userProfileData = {
-                          user_id: from, // use the normalized phone number here
-                          name: state.responses.step_0,
-                          country: state.responses.country || state.responses.step_1,
-                          province: state.responses.province || state.responses.step_2,
-                          business_type: state.responses.step_3,
-                          industry: state.responses.step_4,
-                          personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
-                          track_mileage: state.responses.step_6.toLowerCase() === "yes",
-                          track_home_office: state.responses.step_7.toLowerCase() === "yes",
-                          financial_goals: state.responses.step_8,
-                          add_bills: state.responses.step_9?.toLowerCase() === "yes",
-                          email: state.responses.step_11,
-                          employees: state.employees,
-                          created_at: new Date().toISOString()
-                      };
-                      await saveUserProfile(userProfileData);
+console.log(`[DEBUG] Onboarding complete for ${from}:`, userProfileData);
+return res.send(`<Response><Message>✅ Onboarding complete, ${userProfileData.name}! Your spreadsheet has been emailed to you.</Message></Response>`);
+} catch (error) {
+  console.error("[ERROR] Failed to complete onboarding:", error);
+  return res.send(`<Response><Message>⚠️ Sorry, something went wrong while completing your profile. Please try again later.</Message></Response>`);
+}
 
-                      // Create or retrieve the spreadsheet for the user.
-                      const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
-
-                      // Optionally, if you have a separate function to send the email
-                      await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
-                      
-                      // Delete onboarding state
-                      await deleteOnboardingState(from);
-
-                      console.log(`[DEBUG] Onboarding complete for ${from}:`, userProfileData);
-                      return res.send(`<Response><Message>✅ Onboarding complete, ${userProfileData.name}! Your spreadsheet has been emailed to you.</Message></Response>`);
-                  } catch (error) {
-                      console.error("[ERROR] Failed to complete onboarding:", error);
-                      return res.send(`<Response><Message>⚠️ Sorry, something went wrong while completing your profile. Please try again later.</Message></Response>`);
-                  }
-              } else {
-                  state.step++;
-              }
-
-              await setOnboardingState(from, state);
-          }
-
-          // Send the next question or use the template
-          if (onboardingTemplates.hasOwnProperty(state.step)) {
-              const templateVariables = {};
-              if (state.currentEmployee && state.currentEmployee.name) {
-                  templateVariables["1"] = state.currentEmployee.name;
-              }
-              const sent = await sendTemplateMessage(from, onboardingTemplates[state.step], templateVariables);
-              if (!sent) {
-                  console.error("Falling back to plain text question because template message sending failed");
-                  return res.send(`<Response><Message>${onboardingSteps[state.step]}</Message></Response>`);
-              }
-              console.log(`[DEBUG] Sent interactive template for step ${state.step} to ${from}`);
-              return res.send(`<Response></Response>`);
-          } else {
-              console.log(`[DEBUG] Sending plain text for step ${state.step} to ${from}`);
-              return res.send(`<Response><Message>${onboardingSteps[state.step]}</Message></Response>`);
-          }
-      } else {
-          let reply;
+            }
+        }
+// ─── NON-ONBOARDING FLOW (RETURNING USERS) ─────────────────────────
+else {
+    let reply;
   
     // ─── Non‐Onboarding Flow (Returning Users) ─────────────────────────
 
