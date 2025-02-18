@@ -111,14 +111,14 @@ async function getAuthorizedClient() {
 }
 
 // ─── REVENUE LOGGING ─────────────────────────────────────────────────────────
-async function logRevenueEntry(userEmail, date, amount, source, category, paymentMethod, notes) {
+async function logRevenueEntry(userEmail, date, amount, source, category, paymentMethod, notes, spreadsheetId) {
   const auth = await getAuthorizedClient();
   const sheets = google.sheets({ version: 'v4', auth });
   const sheetName = 'Revenue';
 
   try {
       // Ensure the sheet exists, create if necessary
-      await ensureSheetExists(sheets, sheetName);
+      await ensureSheetExists(sheets, spreadsheetId, sheetName);
 
       // Format the revenue entry
       const values = [[date, amount, source, category, paymentMethod, notes]];
@@ -126,7 +126,7 @@ async function logRevenueEntry(userEmail, date, amount, source, category, paymen
 
       // Append the revenue entry
       await sheets.spreadsheets.values.append({
-          spreadsheetId: process.env.SPREADSHEET_ID,
+          spreadsheetId: spreadsheetId,
           range: `${sheetName}!A:F`,
           valueInputOption: 'USER_ENTERED',
           resource: { values },
@@ -140,24 +140,25 @@ async function logRevenueEntry(userEmail, date, amount, source, category, paymen
   }
 }
 
-async function ensureSheetExists(sheets, sheetName) {
+
+async function ensureSheetExists(sheets, spreadsheetId, sheetName) {
   try {
-      const response = await sheets.spreadsheets.get({ spreadsheetId: process.env.SPREADSHEET_ID });
-      const sheetExists = response.data.sheets.some(sheet => sheet.properties.title === sheetName);
-      
-      if (!sheetExists) {
-          await sheets.spreadsheets.batchUpdate({
-              spreadsheetId: process.env.SPREADSHEET_ID,
-              resource: {
-                  requests: [{
-                      addSheet: { properties: { title: sheetName } }
-                  }]
-              }
-          });
-          console.log(`Sheet '${sheetName}' created.`);
-      }
+    const response = await sheets.spreadsheets.get({ spreadsheetId });
+    const sheetExists = response.data.sheets.some(sheet => sheet.properties.title === sheetName);
+    
+    if (!sheetExists) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        resource: {
+          requests: [{
+            addSheet: { properties: { title: sheetName } }
+          }]
+        }
+      });
+      console.log(`Sheet '${sheetName}' created.`);
+    }
   } catch (error) {
-      console.error('Error ensuring sheet exists:', error);
+    console.error('Error ensuring sheet exists:', error);
   }
 }
 // ─── SPREADSHEET CREATION & RETRIEVAL ─────────────────────────────────────────

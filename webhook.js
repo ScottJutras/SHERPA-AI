@@ -416,15 +416,15 @@ if (/^(start job|job start)\s+(.+)/i.test(body)) {
         } else if (type === 'revenue') {
           try {
             const success = await logRevenueEntry(
-              userProfile.email,
-              pendingData.date,
-              pendingData.amount,
-              pendingData.source,
-              "General Revenue",
-              "Unknown",
-              "Logged via WhatsApp",
-              userProfile.spreadsheetId
-            );
+                userProfile.email,
+                revenueData.date,
+                revenueData.amount,
+                revenueData.source,
+                "General Revenue",
+                "Unknown",
+                "Logged via WhatsApp",
+                userProfile.spreadsheetId
+              );              
             reply = success
               ? `✅ Revenue of ${pendingData.amount} from ${pendingData.source} logged successfully.`
               : `⚠️ Failed to log revenue.`;
