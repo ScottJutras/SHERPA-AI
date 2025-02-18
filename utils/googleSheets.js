@@ -64,6 +64,28 @@ async function getUserProfile(phoneNumber) {
   }
 }
 
+/**
+ * Converts an amount string (e.g. "$1456.00") to a numeric value.
+ * Multiplies by -1 for expenses or bills.
+ *
+ * @param {string} amountStr - The amount string.
+ * @param {string} type - One of "revenue", "expense", or "bill".
+ * @returns {number} The numeric value.
+ */
+function formatAmount(amountStr, type) {
+  // Remove non-numeric characters (except . and -)
+  let num = parseFloat(amountStr.replace(/[^0-9.-]+/g, ''));
+  if (isNaN(num)) {
+    return 0;
+  }
+  if (type === 'expense' || type === 'bill') {
+    // Ensure expenses are negative
+    return -Math.abs(num);
+  }
+  // Revenue stays positive
+  return Math.abs(num);
+}
+
 async function saveUserProfile(userProfile) {
   try {
     const formattedNumber = userProfile.user_id.replace(/\D/g, ""); // Normalize to digits only
@@ -117,11 +139,16 @@ async function logRevenueEntry(userEmail, date, amount, source, category, paymen
   const sheetName = 'Revenue';
 
   try {
+
+    
       // Ensure the sheet exists, create if necessary
       await ensureSheetExists(sheets, spreadsheetId, sheetName);
+// Format the revenue entry
+      const numericAmount = formatAmount(amount, 'revenue');
+// If you want to store it formatted with a dollar sign:
+const formattedAmount = `$${numericAmount.toFixed(2)}`;
+const values = [[date, formattedAmount, source, category, paymentMethod, notes]];
 
-      // Format the revenue entry
-      const values = [[date, amount, source, category, paymentMethod, notes]];
       console.log("[DEBUG] Logging Revenue Entry:", { userEmail, date, amount, source, category, paymentMethod, notes });
 
       // Append the revenue entry
@@ -296,18 +323,24 @@ async function appendToUserSpreadsheet(phoneNumber, rowData) {
   try {
     const { spreadsheetId, userEmail } = await getOrCreateUserSpreadsheet(phoneNumber);
 
-if (!spreadsheetId) {
-  throw new Error(`[ERROR] No spreadsheet ID found for ${phoneNumber}`);
-}
-if (!userEmail) {
-  console.warn(`[⚠️ WARNING] No email found for ${phoneNumber}, spreadsheet will not be shared.`);
-}
+    if (!spreadsheetId) {
+      throw new Error(`[ERROR] No spreadsheet ID found for ${phoneNumber}`);
+    }
+    if (!userEmail) {
+      console.warn(`[⚠️ WARNING] No email found for ${phoneNumber}, spreadsheet will not be shared.`);
+    }
 
-console.log(`[DEBUG] Using Spreadsheet ID: ${spreadsheetId}`);
+    console.log(`[DEBUG] Using Spreadsheet ID: ${spreadsheetId}`);
 
     const auth = await getAuthorizedClient();
     const sheets = google.sheets({ version: 'v4', auth });
     const RANGE = 'Sheet1!A:E'; // Columns: Date, Item, Amount, Store, Job
+
+    // Convert the amount (assumed to be at index 2) for expenses/bills:
+    const numericAmount = formatAmount(rowData[2], 'expense'); // or 'bill' if applicable
+    const formattedAmount = `$${numericAmount.toFixed(2)}`;
+    rowData[2] = formattedAmount; // Replace the original value with the formatted one
+
     const resource = { values: [rowData] };
 
     await sheets.spreadsheets.values.append({
