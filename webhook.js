@@ -496,52 +496,53 @@ if (/^(start job|job start)\s+(.+)/i.test(body)) {
       ) {
     console.log("[DEBUG] Detected a revenue message:", body);
     const activeJob = (await getActiveJob(from)) || "Uncategorized";
-    let revenueData = parseRevenueMessage(body);
-    // If regex fails to extract required fields, fall back to GPT‑3.5
+    // Declare revenueData before using it.
+  let revenueData = parseRevenueMessage(body);
+
+  if (!revenueData || !revenueData.amount || !revenueData.source) {
+    console.log("[DEBUG] Regex parsing failed for revenue, using GPT-3.5 for fallback...");
+    try {
+      const gptResponse = await openai.chat.completions.create({
+        model: "gpt-3.5-turbo",
+        messages: [
+          {
+            role: "system",
+            content: "Extract structured revenue data from the following message. Return JSON with keys: date, amount, source."
+          },
+          {
+            role: "user",
+            content: `Message: "${body}"`
+          }
+        ],
+        max_tokens: 60,
+        temperature: 0.3
+      });
+      revenueData = JSON.parse(gptResponse.choices[0].message.content);
+      // Convert amount to string before trimming
+      revenueData.amount = revenueData.amount ? String(revenueData.amount).trim() : "";
+      revenueData.source = revenueData.source ? revenueData.source.trim() : "";
+      if (!revenueData.date) {
+        revenueData.date = new Date().toISOString().split("T")[0];
+      }
+      console.log("[DEBUG] GPT-3.5 Fallback Revenue Result:", revenueData);
+    } catch (error) {
+      console.error("[ERROR] GPT-3.5 revenue parsing failed:", error);
+    }
     if (!revenueData || !revenueData.amount || !revenueData.source) {
-      console.log("[DEBUG] Regex parsing failed for revenue, using GPT-3.5 for fallback...");
-      try {
-        const gptResponse = await openai.chat.completions.create({
-          model: "gpt-3.5-turbo",
-          messages: [
-            {
-              role: "system",
-              content: "Extract structured revenue data from the following message. Return JSON with keys: date, amount, source."
-            },
-            {
-              role: "user",
-              content: `Message: "${body}"`
-            }
-          ],
-          max_tokens: 60,
-          temperature: 0.3
-        });
-        revenueData = JSON.parse(gptResponse.choices[0].message.content);
-        // Trim whitespace and set a default date if missing
-        revenueData.amount = revenueData.amount ? String(revenueData.amount).trim() : "";
-        revenueData.source = revenueData.source ? revenueData.source.trim() : "";
-        if (!revenueData.date) {
-          revenueData.date = new Date().toISOString().split("T")[0];
-        }
-        console.log("[DEBUG] GPT-3.5 Fallback Revenue Result:", revenueData);
-      } catch (error) {
-        console.error("[ERROR] GPT-3.5 revenue parsing failed:", error);
-      }
-      if (!revenueData || !revenueData.amount || !revenueData.source) {
-        return res.send(`<Response><Message>⚠️ Could not understand your revenue message. Please provide more details.</Message></Response>`);
-      }
+      return res.send(`<Response><Message>⚠️ Could not understand your revenue message. Please provide more details.</Message></Response>`);
     }
-    console.log("[DEBUG] Revenue data ready:", revenueData);
-    // Store revenue data for pending confirmation
-    userOnboardingState[from] = { pendingRevenue: revenueData };
-    // Use the revenue confirmation quick reply template
-    await sendTemplateMessage(
-      from,
-      confirmationTemplates.revenue, // e.g., "HX9382ee3fb669bc5cf11423d137a25308"
-      { "1": `Please confirm: Revenue of ${revenueData.amount} from ${revenueData.source} on ${revenueData.date}` }
-    );
-    return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
-    }
+  }
+  console.log("[DEBUG] Revenue data ready:", revenueData);
+  // Store revenue data for pending confirmation
+  userOnboardingState[from] = { pendingRevenue: revenueData };
+  // Use the revenue confirmation quick reply template
+  await sendTemplateMessage(
+    from,
+    confirmationTemplates.revenue,
+    { "1": `Please confirm: Revenue of ${revenueData.amount} from ${revenueData.source} on ${revenueData.date}` }
+  );
+  return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+}
 // ─── Media Handling for Expense Logging (if media is attached) ─────────────────────────
 else if (mediaUrl) {
     console.log("[DEBUG] Checking media in message...");
