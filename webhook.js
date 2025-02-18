@@ -518,7 +518,7 @@ if (/^(start job|job start)\s+(.+)/i.test(body)) {
         });
         revenueData = JSON.parse(gptResponse.choices[0].message.content);
         // Trim whitespace and set a default date if missing
-        revenueData.amount = revenueData.amount ? revenueData.amount.trim() : "";
+        revenueData.amount = revenueData.amount ? String(revenueData.amount).trim() : "";
         revenueData.source = revenueData.source ? revenueData.source.trim() : "";
         if (!revenueData.date) {
           revenueData.date = new Date().toISOString().split("T")[0];
