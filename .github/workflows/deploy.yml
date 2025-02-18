@@ -1,0 +1,44 @@
+name: CI/CD Pipeline for Sherpa-AI
+
+on:
+  push:
+    branches:
+      - main  # Runs on production updates
+      - staging  # Runs on staging updates
+  pull_request:
+    branches:
+      - main
+      - staging
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Run Tests
+        run: npm test  # Add Jest/Mocha tests here
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Deploy to Staging
+        if: github.ref == 'refs/heads/staging'
+        run: |
+          vercel --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy to Production
+        if: github.ref == 'refs/heads/main'
+        run: |
+          vercel --prod --token=${{ secrets.VERCEL_TOKEN }}
