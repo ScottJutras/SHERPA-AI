@@ -20,6 +20,9 @@
   },
   "scripts": {
     "start": "node server.js",
-    "dev": "node webhook.js"
+    "dev": "node webhook.js",
+    "test": "echo \"No tests configured yet\" && exit 0"
   }
+  
+
 }
