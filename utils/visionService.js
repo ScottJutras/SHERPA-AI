@@ -71,21 +71,29 @@ async function extractTextFromImage(imageSource) {
         }
 
         const fields = data.document.entities;
-        const store = fields.find(f => f.type === "store_name")?.mentionText || "Unknown Store";
-        const date = fields.find(f => f.type === "date")?.mentionText || new Date().toISOString().split('T')[0];
-        const total = fields.find(f => f.type === "total_amount")?.mentionText || "Unknown Amount";
+        let store = fields.find(f => f.type === "store_name" || f.type === "merchant_name")?.mentionText || "Unknown Store";
+        let date = fields.find(f => f.type === "date")?.mentionText || new Date().toISOString().split('T')[0];
+        let total = fields.find(f => f.type === "total_amount")?.mentionText || "Unknown Amount";
+
+        // Fallback for store name recognition
+        if (store === "Unknown Store") {
+            const commonStores = ["Canadian Tire", "Loblaws", "Walmart"]; // Add more known stores here
+            store = commonStores.find(name => data.document.text.toLowerCase().includes(name.toLowerCase())) || store;
+        }
+
+        // Fallback for date recognition
+        if (date === new Date().toISOString().split('T')[0]) {
+            // Try to parse date from text if Document AI fails
+            const dateMatch = data.document.text.match(/\d{1,2}\/\d{1,2}\/\d{2,4}/);
+            if (dateMatch) date = dateMatch[0];
+        }
 
         console.log(`[DEBUG] Parsed Receipt - Store: ${store}, Date: ${date}, Amount: ${total}`);
         return { store, date, amount: total };
-
     } catch (error) {
-        // Log the complete error response if available.
-        if (error.response && error.response.data) {
-            console.error("[ERROR] Document AI Failed:", JSON.stringify(error.response.data, null, 2));
-        } else {
-            console.error("[ERROR] Document AI Failed:", error.message);
-        }
-        return null;
+        // Log error and return an error object or default values
+        console.error("[ERROR] Document AI Failed:", error.message);
+        return { store: "Unknown Store", date: new Date().toISOString().split('T')[0], amount: "Unknown Amount", error: "Failed to process document" };
     }
 }
 
