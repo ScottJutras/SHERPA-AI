@@ -373,105 +373,102 @@ if (/^(start job|job start)\s+(.+)/i.test(body)) {
   }
     
     // 1. Pending Confirmations (Expense, Revenue, or Bill)
-    if (
-      userOnboardingState[from]?.pendingExpense ||
-      userOnboardingState[from]?.pendingRevenue ||
-      userOnboardingState[from]?.pendingBill
-    ) {
-      const pendingData =
-        userOnboardingState[from].pendingExpense ||
-        userOnboardingState[from].pendingRevenue ||
-        userOnboardingState[from].pendingBill;
-      const type = userOnboardingState[from].pendingExpense
-        ? 'expense'
-        : userOnboardingState[from].pendingRevenue
-        ? 'revenue'
-        : 'bill';
-      const activeJob = await getActiveJob(from) || "Uncategorized";
-  
-      if (body.toLowerCase() === 'yes') {
-        if (type === 'bill') {
-          if (pendingData.action === 'edit') {
-            const updateSuccess = await updateBillInFirebase(from, pendingData);
-            reply = updateSuccess
-              ? `✏️ Bill "${pendingData.billName}" has been updated to ${pendingData.amount} due on ${pendingData.dueDate}.`
-              : `⚠️ Bill "${pendingData.billName}" was not found to update. Please check the name.`;
-          } else if (pendingData.action === 'delete') {
-            const deletionSuccess = await deleteBillFromFirebase(from, pendingData.billName);
-            reply = deletionSuccess
-              ? `🗑️ Bill "${pendingData.billName}" has been deleted.`
-              : `⚠️ Bill "${pendingData.billName}" not found for deletion.`;
-          } else {
-            await appendToUserSpreadsheet(from, [
-              pendingData.date,
-              pendingData.billName,
-              pendingData.amount,
-              'Recurring Bill',
-              activeJob,
-              'bill',
-              'recurring'
-            ]);
-            reply = `✅ Bill "${pendingData.billName}" has been added for ${pendingData.amount} due on ${pendingData.dueDate}.`;
-          }
-        } else if (type === 'revenue') {
-          try {
-            const success = await logRevenueEntry(
-                userProfile.email,
-                pendingData.date,
-                pendingData.amount,
-                pendingData.source,
-                "General Revenue",
-                "Unknown",
-                "Logged via WhatsApp",
-                userProfile.spreadsheetId
-            );            
-            reply = success
-              ? `✅ Revenue of ${pendingData.amount} from ${pendingData.source} logged successfully.`
-              : `⚠️ Failed to log revenue.`;
-          } catch (error) {
-            console.error("[ERROR] Error logging revenue:", error);
-            reply = "⚠️ Internal server error while logging revenue.";
-          }
-        } else {
-          await appendToUserSpreadsheet(from, [
-            pendingData.date,
-            pendingData.item || pendingData.source,
-            pendingData.amount,
-            pendingData.store || pendingData.source,
-            activeJob,
-            type
-          ]);
-          reply = `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} confirmed and logged: ${pendingData.item || pendingData.source || pendingData.billName} for ${pendingData.amount} on ${pendingData.date}`;
-        }
-      } else if (body.toLowerCase() === 'no' || body.toLowerCase() === 'edit') {
-        reply = "✏️ Okay, please resend the correct details.";
-        delete userOnboardingState[from].pendingExpense;
-        delete userOnboardingState[from].pendingRevenue;
-        delete userOnboardingState[from].pendingBill;
-      } else if (body.toLowerCase() === 'cancel') {
-        reply = "🚫 Entry canceled.";
-        delete userOnboardingState[from].pendingExpense;
-        delete userOnboardingState[from].pendingRevenue;
-        delete userOnboardingState[from].pendingBill;
+if (
+  userOnboardingState[from]?.pendingExpense ||
+  userOnboardingState[from]?.pendingRevenue ||
+  userOnboardingState[from]?.pendingBill
+) {
+  const pendingData =
+    userOnboardingState[from].pendingExpense ||
+    userOnboardingState[from].pendingRevenue ||
+    userOnboardingState[from].pendingBill;
+  const type = userOnboardingState[from].pendingExpense
+    ? 'expense'
+    : userOnboardingState[from].pendingRevenue
+    ? 'revenue'
+    : 'bill';
+  const activeJob = await getActiveJob(from) || "Uncategorized";
+
+  if (body.toLowerCase() === 'yes') {
+    if (type === 'bill') {
+      if (pendingData.action === 'edit') {
+        const updateSuccess = await updateBillInFirebase(from, pendingData);
+        reply = updateSuccess
+          ? `✏️ Bill "${pendingData.billName}" has been updated to ${pendingData.amount} due on ${pendingData.dueDate}.`
+          : `⚠️ Bill "${pendingData.billName}" was not found to update. Please check the name.`;
+      } else if (pendingData.action === 'delete') {
+        const deletionSuccess = await deleteBillFromFirebase(from, pendingData.billName);
+        reply = deletionSuccess
+          ? `🗑️ Bill "${pendingData.billName}" has been deleted.`
+          : `⚠️ Bill "${pendingData.billName}" not found for deletion.`;
       } else {
-        if (type === 'expense' || type === 'bill') {
-          await sendTemplateMessage(
-            from,
-            confirmationTemplates.expense,
-            { "1": `Please confirm: ${pendingData.amount} for ${pendingData.item || pendingData.source || pendingData.billName} on ${pendingData.date}` }
-          );
-        } else if (type === 'revenue') {
-          await sendTemplateMessage(
-            from,
-            confirmationTemplates.revenue,
-            { "1": `Please confirm: Revenue of ${pendingData.amount} from ${pendingData.source} on ${pendingData.date}` }
-          );
-        }
-        return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+        await appendToUserSpreadsheet(from, [
+          pendingData.date,
+          pendingData.billName,
+          pendingData.amount,
+          'Recurring Bill',
+          activeJob,
+          'bill',
+          'recurring'
+        ]);
+        reply = `✅ Bill "${pendingData.billName}" has been added for ${pendingData.amount} due on ${pendingData.dueDate}.`;
       }
-      return res.send(`<Response><Message>${reply}</Message></Response>`);
+    } else if (type === 'revenue') {
+      try {
+        const success = await logRevenueEntry(
+          userProfile.email,
+          pendingData.date,
+          pendingData.amount,
+          pendingData.source,
+          "General Revenue",
+          "Unknown",
+          "Logged via WhatsApp",
+          userProfile.spreadsheetId
+        );            
+        reply = success
+          ? `✅ Revenue of ${pendingData.amount} from ${pendingData.source} logged successfully.`
+          : `⚠️ Failed to log revenue.`;
+      } catch (error) {
+        console.error("[ERROR] Error logging revenue:", error);
+        reply = "⚠️ Internal server error while logging revenue.";
+      }
+    } else {
+      await appendToUserSpreadsheet(from, [
+        pendingData.date,
+        pendingData.item || pendingData.source,
+        pendingData.amount,
+        pendingData.store || pendingData.source,
+        activeJob,
+        type
+      ]);
+      reply = `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} confirmed and logged: ${pendingData.item || pendingData.source || pendingData.billName} for ${pendingData.amount} on ${pendingData.date}`;
     }
-  
+  } else if (body.toLowerCase() === 'no' || body.toLowerCase() === 'edit') {
+    reply = "✏️ Okay, please resend the correct details.";
+    delete userOnboardingState[from].pendingExpense;
+    delete userOnboardingState[from].pendingRevenue;
+    delete userOnboardingState[from].pendingBill;
+  } else if (body.toLowerCase() === 'cancel') {
+    reply = "🚫 Entry canceled.";
+    delete userOnboardingState[from].pendingExpense;
+    delete userOnboardingState[from].pendingRevenue;
+    delete userOnboardingState[from].pendingBill;
+  } else {
+    // If the response isn't a known confirmation, re-ask or inform the user
+    reply = "⚠️ Please respond with 'yes', 'no', 'edit', or 'cancel' to proceed.";
+    await sendTemplateMessage(
+      from,
+      type === 'expense' || type === 'bill' ? confirmationTemplates.expense : confirmationTemplates.revenue,
+      { "1": `Please confirm: ${type === 'expense' || type === 'bill' ? `${pendingData.amount} for ${pendingData.item || pendingData.source || pendingData.billName} on ${pendingData.date}` : `Revenue of ${pendingData.amount} from ${pendingData.source} on ${pendingData.date}`}` }
+    );
+    return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+  }
+  return res.send(`<Response><Message>${reply}</Message></Response>`);
+} else if (body.toLowerCase() === 'yes' || body.toLowerCase() === 'no' || body.toLowerCase() === 'cancel') {
+  // Handle case where there's no pending action but user responds with confirmation words
+  reply = "⚠️ No pending transactions to confirm. Please enter a new expense or revenue.";
+  return res.send(`<Response><Message>${reply}</Message></Response>`);
+}
     // 2. Revenue Logging Branch (for new revenue messages)
     else if (
         body.toLowerCase().includes("received") ||
