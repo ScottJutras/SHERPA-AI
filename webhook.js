@@ -575,11 +575,17 @@ else if (mediaUrl) {
     if (mediaType && mediaType.includes("image")) {
       let ocrText = "";
       try {
-        ocrText = await extractTextFromImage(mediaUrl);
-        console.log(`[DEBUG] OCR Text: "${ocrText}"`);
-      } catch (err) {
-        console.error("[ERROR] OCR extraction error:", err);
+        const ocrResult = await extractTextFromImage(mediaUrl);
+        if (ocrResult && typeof ocrResult === 'object') {
+          ocrText = ocrResult.text || JSON.stringify(ocrResult);
+      } else {
+          ocrText = ocrResult;
       }
+      console.log(`[DEBUG] OCR Text: "${ocrText}"`);
+  } catch (err) {
+      console.error("[ERROR] OCR extraction error:", err);
+      ocrText = "";
+  }
       // If OCR didn't return text, try Document AI fallback
       if (!ocrText || ocrText.trim() === "") {
         console.log("[DEBUG] OCR extraction returned empty, falling back to Document AI...");
