@@ -6,14 +6,46 @@ const allItemsList = [...materialsList, ...toolsList];
 
 function parseExpenseMessage(message) {
   console.log(`[DEBUG] Parsing expense message: "${message}"`);
+  let expenseData;
 
-  // Enhanced amount extraction: supports "$484", "484 dollars", "spent 484", "483 on"
+  // Attempt to parse JSON if the message looks like JSON
+  try {
+    expenseData = JSON.parse(message);
+    // If JSON parsing was successful, we directly use this data but add or adjust fields if necessary
+    expenseData.amount = expenseData.amount ? `$${parseFloat(expenseData.amount).toFixed(2)}` : null;
+    expenseData.date = expenseData.date || new Date().toISOString().split('T')[0];
+    expenseData.item = expenseData.item || "Miscellaneous Purchase";
+    expenseData.store = expenseData.store || "Unknown Store";
+
+    // If JSON data doesn't contain all necessary fields, log and adjust
+    if (!expenseData.amount) console.log("[DEBUG] Amount not detected from JSON.");
+    if (!expenseData.store || expenseData.store === "Unknown Store") console.log("[DEBUG] Store not detected from JSON.");
+    if (!expenseData.item || expenseData.item === "Miscellaneous Purchase") console.log("[DEBUG] Item not detected from JSON.");
+
+    // Suggested Category for Dynamic Quick Replies
+    let suggestedCategory = "General";
+    if (expenseData.store.toLowerCase().includes("home depot") || expenseData.store.toLowerCase().includes("rona")) {
+      suggestedCategory = "Construction Materials";
+    } else if (expenseData.store.toLowerCase().includes("best buy")) {
+      suggestedCategory = "Electronics";
+    } else if (expenseData.store.toLowerCase().includes("ikea")) {
+      suggestedCategory = "Furniture";
+    }
+
+    expenseData.suggestedCategory = suggestedCategory;
+    console.log(`[DEBUG] Parsed JSON Expense Data: item="${expenseData.item}", amount="${expenseData.amount}", store="${expenseData.store}", date="${expenseData.date}", category="${expenseData.suggestedCategory}"`);
+    return expenseData;
+  } catch (error) {
+    // JSON parsing failed, so we'll use the existing regex-based parsing
+    console.log("[DEBUG] JSON parsing failed, using regex parsing...");
+  }
+
+  // Traditional text parsing logic if JSON parsing fails
   const amountMatch = message.match(/(?:\$|for\s?|spent\s?|spend\s?|on\s?)\s?([\d,]+(?:\.\d{1,2})?)/i);
   const amount = amountMatch
     ? `$${parseFloat(amountMatch[1].replace(/,/g, '')).toFixed(2)}`
     : null;
 
-  // Store name extraction: combines regex and predefined store list
   let storeMatch = message.match(/(?:at|from)\s+([\w\s&'’-]+?)(?=\s*(?:today|yesterday|on|$|\n|\.))|(?:at|from)\s+([\w\s&'’-]+?)(?:\s|$|\.)/i);
   let store = storeMatch ? (storeMatch[1] || storeMatch[2]).trim() : null;
 
@@ -25,20 +57,17 @@ function parseExpenseMessage(message) {
     store = foundStore ? foundStore : "Unknown Store";
   }
 
-  // Date extraction using chrono-node
   const parsedDate = chrono.parseDate(message);
   const date = parsedDate
     ? parsedDate.toISOString().split('T')[0]
     : new Date().toISOString().split('T')[0];
 
-  // Improved item extraction: captures items after "on", "worth of", or common verbs
   let item = null;
   const patterns = [
     /(?:bought|purchased|got|spent on|spend on|paid for|on)\s+(?:\d+\s*(?:dollars)?\s*)?(?:worth of\s+)?([\w\d\s-]+?)(?=\s(?:at|from|\$|\d|today|yesterday|on|for|\.|$))/i,
     /(?:just got|picked up|ordered)\s+([\w\d\s-]+?)(?=\s(?:for|at|from|\$|\d|today|yesterday|on|\.|$))/i,
     /([\d]+x[\d]+(?:\s\w+)?)/i
   ];
-  
 
   for (const pattern of patterns) {
     const match = message.match(pattern);
@@ -87,7 +116,7 @@ function parseExpenseMessage(message) {
     suggestedCategory = "Furniture";
   }
 
-  console.log(`[DEBUG] Parsed Expense Data: item="${item}", amount="${amount}", store="${store}", date="${date}", category="${suggestedCategory}"`);
+  console.log(`[DEBUG] Parsed Text Expense Data: item="${item}", amount="${amount}", store="${store}", date="${date}", category="${suggestedCategory}"`);
 
   return { item, amount, store, date, suggestedCategory };
 }

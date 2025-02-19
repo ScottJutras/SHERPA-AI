@@ -545,109 +545,120 @@ if (/^(start job|job start)\s+(.+)/i.test(body)) {
 }
 // ─── Media Handling for Expense Logging (if media is attached) ─────────────────────────
 else if (mediaUrl) {
-    console.log("[DEBUG] Checking media in message...");
-    let combinedText = "";
-    
-    // Audio: Transcribe voice recordings
-    if (mediaType && mediaType.includes("audio")) {
-      try {
-        const audioResponse = await axios.get(mediaUrl, {
-          responseType: 'arraybuffer',
-          auth: {
-            username: process.env.TWILIO_ACCOUNT_SID,
-            password: process.env.TWILIO_AUTH_TOKEN
-          }
-        });
-        const audioBuffer = Buffer.from(audioResponse.data, 'binary');
-        const transcription = await transcribeAudio(audioBuffer);
-        if (transcription) {
-          combinedText += transcription + " ";
-          console.log(`[DEBUG] Voice Transcription: "${transcription}"`);
-        } else {
-          console.log("[DEBUG] No transcription returned from audio.");
+  console.log("[DEBUG] Checking media in message...");
+  let combinedText = "";
+  
+  // Audio: Transcribe voice recordings
+  if (mediaType && mediaType.includes("audio")) {
+    try {
+      const audioResponse = await axios.get(mediaUrl, {
+        responseType: 'arraybuffer',
+        auth: {
+          username: process.env.TWILIO_ACCOUNT_SID,
+          password: process.env.TWILIO_AUTH_TOKEN
         }
-      } catch (error) {
-        console.error("[ERROR] Failed to process audio:", error);
-      }
-    }
-    
-    // Image: First try OCR; if that fails, fall back to Document AI
-    if (mediaType && mediaType.includes("image")) {
-      let ocrText = "";
-      try {
-        const ocrResult = await extractTextFromImage(mediaUrl);
-        if (ocrResult && typeof ocrResult === 'object') {
-          ocrText = ocrResult.text || JSON.stringify(ocrResult);
+      });
+      const audioBuffer = Buffer.from(audioResponse.data, 'binary');
+      const transcription = await transcribeAudio(audioBuffer);
+      if (transcription) {
+        combinedText += transcription + " ";
+        console.log(`[DEBUG] Voice Transcription: "${transcription}"`);
       } else {
-          ocrText = ocrResult;
+        console.log("[DEBUG] No transcription returned from audio.");
       }
-      console.log(`[DEBUG] OCR Text: "${ocrText}"`);
-  } catch (err) {
-      console.error("[ERROR] OCR extraction error:", err);
-      ocrText = "";
-  }
-      // If OCR didn't return text, try Document AI fallback
-      if (!ocrText || ocrText.trim() === "") {
-        console.log("[DEBUG] OCR extraction returned empty, falling back to Document AI...");
-        try {
-          // Make sure you have implemented extractTextFromDocumentAI appropriately.
-          const documentAIText = await extractTextFromDocumentAI(mediaUrl);
-          ocrText = documentAIText;
-          console.log(`[DEBUG] Document AI extracted text: "${documentAIText}"`);
-        } catch (error) {
-          console.error("[ERROR] Document AI extraction failed:", error);
-        }
-      }
-      combinedText += ocrText + " ";
+    } catch (error) {
+      console.error("[ERROR] Failed to process audio:", error);
     }
-    
-    // If we have any combined text from media, try parsing expense data
-    if (combinedText) {
-      let expenseData = parseExpenseMessage(combinedText);
-      // If regex parsing fails or returns incomplete data, fall back to GPT‑3.5
-      if (!expenseData || !expenseData.item || !expenseData.amount || !expenseData.store) {
-        console.log("[DEBUG] Regex parsing failed for expense from media, using GPT-3.5 for fallback...");
-        try {
-          const gptResponse = await openai.chat.completions.create({
-            model: "gpt-3.5-turbo",
-            messages: [
-              {
-                role: "system",
-                content: "Extract structured expense data from the following text. Return JSON with keys: date, item, amount, store."
-              },
-              {
-                role: "user",
-                content: `Text: "${combinedText.trim()}"`
-              }
-            ],
-            max_tokens: 60,
-            temperature: 0.3
-          });
-          expenseData = JSON.parse(gptResponse.choices[0].message.content);
-          if (!expenseData.date) {
-            expenseData.date = new Date().toISOString().split("T")[0];
-          }
-          console.log("[DEBUG] GPT-3.5 Fallback Expense Result:", expenseData);
-        } catch (error) {
-          console.error("[ERROR] GPT-3.5 expense parsing failed:", error);
-        }
-      }
-      if (expenseData && expenseData.item && expenseData.amount && expenseData.store) {
+  }
+  
+  // Image: First try OCR; if that fails, fall back to Document AI
+  if (mediaType && mediaType.includes("image")) {
+    let ocrResult = {};
+    try {
+      ocrResult = await extractTextFromImage(mediaUrl);
+      console.log(`[DEBUG] OCR Result: ${JSON.stringify(ocrResult)}`);
+
+      // If OCR result is JSON, directly use it; otherwise, continue with fallback
+      if (ocrResult && typeof ocrResult === 'object') {
+        let expenseData = {
+          store: ocrResult.store || "Unknown Store",
+          date: ocrResult.date || new Date().toISOString().split('T')[0],
+          amount: ocrResult.amount || "Unknown Amount",
+          item: ocrResult.item || "Miscellaneous Purchase" // Default item if not found
+        };
+
         userOnboardingState[from] = { pendingExpense: expenseData };
         await sendTemplateMessage(
           from,
-          confirmationTemplates.expense, // e.g., "HX00a562789f55a45fcbd13dc67f8249b6"
+          confirmationTemplates.expense,
           { "1": `Please confirm: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?` }
         );
         return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
       } else {
-        return res.send(`<Response><Message>⚠️ I couldn't parse the expense details from the media. Please try again.</Message></Response>`);
+        console.error("[ERROR] OCR did not return expected JSON data.");
+        throw new Error("OCR data format is incorrect.");
       }
-    } else {
-      return res.send(`<Response><Message>⚠️ No media detected or unable to extract information. Please resend.</Message></Response>`);
+    } catch (err) {
+      console.error("[ERROR] OCR extraction error:", err);
+      
+      // Fallback to Document AI if OCR fails or returns unexpected format
+      try {
+        const documentAIText = await extractTextFromDocumentAI(mediaUrl);
+        combinedText = documentAIText;
+        console.log(`[DEBUG] Document AI extracted text: "${documentAIText}"`);
+      } catch (error) {
+        console.error("[ERROR] Document AI extraction failed:", error);
+        return res.send(`<Response><Message>⚠️ Could not extract data from image. Please try again.</Message></Response>`);
+      }
     }
   }
-    // 4. Expense Logging for Text Messages
+  
+  // If we have any combined text from media, try parsing expense data
+  if (combinedText) {
+    let expenseData = parseExpenseMessage(combinedText);
+    // If regex parsing fails or returns incomplete data, fall back to GPT‑3.5
+    if (!expenseData || !expenseData.item || !expenseData.amount || !expenseData.store) {
+      console.log("[DEBUG] Regex parsing failed for expense from media, using GPT-3.5 for fallback...");
+      try {
+        const gptResponse = await openai.chat.completions.create({
+          model: "gpt-3.5-turbo",
+          messages: [
+            {
+              role: "system",
+              content: "Extract structured expense data from the following text. Return JSON with keys: date, item, amount, store."
+            },
+            {
+              role: "user",
+              content: `Text: "${combinedText.trim()}"`
+            }
+          ],
+          max_tokens: 60,
+          temperature: 0.3
+        });
+        expenseData = JSON.parse(gptResponse.choices[0].message.content);
+        if (!expenseData.date) {
+          expenseData.date = new Date().toISOString().split("T")[0];
+        }
+        console.log("[DEBUG] GPT-3.5 Fallback Expense Result:", expenseData);
+      } catch (error) {
+        console.error("[ERROR] GPT-3.5 expense parsing failed:", error);
+      }
+    }
+    if (expenseData && expenseData.item && expenseData.amount && expenseData.store) {
+      userOnboardingState[from] = { pendingExpense: expenseData };
+      await sendTemplateMessage(
+        from,
+        confirmationTemplates.expense,
+        { "1": `Please confirm: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?` }
+      );
+      return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+    } else {
+      return res.send(`<Response><Message>⚠️ I couldn't parse the expense details from the media. Please try again.</Message></Response>`);
+    }
+  } else {
+    return res.send(`<Response><Message>⚠️ No media detected or unable to extract information. Please resend.</Message></Response>`);
+  }
+}    // 4. Expense Logging for Text Messages
 else if (body) {
     const activeJob = (await getActiveJob(from)) || "Uncategorized";
     let expenseData = parseExpenseMessage(body);
