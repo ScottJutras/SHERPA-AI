@@ -334,12 +334,19 @@ async function appendToUserSpreadsheet(phoneNumber, rowData) {
 
     const auth = await getAuthorizedClient();
     const sheets = google.sheets({ version: 'v4', auth });
-    const RANGE = 'Sheet1!A:E'; // Columns: Date, Item, Amount, Store, Job
+    
+    // Adjust the range to include the new category column
+    const RANGE = 'Sheet1!A:G'; // Columns: Date, Item, Amount, Store, Job, Type, Category
 
     // Convert the amount (assumed to be at index 2) for expenses/bills:
     const numericAmount = formatAmount(rowData[2], 'expense'); // or 'bill' if applicable
     const formattedAmount = `$${numericAmount.toFixed(2)}`;
     rowData[2] = formattedAmount; // Replace the original value with the formatted one
+
+    // Ensure rowData has at least 7 elements for all columns, including the new category
+    while (rowData.length < 7) {
+      rowData.push(""); // Add empty string for missing columns
+    }
 
     const resource = { values: [rowData] };
 
@@ -356,7 +363,6 @@ async function appendToUserSpreadsheet(phoneNumber, rowData) {
     throw error;
   }
 }
-
 /**
  * Fetch expense data from the user's spreadsheet, filtered by job name.
  *

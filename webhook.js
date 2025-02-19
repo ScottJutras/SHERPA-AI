@@ -433,15 +433,17 @@ if (
         reply = "⚠️ Internal server error while logging revenue.";
       }
     } else {
+      // Include the category for expenses
       await appendToUserSpreadsheet(from, [
         pendingData.date,
         pendingData.item || pendingData.source,
         pendingData.amount,
         pendingData.store || pendingData.source,
         activeJob,
-        type
+        type,
+        pendingData.suggestedCategory || "General" // Fallback to "General" if no category is specified
       ]);
-      reply = `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} confirmed and logged: ${pendingData.item || pendingData.source || pendingData.billName} for ${pendingData.amount} on ${pendingData.date}`;
+      reply = `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} confirmed and logged: ${pendingData.item || pendingData.source || pendingData.billName} for ${pendingData.amount} on ${pendingData.date} under ${pendingData.suggestedCategory || "General"}`;
     }
   } else if (body.toLowerCase() === 'no' || body.toLowerCase() === 'edit') {
     reply = "✏️ Okay, please resend the correct details.";
