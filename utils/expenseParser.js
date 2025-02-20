@@ -144,10 +144,8 @@ function parseExpenseMessage(message) {
   return { item, amount, store, date, suggestedCategory };
 }
 
-// ─── Revenue Parsing Function ───
 function parseRevenueMessage(message) {
   console.log(`[DEBUG] Parsing revenue message: "${message}"`);
-
   const revenuePattern = /received\s*(\$?\d+(?:\.\d{2})?)\s*from\s*(.+)/i;
   const match = message.match(revenuePattern);
 
