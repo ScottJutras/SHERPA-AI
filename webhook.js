@@ -570,29 +570,37 @@ else if (mediaUrl) {
     }
   }
   
-  // Image: First try OCR; if that fails, fall back to Document AI
+  // Image: Process with Document AI and parse with parseExpenseMessage
   if (mediaType && mediaType.includes("image")) {
-    let ocrResult = {};
     try {
-      ocrResult = await extractTextFromImage(mediaUrl);
+      const ocrResult = await extractTextFromImage(mediaUrl);
       console.log(`[DEBUG] OCR Result: ${JSON.stringify(ocrResult)}`);
 
-      // If OCR result is JSON, directly use it; otherwise, continue with fallback
+      // If OCR result is JSON, enhance it with full text parsing
       if (ocrResult && typeof ocrResult === 'object') {
-        let expenseData = {
-          store: ocrResult.store || "Unknown Store",
-          date: ocrResult.date || new Date().toISOString().split('T')[0],
-          amount: ocrResult.amount || "Unknown Amount",
-          item: ocrResult.item || "Miscellaneous Purchase" // Default item if not found
-        };
+        // Add the full text to the OCR result for item extraction
+        const fullOcrText = JSON.stringify({ ...ocrResult, text: ocrResult.text || "" });
+        let expenseData = parseExpenseMessage(fullOcrText);
 
-        userOnboardingState[from] = { pendingExpense: expenseData };
-        await sendTemplateMessage(
-          from,
-          confirmationTemplates.expense,
-          { "1": `Please confirm: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?` }
-        );
-        return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+        if (expenseData) {
+          // Ensure all fields are populated
+          expenseData.store = expenseData.store || ocrResult.store || "Unknown Store";
+          expenseData.date = expenseData.date || ocrResult.date || new Date().toISOString().split('T')[0];
+          expenseData.amount = expenseData.amount || ocrResult.amount || "Unknown Amount";
+          expenseData.item = expenseData.item || "Miscellaneous Purchase";
+          expenseData.suggestedCategory = expenseData.suggestedCategory || "General";
+
+          userOnboardingState[from] = { pendingExpense: expenseData };
+          await sendTemplateMessage(
+            from,
+            confirmationTemplates.expense,
+            { "1": `Please confirm: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?` }
+          );
+          return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+        } else {
+          console.error("[ERROR] Failed to parse expense data from OCR result.");
+          return res.send(`<Response><Message>⚠️ Could not parse expense details from the image. Please try again.</Message></Response>`);
+        }
       } else {
         console.error("[ERROR] OCR did not return expected JSON data.");
         throw new Error("OCR data format is incorrect.");
@@ -615,7 +623,6 @@ else if (mediaUrl) {
   // If we have any combined text from media, try parsing expense data
   if (combinedText) {
     let expenseData = parseExpenseMessage(combinedText);
-    // If regex parsing fails or returns incomplete data, fall back to GPT‑3.5
     if (!expenseData || !expenseData.item || !expenseData.amount || !expenseData.store) {
       console.log("[DEBUG] Regex parsing failed for expense from media, using GPT-3.5 for fallback...");
       try {
@@ -657,6 +664,7 @@ else if (mediaUrl) {
   } else {
     return res.send(`<Response><Message>⚠️ No media detected or unable to extract information. Please resend.</Message></Response>`);
   }
+
 }    // 4. Expense Logging for Text Messages
 else if (body) {
     const activeJob = (await getActiveJob(from)) || "Uncategorized";

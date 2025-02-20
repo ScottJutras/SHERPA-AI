@@ -11,20 +11,19 @@ function parseExpenseMessage(message) {
   // Attempt to parse JSON if the message looks like JSON (e.g., from OCR)
   try {
     expenseData = JSON.parse(message);
-    // If JSON parsing was successful, use this data but add or adjust fields if necessary
+    // Ensure all required fields are present and formatted
     expenseData.amount = expenseData.amount ? `$${parseFloat(expenseData.amount).toFixed(2)}` : null;
     expenseData.date = expenseData.date || new Date().toISOString().split('T')[0];
-    expenseData.item = expenseData.item || null; // Allow null initially to try further extraction
+    expenseData.item = expenseData.item || null; // Allow null initially for further extraction
     expenseData.store = expenseData.store || "Unknown Store";
 
-    // If item is missing, try to extract from the full OCR text if available
+    // Extract item from OCR text if not provided
     if (!expenseData.item && expenseData.text) {
       const patterns = [
-        /(?:bought|purchased|got|spent on|spend on|paid for|on)\s+(?:\d+\s*(?:dollars)?\s*)?(?:worth of\s+)?([\w\d\s-]+?)(?=\s(?:at|from|\$|\d|today|yesterday|on|for|\.|$))/i,
-        /(?:just got|picked up|ordered)\s+([\w\d\s-]+?)(?=\s(?:for|at|from|\$|\d|today|yesterday|on|\.|$))/i,
-        /([\d]+x[\d]+(?:\s\w+)?)/i,
-        /(\d+\.\d+"\s*\w+)/i, // e.g., "4.5\" WOO" from receipt
-        /(\w+\s*\d+\s*\w+)/i  // e.g., "MC 4.5\" 24T"
+        /(?:bought|purchased|got|spent on|spend on|paid for|on)?\s*([\w\d\s"-]+?)(?=\s*(?:\$|\d+\.\d{2}|\n|$))/i, // Broad match before amount or end
+        /(\d+\.\d+"\s*\w+)/i, // e.g., "4.5\" WOO"
+        /(\w+\s*\d+\s*\w+)/i, // e.g., "MC 4.5\" 24T"
+        /([\d]+x[\d]+(?:\s\w+)?)/i // e.g., "2x4 lumber"
       ];
 
       for (const pattern of patterns) {
@@ -42,6 +41,8 @@ function parseExpenseMessage(message) {
         );
         expenseData.item = foundItem || "Miscellaneous Purchase";
       }
+    } else if (!expenseData.item) {
+      expenseData.item = "Miscellaneous Purchase";
     }
 
     // Suggested Category based on store
@@ -65,8 +66,7 @@ function parseExpenseMessage(message) {
       return expenseData;
     }
   } catch (error) {
-    // JSON parsing failed, so we'll use the existing regex-based parsing
-    console.log("[DEBUG] JSON parsing failed, using regex parsing...");
+    console.log("[DEBUG] JSON parsing failed, using regex parsing:", error.message);
   }
 
   // Traditional text parsing logic if JSON parsing fails or lacks sufficient data
@@ -92,11 +92,10 @@ function parseExpenseMessage(message) {
 
   let item = null;
   const patterns = [
-    /(?:bought|purchased|got|spent on|spend on|paid for|on)\s+(?:\d+\s*(?:dollars)?\s*)?(?:worth of\s+)?([\w\d\s-]+?)(?=\s(?:at|from|\$|\d|today|yesterday|on|for|\.|$))/i,
-    /(?:just got|picked up|ordered)\s+([\w\d\s-]+?)(?=\s(?:for|at|from|\$|\d|today|yesterday|on|\.|$))/i,
-    /([\d]+x[\d]+(?:\s\w+)?)/i,
-    /(\d+\.\d+"\s*\w+)/i, // e.g., "4.5\" WOO"
-    /(\w+\s*\d+\s*\w+)/i  // e.g., "MC 4.5\" 24T"
+    /(?:bought|purchased|got|spent on|spend on|paid for|on)?\s*([\w\d\s"-]+?)(?=\s*(?:\$|\d+\.\d{2}|\n|$))/i,
+    /(\d+\.\d+"\s*\w+)/i,
+    /(\w+\s*\d+\s*\w+)/i,
+    /([\d]+x[\d]+(?:\s\w+)?)/i
   ];
 
   for (const pattern of patterns) {
@@ -134,7 +133,7 @@ function parseExpenseMessage(message) {
   } else if (store.toLowerCase().includes("best buy")) {
     suggestedCategory = "Electronics";
   } else if (store.toLowerCase().includes("canadian tire")) {
-    suggestedCategory = "General Merchandise"; // Or "Tools and Hardware"
+    suggestedCategory = "General Merchandise";
   } else if (store.toLowerCase().includes("ikea")) {
     suggestedCategory = "Furniture";
   }
