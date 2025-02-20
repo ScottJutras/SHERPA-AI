@@ -8,7 +8,7 @@ function parseExpenseMessage(message) {
     console.log(`[DEBUG] Parsing expense message: "${message}"`);
     let expenseData;
 
-    // Attempt to parse JSON (e.g., from OCR)
+    // Attempt to parse JSON (e.g., from OCR) - not used for voice but kept for compatibility
     try {
         expenseData = JSON.parse(message);
         expenseData.amount = expenseData.amount ? `$${parseFloat(expenseData.amount).toFixed(2)}` : null;
@@ -20,8 +20,8 @@ function parseExpenseMessage(message) {
             const patterns = [
                 /(?:bought|purchased|got|spent on|spend on|paid for|on)?\s*([\w\d\s"-]+?)\s*(?:\$|\d+\.\d{2})/i,
                 /([\d]+x[\d]+(?:\s\w+)?)/i,
-                /(\d+\.\d+"\s*\w+)/i, // e.g., "4.5\" WOO"
-                /(\w+\s*\d+\s*\w+)/i  // e.g., "MC 4.5\" 24T"
+                /(\d+\.\d+"\s*\w+)/i,
+                /(\w+\s*\d+\s*\w+)/i
             ];
 
             for (const pattern of patterns) {
@@ -43,7 +43,9 @@ function parseExpenseMessage(message) {
         }
 
         let suggestedCategory = "General";
-        if (expenseData.store.toLowerCase().includes("home depot") || expenseData.store.toLowerCase().includes("rona")) {
+        if (expenseData.store.toLowerCase().includes("home depot") || 
+            expenseData.store.toLowerCase().includes("rona") || 
+            expenseData.store.toLowerCase().includes("roofmart")) {
             suggestedCategory = "Construction Materials";
         } else if (expenseData.store.toLowerCase().includes("best buy")) {
             suggestedCategory = "Electronics";
@@ -62,8 +64,8 @@ function parseExpenseMessage(message) {
         console.log("[DEBUG] JSON parsing failed, using regex parsing:", error.message);
     }
 
-    // Enhanced amount extraction: supports "$484", "484 dollars", "spent 484", "483 on"
-    const amountMatch = message.match(/(?:\$|for\s?|spent\s?|spend\s?|on\s?)\s?([\d,]+(?:\.\d{1,2})?)/i);
+    // Enhanced amount extraction: supports "$432", "432 dollars", "spent 432", "432 on", "432 worth of"
+    const amountMatch = message.match(/(?:\$|for\s?|spent\s?|spend\s?|on\s?|worth\s*(?:of\s*)?)\s?([\d,]+(?:\.\d{1,2})?)/i);
     const amount = amountMatch
         ? `$${parseFloat(amountMatch[1].replace(/,/g, '')).toFixed(2)}`
         : null;
@@ -72,7 +74,6 @@ function parseExpenseMessage(message) {
     let storeMatch = message.match(/(?:at|from)\s+([\w\s&'’-]+?)(?=\s*(?:today|yesterday|on|$|\n|\.))|(?:at|from)\s+([\w\s&'’-]+?)(?:\s|$|\.)/i);
     let store = storeMatch ? (storeMatch[1] || storeMatch[2]).trim() : null;
 
-    // Check against predefined store list if regex fails
     if (!store || store === "Unknown Store") {
         const foundStore = storeList.find(storeName => 
             message.toLowerCase().includes(storeName.toLowerCase())
@@ -80,20 +81,27 @@ function parseExpenseMessage(message) {
         store = foundStore ? foundStore : "Unknown Store";
     }
 
-    // Date extraction using chrono-node
+    // Enhanced date extraction with chrono-node
     const parsedDate = chrono.parseDate(message);
-    const date = parsedDate
+    let date = parsedDate
         ? parsedDate.toISOString().split('T')[0]
         : new Date().toISOString().split('T')[0];
 
-    // Improved item extraction: captures items after "on", "worth of", or common verbs
+    // If "yesterday" is detected but not parsed by chrono, adjust manually
+    if (message.toLowerCase().includes("yesterday") && !parsedDate) {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        date = yesterday.toISOString().split('T')[0];
+    }
+
+    // Improved item extraction
     let item = null;
     const patterns = [
-        /(?:bought|purchased|got|spent on|spend on|paid for|on)\s+(?:\d+\s*(?:dollars)?\s*)?(?:worth of\s+)?([\w\d\s-]+?)(?=\s(?:at|from|\$|\d|today|yesterday|on|for|\.|$))/i,
+        /(?:bought|purchased|got|spent on|spend on|paid for|on)\s+(?:\d+\s*(?:dollars)?\s*)?(?:worth\s*(?:of\s*)?)?([\w\d\s-]+?)(?=\s(?:at|from|\$|\d|today|yesterday|on|for|\.|$))/i,
         /(?:just got|picked up|ordered)\s+([\w\d\s-]+?)(?=\s(?:for|at|from|\$|\d|today|yesterday|on|\.|$))/i,
         /([\d]+x[\d]+(?:\s\w+)?)/i,
-        /(\d+\.\d+"\s*\w+)/i, // Added for "4.5\" WOO"
-        /(\w+\s*\d+\s*\w+)/i  // Added for "MC 4.5\" 24T"
+        /(\d+\.\d+"\s*\w+)/i,
+        /(\w+\s*\d+\s*\w+)/i
     ];
 
     for (const pattern of patterns) {
@@ -104,7 +112,6 @@ function parseExpenseMessage(message) {
         }
     }
 
-    // Fallback: Use materials/tools lists if regex patterns didn't capture a specific item
     if (!item || item === "Miscellaneous Purchase") {
         const foundItem = allItemsList.find(listItem => 
             message.toLowerCase().includes(listItem.toLowerCase())
@@ -112,26 +119,25 @@ function parseExpenseMessage(message) {
         item = foundItem ? foundItem : "Miscellaneous Purchase";
     }
 
-    // Final cleaning: remove redundant store mentions from item
     if (store !== "Unknown Store") {
         const regex = new RegExp(`\\bat\\s*${store}\\b`, 'gi');
         item = item.replace(regex, '').trim();
     }
 
-    // Error Handling: Log missing fields for debugging
     if (!amount) console.log("[DEBUG] Amount not detected.");
     if (!store || store === "Unknown Store") console.log("[DEBUG] Store not detected.");
     if (!item || item === "Miscellaneous Purchase") console.log("[DEBUG] Item not detected.");
 
-    // Ensure all required fields exist
     if (!amount || !store || !item) {
         console.log("[DEBUG] Missing essential data, returning null.");
         return null;
     }
 
-    // Suggested Category for Dynamic Quick Replies
+    // Enhanced category logic
     let suggestedCategory = "General";
-    if (store.toLowerCase().includes("home depot") || store.toLowerCase().includes("rona")) {
+    if (store.toLowerCase().includes("home depot") || 
+        store.toLowerCase().includes("rona") || 
+        store.toLowerCase().includes("roofmart")) {
         suggestedCategory = "Construction Materials";
     } else if (store.toLowerCase().includes("best buy")) {
         suggestedCategory = "Electronics";
@@ -139,6 +145,11 @@ function parseExpenseMessage(message) {
         suggestedCategory = "General Merchandise";
     } else if (store.toLowerCase().includes("ikea")) {
         suggestedCategory = "Furniture";
+    // Additional check for construction-related items
+    } else if (item.toLowerCase().includes("shingles") || 
+               item.toLowerCase().includes("lumber") || 
+               item.toLowerCase().includes("cement")) {
+        suggestedCategory = "Construction Materials";
     }
 
     console.log(`[DEBUG] Parsed Expense Data: item="${item}", amount="${amount}", store="${store}", date="${date}", category="${suggestedCategory}"`);
