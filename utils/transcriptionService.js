@@ -68,12 +68,17 @@ function getSpeechConfig(encoding, sampleRate) {
         enableAutomaticPunctuation: true,
         enableWordTimeOffsets: true,
         speechContexts: [{
-            phrases: ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
-                      'hundred', 'thousand', 'dollars', 'bucks', 'ninety', 'sixty', 'fifty', 'twenty'],
-            boost: 10
+            phrases: [
+                'Roofmart', 'Home Depot', 'Lowe\'s', 'Rona', 'Menards', 
+                'Canadian Tire', 'Ace Hardware', 'Sherwin-Williams', 'Benjamin Moore',
+                'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+                'hundred', 'thousand', 'dollars', 'bucks', 'ninety', 'sixty', 'fifty', 'twenty'
+            ],
+            boost: 15 // Increase recognition priority for these words
         }]
     };
 }
+
 
 function processTranscription(response) {
     if (!response.results || response.results.length === 0) return null;
@@ -117,22 +122,23 @@ async function convertOggToFlac(audioBuffer) {
     });
 }
 
-async function inferMissingAmount(text) {
+async function inferMissingData(text) {
     try {
-        console.log("[DEBUG] Using GPT to infer missing amount...");
+        console.log("[DEBUG] Using GPT to infer missing data (amount & store name)...");
         const response = await openaiClient.chat.completions.create({
             model: "gpt-3.5-turbo",
             messages: [
-                { role: "system", content: "Extract numbers from this transcribed text. If a price is missing, predict a reasonable amount." },
-                { role: "user", content: `Transcription: \"${text}\"` }
+                { role: "system", content: "Extract numbers and store names from this transcribed text. If a store name is incorrect, correct it based on common construction-related stores." },
+                { role: "user", content: `Transcription: "${text}"` }
             ],
-            max_tokens: 10
+            max_tokens: 20
         });
-        return response.choices[0].message.content.trim();
+        return JSON.parse(response.choices[0].message.content.trim());
     } catch (error) {
-        console.error("[ERROR] GPT-3.5 failed to infer amount:", error.message);
+        console.error("[ERROR] GPT-3.5 failed to infer data:", error.message);
         return null;
     }
 }
+
 
 module.exports = { transcribeAudio, inferMissingAmount };
