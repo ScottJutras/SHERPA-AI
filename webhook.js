@@ -283,7 +283,7 @@ app.post('/webhook', async (req, res) => {
             // Check for pending transactions in Firestore
             const pendingState = await getPendingTransactionState(from);
 
-           // 1. Pending Confirmations (Expense, Revenue, or Bill)
+ // 1. Pending Confirmations (Expense, Revenue, or Bill)
 if (pendingState && (pendingState.pendingExpense || pendingState.pendingRevenue || pendingState.pendingBill)) {
   const pendingData = pendingState.pendingExpense || pendingState.pendingRevenue || pendingState.pendingBill;
   const type = pendingState.pendingExpense ? 'expense' : pendingState.pendingRevenue ? 'revenue' : 'bill';
@@ -343,9 +343,11 @@ if (pendingState && (pendingState.pendingExpense || pendingState.pendingRevenue 
   } else if (body && (body.toLowerCase() === 'no' || body.toLowerCase() === 'edit')) {
       reply = "✏️ Okay, please resend the correct details.";
       await deletePendingTransactionState(from);
+      return res.send(`<Response><Message>${reply}</Message></Response>`);
   } else if (body && body.toLowerCase() === 'cancel') {
       reply = "🚫 Entry canceled.";
       await deletePendingTransactionState(from);
+      return res.send(`<Response><Message>${reply}</Message></Response>`);
   } else {
       reply = "⚠️ Please respond with 'yes', 'no', 'edit', or 'cancel' to proceed.";
       const sent = await sendTemplateMessage(
@@ -359,7 +361,6 @@ if (pendingState && (pendingState.pendingExpense || pendingState.pendingRevenue 
           return res.send(`<Response><Message>${reply}</Message></Response>`);
       }
   }
-  return res.send(`<Response><Message>${reply}</Message></Response>`);
 }
 
             // 0. Start Job Command
@@ -605,9 +606,18 @@ else if (mediaUrl) {
                   expenseData.date = yesterday.toISOString().split("T")[0];
               }
               expenseData.amount = expenseData.amount ? String(`$${parseFloat(expenseData.amount).toFixed(2)}`) : null;
-              expenseData.suggestedCategory = constructionStores.some(store => 
+
+              // Correct store name against storeList
+              const storeLower = expenseData.store.toLowerCase().replace(/\s+/g, ''); // Normalize spaces
+              const matchedStore = storeList.find(store => 
+                  store.toLowerCase().replace(/\s+/g, '').includes(storeLower) || 
+                  storeLower.includes(store.toLowerCase().replace(/\s+/g, ''))
+              );
+              expenseData.store = matchedStore || expenseData.store;
+              expenseData.suggestedCategory = matchedStore || constructionStores.some(store => 
                   expenseData.store.toLowerCase().includes(store)) 
                   ? "Construction Materials" : "General";
+
               console.log("[DEBUG] GPT-3.5 Post-Processed Expense Result:", expenseData);
           } catch (error) {
               console.error("[ERROR] GPT-3.5 expense parsing failed:", error.message);
@@ -633,7 +643,6 @@ else if (mediaUrl) {
       return res.send(`<Response><Message>⚠️ No media detected or unable to extract information. Please resend.</Message></Response>`);
   }
 }
-
             // Default response for unhandled messages
             reply = "⚠️ Sorry, I didn't understand that. Please provide an expense, revenue, or job command.";
             return res.send(`<Response><Message>${reply}</Message></Response>`);
