@@ -11,19 +11,18 @@ function parseExpenseMessage(message) {
   // Attempt to parse JSON if the message looks like JSON (e.g., from OCR)
   try {
     expenseData = JSON.parse(message);
-    // Ensure all required fields are present and formatted
     expenseData.amount = expenseData.amount ? `$${parseFloat(expenseData.amount).toFixed(2)}` : null;
     expenseData.date = expenseData.date || new Date().toISOString().split('T')[0];
-    expenseData.item = expenseData.item || null; // Allow null initially for further extraction
+    expenseData.item = expenseData.item || null;
     expenseData.store = expenseData.store || "Unknown Store";
 
-    // Extract item from OCR text if not provided
+    // Extract item from full OCR text if available
     if (!expenseData.item && expenseData.text) {
       const patterns = [
-        /(?:bought|purchased|got|spent on|spend on|paid for|on)?\s*([\w\d\s"-]+?)(?=\s*(?:\$|\d+\.\d{2}|\n|$))/i, // Broad match before amount or end
+        /(?:bought|purchased|got|spent on|spend on|paid for|on)?\s*([\w\d\s"-]+?)\s*(?:\$|\d+\.\d{2})/i, // Match items before amount
+        /([\d]+x[\d]+(?:\s\w+)?)/i, // e.g., "2x4 lumber"
         /(\d+\.\d+"\s*\w+)/i, // e.g., "4.5\" WOO"
-        /(\w+\s*\d+\s*\w+)/i, // e.g., "MC 4.5\" 24T"
-        /([\d]+x[\d]+(?:\s\w+)?)/i // e.g., "2x4 lumber"
+        /(\w+\s*\d+\s*\w+)/i  // e.g., "MC 4.5\" 24T"
       ];
 
       for (const pattern of patterns) {
@@ -34,7 +33,6 @@ function parseExpenseMessage(message) {
         }
       }
 
-      // Fallback to item lists if patterns fail
       if (!expenseData.item) {
         const foundItem = allItemsList.find(listItem => 
           expenseData.text.toLowerCase().includes(listItem.toLowerCase())
@@ -56,11 +54,10 @@ function parseExpenseMessage(message) {
     } else if (expenseData.store.toLowerCase().includes("ikea")) {
       suggestedCategory = "Furniture";
     }
-
     expenseData.suggestedCategory = suggestedCategory;
 
     if (!expenseData.amount || !expenseData.store || !expenseData.item) {
-      console.log("[DEBUG] Missing essential JSON data, continuing with text parsing...");
+      console.log("[DEBUG] Missing essential JSON data.");
     } else {
       console.log(`[DEBUG] Parsed JSON Expense Data: item="${expenseData.item}", amount="${expenseData.amount}", store="${expenseData.store}", date="${expenseData.date}", category="${expenseData.suggestedCategory}"`);
       return expenseData;
@@ -92,10 +89,10 @@ function parseExpenseMessage(message) {
 
   let item = null;
   const patterns = [
-    /(?:bought|purchased|got|spent on|spend on|paid for|on)?\s*([\w\d\s"-]+?)(?=\s*(?:\$|\d+\.\d{2}|\n|$))/i,
+    /(?:bought|purchased|got|spent on|spend on|paid for|on)?\s*([\w\d\s"-]+?)\s*(?:\$|\d+\.\d{2})/i,
+    /([\d]+x[\d]+(?:\s\w+)?)/i,
     /(\d+\.\d+"\s*\w+)/i,
-    /(\w+\s*\d+\s*\w+)/i,
-    /([\d]+x[\d]+(?:\s\w+)?)/i
+    /(\w+\s*\d+\s*\w+)/i
   ];
 
   for (const pattern of patterns) {

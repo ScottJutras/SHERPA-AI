@@ -3,7 +3,6 @@ const { GoogleAuth } = require('google-auth-library');
 
 // ✅ Document AI Configuration
 const PROJECT_ID = process.env.GCP_PROJECT_ID;  // Your actual project ID
-// Force the location to lowercase; defaults to "us" if not provided.
 const LOCATION = (process.env.GCP_LOCATION || "us").toLowerCase();  
 const PROCESSOR_ID = process.env.DOCUMENTAI_PROCESSOR_ID;  // Your Document AI processor ID
 
@@ -21,12 +20,11 @@ const authClient = new GoogleAuth({
     scopes: ["https://www.googleapis.com/auth/cloud-platform"],
 });
 
-
 /**
  * Process receipt image with Google Document AI (Receipts Processor).
  *
  * @param {string} imageSource - URL of the receipt image.
- * @returns {Promise<Object|null>} Parsed receipt data or null if failed.
+ * @returns {Promise<Object|null>} Parsed receipt data including full text or null if failed.
  */
 async function extractTextFromImage(imageSource) {
     try {
@@ -43,7 +41,6 @@ async function extractTextFromImage(imageSource) {
 
         console.log("[DEBUG] Image downloaded successfully. Sending to Google Document AI...");
 
-        // Construct the Document AI endpoint dynamically using the lowercase LOCATION.
         const endpoint = `https://${LOCATION}-documentai.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/processors/${PROCESSOR_ID}:process`;
 
         const requestPayload = {
@@ -53,7 +50,6 @@ async function extractTextFromImage(imageSource) {
             },
         };
 
-        // Get an access token from the auth client.
         const accessTokenResponse = await authClient.getAccessToken();
         const accessToken = accessTokenResponse.token || accessTokenResponse;
         const headers = {
@@ -65,35 +61,46 @@ async function extractTextFromImage(imageSource) {
 
         console.log("[DEBUG] Document AI Response:", JSON.stringify(data, null, 2));
 
-        if (!data.document || !data.document.entities) {
-            console.log("[DEBUG] No structured data found in Document AI response.");
+        if (!data.document) {
+            console.log("[DEBUG] No document data found in Document AI response.");
             return null;
         }
 
-        const fields = data.document.entities;
+        const fields = data.document.entities || [];
         let store = fields.find(f => f.type === "store_name" || f.type === "merchant_name")?.mentionText || "Unknown Store";
         let date = fields.find(f => f.type === "date")?.mentionText || new Date().toISOString().split('T')[0];
         let total = fields.find(f => f.type === "total_amount")?.mentionText || "Unknown Amount";
 
         // Fallback for store name recognition
         if (store === "Unknown Store") {
-            const commonStores = ["Canadian Tire", "Loblaws", "Walmart"]; // Add more known stores here
+            const commonStores = ["Canadian Tire", "Loblaws", "Walmart"];
             store = commonStores.find(name => data.document.text.toLowerCase().includes(name.toLowerCase())) || store;
         }
 
         // Fallback for date recognition
         if (date === new Date().toISOString().split('T')[0]) {
-            // Try to parse date from text if Document AI fails
             const dateMatch = data.document.text.match(/\d{1,2}\/\d{1,2}\/\d{2,4}/);
             if (dateMatch) date = dateMatch[0];
         }
 
         console.log(`[DEBUG] Parsed Receipt - Store: ${store}, Date: ${date}, Amount: ${total}`);
-        return { store, date, amount: total };
+
+        // Include the full OCR text in the return value
+        return {
+            store,
+            date,
+            amount: total,
+            text: data.document.text || "" // Ensure full text is included
+        };
     } catch (error) {
-        // Log error and return an error object or default values
         console.error("[ERROR] Document AI Failed:", error.message);
-        return { store: "Unknown Store", date: new Date().toISOString().split('T')[0], amount: "Unknown Amount", error: "Failed to process document" };
+        return {
+            store: "Unknown Store",
+            date: new Date().toISOString().split('T')[0],
+            amount: "Unknown Amount",
+            text: "",
+            error: "Failed to process document"
+        };
     }
 }
 

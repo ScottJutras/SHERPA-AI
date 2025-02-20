@@ -576,20 +576,19 @@ else if (mediaUrl) {
       const ocrResult = await extractTextFromImage(mediaUrl);
       console.log(`[DEBUG] OCR Result: ${JSON.stringify(ocrResult)}`);
 
-      // If OCR result is JSON, enhance it with full text parsing
+      // Ensure the full Document AI text is included in ocrResult
+      // Assuming extractTextFromImage returns {store, date, amount, text}
       if (ocrResult && typeof ocrResult === 'object') {
-        // Add the full text to the OCR result for item extraction
-        const fullOcrText = JSON.stringify({ ...ocrResult, text: ocrResult.text || "" });
+        // Pass the full OCR result, including the raw text, to parseExpenseMessage
+        const fullOcrText = JSON.stringify({
+          store: ocrResult.store || "Unknown Store",
+          date: ocrResult.date || new Date().toISOString().split('T')[0],
+          amount: ocrResult.amount || "Unknown Amount",
+          text: ocrResult.text || "" // Ensure this includes the full text from Document AI
+        });
         let expenseData = parseExpenseMessage(fullOcrText);
 
         if (expenseData) {
-          // Ensure all fields are populated
-          expenseData.store = expenseData.store || ocrResult.store || "Unknown Store";
-          expenseData.date = expenseData.date || ocrResult.date || new Date().toISOString().split('T')[0];
-          expenseData.amount = expenseData.amount || ocrResult.amount || "Unknown Amount";
-          expenseData.item = expenseData.item || "Miscellaneous Purchase";
-          expenseData.suggestedCategory = expenseData.suggestedCategory || "General";
-
           userOnboardingState[from] = { pendingExpense: expenseData };
           await sendTemplateMessage(
             from,
