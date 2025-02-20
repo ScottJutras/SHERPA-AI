@@ -14,7 +14,7 @@ function parseExpenseMessage(message) {
     // Attempt to parse JSON (e.g., from OCR) - not used for voice but kept for compatibility
     try {
         expenseData = JSON.parse(message);
-        expenseData.amount = expenseData.amount ? `$${parseFloat(expenseData.amount).toFixed(2)}` : null;
+        expenseData.amount = expenseData.amount ? String(`$${parseFloat(expenseData.amount).toFixed(2)}`) : null;
         expenseData.date = expenseData.date || new Date().toISOString().split('T')[0];
         expenseData.item = expenseData.item || null;
         expenseData.store = expenseData.store || "Unknown Store";

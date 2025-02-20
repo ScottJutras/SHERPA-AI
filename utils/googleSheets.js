@@ -68,22 +68,23 @@ async function getUserProfile(phoneNumber) {
  * Converts an amount string (e.g. "$1456.00") to a numeric value.
  * Multiplies by -1 for expenses or bills.
  *
- * @param {string} amountStr - The amount string.
+ * @param {string|number} amount - The amount string or number.
  * @param {string} type - One of "revenue", "expense", or "bill".
- * @returns {number} The numeric value.
+ * @returns {string} The formatted amount as a string (e.g., "-$1456.00").
  */
-function formatAmount(amountStr, type) {
-  // Remove non-numeric characters (except . and -)
-  let num = parseFloat(amountStr.replace(/[^0-9.-]+/g, ''));
-  if (isNaN(num)) {
-    return 0;
-  }
-  if (type === 'expense' || type === 'bill') {
-    // Ensure expenses are negative
-    return -Math.abs(num);
-  }
-  // Revenue stays positive
-  return Math.abs(num);
+function formatAmount(amount, type) {
+    // Ensure amount is a string
+    let amountStr = String(amount);
+    // Remove non-numeric characters (except . and -), default to 0 if invalid
+    let num = parseFloat(amountStr.replace(/[^0-9.-]+/g, '')) || 0;
+    // Apply sign based on type
+    if (type === 'expense' || type === 'bill') {
+        num = -Math.abs(num); // Ensure negative for expenses/bills
+    } else {
+        num = Math.abs(num); // Ensure positive for revenue
+    }
+    // Return as formatted string
+    return `$${num.toFixed(2)}`;
 }
 
 async function saveUserProfile(userProfile) {
@@ -317,50 +318,42 @@ async function getOrCreateUserSpreadsheet(phoneNumber) {
  * Append an expense entry to the user's spreadsheet.
  *
  * @param {string} phoneNumber - The user's phone number.
- * @param {Array} rowData - An array: [Date, Item, Amount, Store, Job]
+ * @param {Array} rowData - An array: [Date, Item, Amount, Store, Job, Type, Category]
  */
 async function appendToUserSpreadsheet(phoneNumber, rowData) {
   try {
-    const { spreadsheetId, userEmail } = await getOrCreateUserSpreadsheet(phoneNumber);
+      const { spreadsheetId, userEmail } = await getOrCreateUserSpreadsheet(phoneNumber);
 
-    if (!spreadsheetId) {
-      throw new Error(`[ERROR] No spreadsheet ID found for ${phoneNumber}`);
-    }
-    if (!userEmail) {
-      console.warn(`[⚠️ WARNING] No email found for ${phoneNumber}, spreadsheet will not be shared.`);
-    }
+      if (!spreadsheetId) {
+          throw new Error(`[ERROR] No spreadsheet ID found for ${phoneNumber}`);
+      }
+      if (!userEmail) {
+          console.warn(`[⚠️ WARNING] No email found for ${phoneNumber}, spreadsheet will not be shared.`);
+      }
 
-    console.log(`[DEBUG] Using Spreadsheet ID: ${spreadsheetId}`);
+      console.log(`[DEBUG] Using Spreadsheet ID: ${spreadsheetId}`);
 
-    const auth = await getAuthorizedClient();
-    const sheets = google.sheets({ version: 'v4', auth });
-    
-    // Adjust the range to include the new category column
-    const RANGE = 'Sheet1!A:G'; // Columns: Date, Item, Amount, Store, Job, Type, Category
+      const auth = await getAuthorizedClient();
+      const sheets = google.sheets({ version: 'v4', auth });
+      
+      const RANGE = 'Sheet1!A:G'; // Columns: Date, Item, Amount, Store, Job, Type, Category
 
-    // Convert the amount (assumed to be at index 2) for expenses/bills:
-    const numericAmount = formatAmount(rowData[2], 'expense'); // or 'bill' if applicable
-    const formattedAmount = `$${numericAmount.toFixed(2)}`;
-    rowData[2] = formattedAmount; // Replace the original value with the formatted one
+      // Destructure rowData and format amount
+      const [date, item, amount, store, job, type, category] = rowData;
+      const formattedAmount = formatAmount(amount, type); // Ensure string output
+      const values = [[date, item, formattedAmount, store, job, type, category || ""]];
 
-    // Ensure rowData has at least 7 elements for all columns, including the new category
-    while (rowData.length < 7) {
-      rowData.push(""); // Add empty string for missing columns
-    }
+      await sheets.spreadsheets.values.append({
+          spreadsheetId,
+          range: RANGE,
+          valueInputOption: 'USER_ENTERED',
+          resource: { values }
+      });
 
-    const resource = { values: [rowData] };
-
-    await sheets.spreadsheets.values.append({
-      spreadsheetId,
-      range: RANGE,
-      valueInputOption: 'USER_ENTERED',
-      resource,
-    });
-
-    console.log(`[✅ SUCCESS] Data successfully appended: ${JSON.stringify(rowData)}`);
+      console.log(`[✅ SUCCESS] Data successfully appended: ${JSON.stringify(values[0])}`);
   } catch (error) {
-    console.error('[❌ ERROR] Failed to append data to spreadsheet:', error.message);
-    throw error;
+      console.error('[❌ ERROR] Failed to append data to spreadsheet:', error.message);
+      throw error;
   }
 }
 /**
