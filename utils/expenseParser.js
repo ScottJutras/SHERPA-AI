@@ -4,6 +4,9 @@ const toolsList = require('./toolsList');
 const storeList = require('./storeList');
 const allItemsList = [...materialsList, ...toolsList];
 
+// All stores in storeList.js are construction-related
+const constructionStores = storeList.map(store => store.toLowerCase());
+
 function parseExpenseMessage(message) {
     console.log(`[DEBUG] Parsing expense message: "${message}"`);
     let expenseData;
@@ -42,18 +45,9 @@ function parseExpenseMessage(message) {
             expenseData.item = "Miscellaneous Purchase";
         }
 
-        let suggestedCategory = "General";
-        if (expenseData.store.toLowerCase().includes("home depot") || 
-            expenseData.store.toLowerCase().includes("rona") || 
-            expenseData.store.toLowerCase().includes("roofmart")) {
-            suggestedCategory = "Construction Materials";
-        } else if (expenseData.store.toLowerCase().includes("best buy")) {
-            suggestedCategory = "Electronics";
-        } else if (expenseData.store.toLowerCase().includes("canadian tire")) {
-            suggestedCategory = "General Merchandise";
-        } else if (expenseData.store.toLowerCase().includes("ikea")) {
-            suggestedCategory = "Furniture";
-        }
+        let suggestedCategory = constructionStores.some(store => 
+            expenseData.store.toLowerCase().includes(store)) 
+            ? "Construction Materials" : "General";
         expenseData.suggestedCategory = suggestedCategory;
 
         if (expenseData.amount && expenseData.store && expenseData.item) {
@@ -64,7 +58,7 @@ function parseExpenseMessage(message) {
         console.log("[DEBUG] JSON parsing failed, using regex parsing:", error.message);
     }
 
-    // Enhanced amount extraction: supports "$432", "432 dollars", "spent 432", "432 on", "432 worth of"
+    // Enhanced amount extraction: supports "$528", "528 dollars", "spent 528", "528 on", "528 worth of"
     const amountMatch = message.match(/(?:\$|for\s?|spent\s?|spend\s?|on\s?|worth\s*(?:of\s*)?)\s?([\d,]+(?:\.\d{1,2})?)/i);
     const amount = amountMatch
         ? `$${parseFloat(amountMatch[1].replace(/,/g, '')).toFixed(2)}`
@@ -87,7 +81,7 @@ function parseExpenseMessage(message) {
         ? parsedDate.toISOString().split('T')[0]
         : new Date().toISOString().split('T')[0];
 
-    // If "yesterday" is detected but not parsed by chrono, adjust manually
+    // Manual adjustment for "yesterday"
     if (message.toLowerCase().includes("yesterday") && !parsedDate) {
         const yesterday = new Date();
         yesterday.setDate(yesterday.getDate() - 1);
@@ -133,24 +127,10 @@ function parseExpenseMessage(message) {
         return null;
     }
 
-    // Enhanced category logic
-    let suggestedCategory = "General";
-    if (store.toLowerCase().includes("home depot") || 
-        store.toLowerCase().includes("rona") || 
-        store.toLowerCase().includes("roofmart")) {
-        suggestedCategory = "Construction Materials";
-    } else if (store.toLowerCase().includes("best buy")) {
-        suggestedCategory = "Electronics";
-    } else if (store.toLowerCase().includes("canadian tire")) {
-        suggestedCategory = "General Merchandise";
-    } else if (store.toLowerCase().includes("ikea")) {
-        suggestedCategory = "Furniture";
-    // Additional check for construction-related items
-    } else if (item.toLowerCase().includes("shingles") || 
-               item.toLowerCase().includes("lumber") || 
-               item.toLowerCase().includes("cement")) {
-        suggestedCategory = "Construction Materials";
-    }
+    // All stores in storeList.js are construction-related
+    let suggestedCategory = constructionStores.some(storeName => 
+        store.toLowerCase().includes(storeName)) 
+        ? "Construction Materials" : "General";
 
     console.log(`[DEBUG] Parsed Expense Data: item="${item}", amount="${amount}", store="${store}", date="${date}", category="${suggestedCategory}"`);
 

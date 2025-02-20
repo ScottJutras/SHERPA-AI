@@ -17,7 +17,7 @@ const storeList = [
     "JYSK", "Home Outfitters", "Maritime Lumber", "Home Building Centre", "The Paint Store",
     "Mitten Building Products", "TIM-BR MART", "Dick's Lumber", "North American Lumber", "Beacon Roofing Supply",
     "Gentek","Aluminum Associates", "Bargain Building Supply", "Herman's Supply Company", "Easy Building Products", "Convoy Building Supply",
-    "Royal Building Solutions", "Kaycan"
+    "Royal Building Solutions", "Kaycan", "Roofmart"
   ];
   
   module.exports = storeList;
