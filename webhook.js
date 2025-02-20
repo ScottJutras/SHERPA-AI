@@ -1,11 +1,11 @@
 require('dotenv').config();
-const fs = require('fs');
-const path = require('path');
 const admin = require("firebase-admin");
 const express = require('express');
 const OpenAI = require('openai');
 const bodyParser = require('body-parser');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 const areaCodeMap = require('./utils/areaCodes');
 const { parseExpenseMessage, parseRevenueMessage } = require('./utils/expenseParser');
 const {
@@ -497,12 +497,16 @@ app.post('/webhook', async (req, res) => {
                 }
                 console.log("[DEBUG] Revenue data ready:", revenueData);
                 await setPendingTransactionState(from, { pendingRevenue: revenueData });
-                await sendTemplateMessage(
+                const sent = await sendTemplateMessage(
                     from,
                     confirmationTemplates.revenue,
                     { "1": `Please confirm: Revenue of ${revenueData.amount} from ${revenueData.source} on ${revenueData.date}` }
                 );
-                return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+                if (sent) {
+                    return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+                } else {
+                    return res.send(`<Response><Message>⚠️ Failed to send revenue confirmation. Please try again.</Message></Response>`);
+                }
             }
 
             // 4. Expense Logging for Text Messages
@@ -541,7 +545,7 @@ app.post('/webhook', async (req, res) => {
                     if (sent) {
                         return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
                     } else {
-                        return res.send(`<Response><Message>⚠️ Failed to send confirmation. Please try again.</Message></Response>`);
+                        return res.send(`<Response><Message>⚠️ Failed to send expense confirmation. Please try again.</Message></Response>`);
                     }
                 } else {
                     reply = "⚠️ Could not understand your expense message. Please provide a valid expense message.";
@@ -572,12 +576,13 @@ app.post('/webhook', async (req, res) => {
                             console.log("[DEBUG] No transcription returned from audio.");
                         }
                     } catch (error) {
-                        console.error("[ERROR] Failed to process audio:", error);
+                        console.error("[ERROR] Failed to process audio:", error.message);
                     }
                 }
 
                 if (mediaType && mediaType.includes("image")) {
                     try {
+                        console.log(`[DEBUG] Processing image from ${mediaUrl}`);
                         const ocrResult = await extractTextFromImage(mediaUrl);
                         console.log(`[DEBUG] OCR Result: ${JSON.stringify(ocrResult)}`);
 
@@ -586,6 +591,7 @@ app.post('/webhook', async (req, res) => {
                             let expenseData = parseExpenseMessage(fullOcrText);
 
                             if (expenseData) {
+                                console.log(`[DEBUG] Parsed expense data: ${JSON.stringify(expenseData)}`);
                                 await setPendingTransactionState(from, { pendingExpense: expenseData });
                                 const sent = await sendTemplateMessage(
                                     from,
@@ -596,7 +602,7 @@ app.post('/webhook', async (req, res) => {
                                     console.log(`[DEBUG] Successfully sent confirmation template for ${from}`);
                                     return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
                                 } else {
-                                    console.error("[ERROR] Failed to send Twilio template message.");
+                                    console.error("[ERROR] Failed to send Twilio template message for expense confirmation.");
                                     return res.send(`<Response><Message>⚠️ Failed to send confirmation. Please try again.</Message></Response>`);
                                 }
                             } else {
