@@ -5,38 +5,103 @@ const ffmpeg = require('fluent-ffmpeg');
 const { PassThrough } = require('stream');
 const client = new speech.SpeechClient();
 const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
+const OpenAI = require('openai');
 
 ffmpeg.setFfmpegPath(ffmpegInstaller.path); // ✅ Ensure ffmpeg binary is found
 
+const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
 /**
- * Converts OGG_OPUS audio to FLAC and extracts sample rate.
- * @param {Buffer} audioBuffer - OGG_OPUS audio buffer
- * @returns {Promise<{ flacBuffer: Buffer, sampleRate: number }>} - FLAC buffer and sample rate
+ * Transcribes an audio buffer using Google Cloud Speech-to-Text (OGG_OPUS first, then FLAC if needed)
+ * @param {Buffer} audioBuffer - The audio file buffer (OGG_OPUS)
+ * @returns {Promise<string|null>} - Transcribed text or null if failed
  */
+async function transcribeAudio(audioBuffer) {
+    try {
+        console.log("[DEBUG] Attempting direct OGG_OPUS transcription...");
+        let transcription = await transcribeDirect(audioBuffer);
+        if (transcription) return transcription;
+
+        console.log("[DEBUG] Direct transcription failed. Converting to FLAC...");
+        const { flacBuffer, sampleRate } = await convertOggToFlac(audioBuffer);
+        transcription = await transcribeFlac(flacBuffer, sampleRate);
+        return transcription;
+    } catch (error) {
+        console.error("[ERROR] Google Speech-to-Text failed:", error.message);
+        return null;
+    }
+}
+
+async function transcribeDirect(audioBuffer) {
+    try {
+        const request = {
+            audio: { content: audioBuffer.toString('base64') },
+            config: getSpeechConfig('OGG_OPUS', 48000),
+        };
+        const [response] = await client.recognize(request);
+        return processTranscription(response);
+    } catch (error) {
+        console.warn("[WARN] Direct OGG transcription failed:", error.message);
+        return null;
+    }
+}
+
+async function transcribeFlac(flacBuffer, sampleRate) {
+    try {
+        const request = {
+            audio: { content: flacBuffer.toString('base64') },
+            config: getSpeechConfig('FLAC', sampleRate),
+        };
+        const [response] = await client.recognize(request);
+        return processTranscription(response);
+    } catch (error) {
+        console.error("[ERROR] FLAC transcription failed:", error.message);
+        return null;
+    }
+}
+
+function getSpeechConfig(encoding, sampleRate) {
+    return {
+        encoding,
+        sampleRateHertz: sampleRate,
+        languageCode: 'en-US',
+        enableAutomaticPunctuation: true,
+        enableWordTimeOffsets: true,
+        speechContexts: [{
+            phrases: ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+                      'hundred', 'thousand', 'dollars', 'bucks', 'ninety', 'sixty', 'fifty', 'twenty'],
+            boost: 10
+        }]
+    };
+}
+
+function processTranscription(response) {
+    if (!response.results || response.results.length === 0) return null;
+    
+    response.results.forEach((result, index) => {
+        console.log(`[DEBUG] Confidence ${index}:`, result.alternatives[0].confidence);
+    });
+    
+    return response.results.map(result => result.alternatives[0].transcript).join(' ');
+}
+
 async function convertOggToFlac(audioBuffer) {
     return new Promise((resolve, reject) => {
         const inputStream = new PassThrough(); 
-        inputStream.end(audioBuffer); // ✅ Fix: Properly pass buffer
-
+        inputStream.end(audioBuffer);
         const outputStream = new PassThrough();
         let outputBuffer = Buffer.alloc(0);
-        let detectedSampleRate = 48000; // Default to WhatsApp's sample rate
+        let detectedSampleRate = 48000;
 
         outputStream.on('data', (chunk) => {
             outputBuffer = Buffer.concat([outputBuffer, chunk]);
         });
-
         outputStream.on('finish', () => {
             console.log(`[DEBUG] Audio conversion to FLAC complete. Detected sample rate: ${detectedSampleRate}`);
             resolve({ flacBuffer: outputBuffer, sampleRate: detectedSampleRate });
         });
+        outputStream.on('error', reject);
 
-        outputStream.on('error', (err) => {
-            console.error('[ERROR] Audio conversion failed:', err);
-            reject(err);
-        });
-
-        // ✅ Extract sample rate and convert to FLAC
         ffmpeg()
             .input(inputStream)
             .inputFormat('ogg')
@@ -44,52 +109,30 @@ async function convertOggToFlac(audioBuffer) {
             .format('flac')
             .on('stderr', (line) => {
                 const match = line.match(/(\d+) Hz/);
-                if (match) {
-                    detectedSampleRate = parseInt(match[1], 10);
-                }
+                if (match) detectedSampleRate = parseInt(match[1], 10);
             })
-            .on('end', () => outputStream.end()) // ✅ Ensure stream closes correctly
-            .on('error', (err) => reject(err))
+            .on('end', () => outputStream.end())
+            .on('error', reject)
             .pipe(outputStream);
     });
 }
 
-/**
- * Transcribes an audio buffer using Google Cloud Speech-to-Text
- * @param {Buffer} audioBuffer - The audio file buffer (OGG_OPUS)
- * @returns {Promise<string|null>} - Transcribed text or null if failed
- */
-async function transcribeAudio(audioBuffer) {
+async function inferMissingAmount(text) {
     try {
-        console.log("[DEBUG] Converting OGG_OPUS to FLAC...");
-        const { flacBuffer, sampleRate } = await convertOggToFlac(audioBuffer);
-
-        console.log(`[DEBUG] Sending FLAC audio for transcription (Sample Rate: ${sampleRate})...`);
-        
-        const request = {
-            audio: {
-                content: flacBuffer.toString('base64'),
-            },
-            config: {
-                encoding: 'FLAC',
-                sampleRateHertz: sampleRate,  // ✅ Use detected sample rate
-                languageCode: 'en-US',
-                enableAutomaticPunctuation: true,
-                enableWordTimeOffsets: true,
-            },
-        };
-
-        const [response] = await client.recognize(request);
-        const transcription = response.results
-            .map(result => result.alternatives[0].transcript)
-            .join(' ');
-
-        console.log(`[DEBUG] Transcription Result: ${transcription}`);
-        return transcription || null;
+        console.log("[DEBUG] Using GPT to infer missing amount...");
+        const response = await openaiClient.chat.completions.create({
+            model: "gpt-3.5-turbo",
+            messages: [
+                { role: "system", content: "Extract numbers from this transcribed text. If a price is missing, predict a reasonable amount." },
+                { role: "user", content: `Transcription: \"${text}\"` }
+            ],
+            max_tokens: 10
+        });
+        return response.choices[0].message.content.trim();
     } catch (error) {
-        console.error("[ERROR] Google Speech-to-Text failed:", error.message);
+        console.error("[ERROR] GPT-3.5 failed to infer amount:", error.message);
         return null;
     }
 }
 
-module.exports = { transcribeAudio };
+module.exports = { transcribeAudio, inferMissingAmount };
