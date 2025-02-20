@@ -74,11 +74,10 @@ function getSpeechConfig(encoding, sampleRate) {
                 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
                 'hundred', 'thousand', 'dollars', 'bucks', 'ninety', 'sixty', 'fifty', 'twenty'
             ],
-            boost: 15 // Increase recognition priority for these words
+            boost: 15
         }]
     };
 }
-
 
 function processTranscription(response) {
     if (!response.results || response.results.length === 0) return null;
@@ -129,7 +128,7 @@ async function inferMissingData(text) {
             model: "gpt-3.5-turbo",
             messages: [
                 { role: "system", content: "Extract numbers and store names from this transcribed text. If a store name is incorrect, correct it based on common construction-related stores." },
-                { role: "user", content: `Transcription: "${text}"` }
+                { role: "user", content: `Transcription: \"${text}\"` }
             ],
             max_tokens: 20
         });
@@ -140,5 +139,4 @@ async function inferMissingData(text) {
     }
 }
 
-
-module.exports = { transcribeAudio, inferMissingAmount };
+module.exports = { transcribeAudio, inferMissingData };
