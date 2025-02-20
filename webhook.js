@@ -590,7 +590,7 @@ else if (mediaUrl) {
               const gptResponse = await openaiClient.chat.completions.create({
                   model: "gpt-3.5-turbo",
                   messages: [
-                      { role: "system", content: "Extract structured expense data from the following text. Return JSON with keys: date, item, amount, store." },
+                      { role: "system", content: "Extract structured expense data from the following text. Return JSON with keys: date, item, amount, store. Correct 'roof Mark' or 'roof Mart' to 'Roofmart' if present." },
                       { role: "user", content: `Text: "${combinedText.trim()}"` }
                   ],
                   max_tokens: 60,
@@ -607,12 +607,17 @@ else if (mediaUrl) {
               }
               expenseData.amount = expenseData.amount ? String(`$${parseFloat(expenseData.amount).toFixed(2)}`) : null;
 
-              // Correct store name against storeList
-              const storeLower = expenseData.store.toLowerCase().replace(/\s+/g, ''); // Normalize spaces
-              const matchedStore = storeList.find(store => 
-                  store.toLowerCase().replace(/\s+/g, '').includes(storeLower) || 
-                  storeLower.includes(store.toLowerCase().replace(/\s+/g, ''))
-              );
+              // Enhanced store name correction
+              const storeLower = expenseData.store.toLowerCase().replace(/\s+/g, ''); // "roofmark" or "roofmart"
+              const matchedStore = storeList.find(store => {
+                  const normalizedStore = store.toLowerCase().replace(/\s+/g, ''); // "roofmart"
+                  return normalizedStore === storeLower || 
+                         storeLower.includes(normalizedStore) || 
+                         normalizedStore.includes(storeLower);
+              }) || storeList.find(store => 
+                  store.toLowerCase().includes("roofmart") && 
+                  (expenseData.store.toLowerCase().includes("roof") || expenseData.store.toLowerCase().includes("mart"))
+              ); // Fallback for partial matches
               expenseData.store = matchedStore || expenseData.store;
               expenseData.suggestedCategory = matchedStore || constructionStores.some(store => 
                   expenseData.store.toLowerCase().includes(store)) 
