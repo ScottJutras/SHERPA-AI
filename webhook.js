@@ -25,6 +25,8 @@ const { extractTextFromImage } = require('./utils/visionService');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
 const { sendSpreadsheetEmail } = require('./utils/sendGridService');
 const { transcribeAudio } = require('./utils/transcriptionService');
+const storeList = require('./utils/storeList'); // Add this to imports
+const constructionStores = storeList.map(store => store.toLowerCase()); // Define globally
 
 // ─── FIREBASE ADMIN SETUP ────────────────────────────────────────────
 if (!admin.apps.length) {
