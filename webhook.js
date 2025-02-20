@@ -1,4 +1,6 @@
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 const admin = require("firebase-admin");
 const express = require('express');
 const OpenAI = require('openai');
@@ -285,7 +287,7 @@ app.post('/webhook', async (req, res) => {
                 const type = pendingState.pendingExpense ? 'expense' : pendingState.pendingRevenue ? 'revenue' : 'bill';
                 const activeJob = await getActiveJob(from) || "Uncategorized";
 
-                if (body.toLowerCase() === 'yes') {
+                if (body && body.toLowerCase() === 'yes') {
                     if (type === 'bill') {
                         // Placeholder for bill editing/deleting until implemented
                         if (pendingData.action === 'edit') {
@@ -336,20 +338,24 @@ app.post('/webhook', async (req, res) => {
                         reply = `✅ ${type.charAt(0).toUpperCase() + type.slice(1)} confirmed and logged: ${pendingData.item || pendingData.source || pendingData.billName} for ${pendingData.amount} on ${pendingData.date} under ${pendingData.suggestedCategory || "General"}`;
                     }
                     await deletePendingTransactionState(from);
-                } else if (body.toLowerCase() === 'no' || body.toLowerCase() === 'edit') {
+                } else if (body && (body.toLowerCase() === 'no' || body.toLowerCase() === 'edit')) {
                     reply = "✏️ Okay, please resend the correct details.";
                     await deletePendingTransactionState(from);
-                } else if (body.toLowerCase() === 'cancel') {
+                } else if (body && body.toLowerCase() === 'cancel') {
                     reply = "🚫 Entry canceled.";
                     await deletePendingTransactionState(from);
                 } else {
                     reply = "⚠️ Please respond with 'yes', 'no', 'edit', or 'cancel' to proceed.";
-                    await sendTemplateMessage(
+                    const sent = await sendTemplateMessage(
                         from,
                         type === 'expense' || type === 'bill' ? confirmationTemplates.expense : confirmationTemplates.revenue,
                         { "1": `Please confirm: ${type === 'expense' || type === 'bill' ? `${pendingData.amount} for ${pendingData.item || pendingData.source || pendingData.billName} on ${pendingData.date}` : `Revenue of ${pendingData.amount} from ${pendingData.source} on ${pendingData.date}`}` }
                     );
-                    return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+                    if (sent) {
+                        return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+                    } else {
+                        return res.send(`<Response><Message>${reply}</Message></Response>`);
+                    }
                 }
                 return res.send(`<Response><Message>${reply}</Message></Response>`);
             } else if (body && (body.toLowerCase() === 'yes' || body.toLowerCase() === 'no' || body.toLowerCase() === 'cancel')) {
@@ -527,12 +533,16 @@ app.post('/webhook', async (req, res) => {
                 }
                 if (expenseData && expenseData.item && expenseData.amount && expenseData.store) {
                     await setPendingTransactionState(from, { pendingExpense: expenseData });
-                    await sendTemplateMessage(
+                    const sent = await sendTemplateMessage(
                         from,
                         confirmationTemplates.expense,
                         { "1": `Please confirm: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?` }
                     );
-                    return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+                    if (sent) {
+                        return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+                    } else {
+                        return res.send(`<Response><Message>⚠️ Failed to send confirmation. Please try again.</Message></Response>`);
+                    }
                 } else {
                     reply = "⚠️ Could not understand your expense message. Please provide a valid expense message.";
                     return res.send(`<Response><Message>${reply}</Message></Response>`);
@@ -577,22 +587,28 @@ app.post('/webhook', async (req, res) => {
 
                             if (expenseData) {
                                 await setPendingTransactionState(from, { pendingExpense: expenseData });
-                                await sendTemplateMessage(
+                                const sent = await sendTemplateMessage(
                                     from,
                                     confirmationTemplates.expense,
                                     { "1": `Please confirm: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?` }
                                 );
-                                return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+                                if (sent) {
+                                    console.log(`[DEBUG] Successfully sent confirmation template for ${from}`);
+                                    return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+                                } else {
+                                    console.error("[ERROR] Failed to send Twilio template message.");
+                                    return res.send(`<Response><Message>⚠️ Failed to send confirmation. Please try again.</Message></Response>`);
+                                }
                             } else {
-                                console.error("[ERROR] Failed to parse expense data from OCR result.");
+                                console.error("[ERROR] Failed to parse expense data from OCR result:", fullOcrText);
                                 return res.send(`<Response><Message>⚠️ Could not parse expense details from the image. Please try again.</Message></Response>`);
                             }
                         } else {
-                            console.error("[ERROR] OCR did not return expected JSON data.");
-                            throw new Error("OCR data format is incorrect.");
+                            console.error("[ERROR] OCR did not return expected JSON data:", ocrResult);
+                            return res.send(`<Response><Message>⚠️ Invalid OCR data format. Please try again.</Message></Response>`);
                         }
                     } catch (err) {
-                        console.error("[ERROR] OCR extraction error:", err);
+                        console.error("[ERROR] OCR extraction error:", err.message);
                         return res.send(`<Response><Message>⚠️ Could not extract data from image. Please try again.</Message></Response>`);
                     }
                 }
@@ -623,12 +639,16 @@ app.post('/webhook', async (req, res) => {
                     }
                     if (expenseData && expenseData.item && expenseData.amount && expenseData.store) {
                         await setPendingTransactionState(from, { pendingExpense: expenseData });
-                        await sendTemplateMessage(
+                        const sent = await sendTemplateMessage(
                             from,
                             confirmationTemplates.expense,
                             { "1": `Please confirm: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?` }
                         );
-                        return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+                        if (sent) {
+                            return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+                        } else {
+                            return res.send(`<Response><Message>⚠️ Failed to send confirmation. Please try again.</Message></Response>`);
+                        }
                     } else {
                         return res.send(`<Response><Message>⚠️ I couldn't parse the expense details from the media. Please try again.</Message></Response>`);
                     }
