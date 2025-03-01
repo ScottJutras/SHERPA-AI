@@ -350,7 +350,9 @@ app.post('/webhook', async (req, res) => {
     } else if (body && (body.toLowerCase() === 'no' || body.toLowerCase() === 'edit')) {
         reply = "✏️ Okay, please resend the correct details.";
         await deletePendingTransactionState(from);
-        return res.send(`<Response><Message>${reply}</Message></Response>`);
+    return res.send(`<Response><Message>${reply}</Message></Response>`).then(() => {
+        console.log("[DEBUG] Reply sent to WhatsApp:", reply);
+    });
     } else if (body && (body.toLowerCase() === 'cancel')) {
         reply = "🚫 Entry canceled.";
         await deletePendingTransactionState(from);
