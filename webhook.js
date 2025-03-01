@@ -524,7 +524,8 @@ else if (body && body.toLowerCase().includes("bill")) {
         { "1": `Revenue of ${revenueData.amount} from ${revenueData.source} on ${revenueData.date}` }
     );
     if (sent) {
-        return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+        console.log("[DEBUG] Twilio template sent successfully, no additional message sent to WhatsApp.");
+        return res.send(`<Response></Response>`); // Empty response to hide "Quick Reply Sent"
     } else {
         return res.send(`<Response><Message>⚠️ Failed to send revenue confirmation. Please try again.</Message></Response>`);
     }
