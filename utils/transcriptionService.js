@@ -143,5 +143,4 @@ async function inferMissingData(text) {
     }
 }
 
-
 module.exports = { transcribeAudio, inferMissingData };

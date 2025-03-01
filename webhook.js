@@ -138,39 +138,45 @@ const onboardingTemplates = {
     9: "HX99fd5cad1d49ab68e9afc6a70fe4d24a"
 };
 const confirmationTemplates = {
-    revenue: "HX9382ee3fb669bc5cf11423d137a25308",
-    expense: "HX3d96daedc394f7385629ecd026e69760",
-    bill: "HXe7a1b06a28554ec2bced55944e05c465",
+    revenue: "HXb3086ca639cb4882fb2c68f2cd569cb4",
+    expense: "HX9f6b7188f055fa25f8170f915e53cbd0",
+    bill: "HX2f1814b7932c2a11e10b2ea8050f1614",
     startJob: "HXa4f19d568b70b3493e64933ce5e6a040"
 };
 
 // ─── SEND TEMPLATE MESSAGE FUNCTION ─────────────────────
-const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
+const sendTemplateMessage = async (to, templateName, parameters) => {
     try {
-        if (!contentSid) {
-            console.error("[ERROR] Missing ContentSid for Twilio template message.");
-            return false;
-        }
         if (!to || !process.env.TWILIO_WHATSAPP_NUMBER) {
             console.error("[ERROR] Missing required phone numbers for Twilio message.");
             return false;
         }
+
         const toNumber = to.startsWith("whatsapp:") ? to : `whatsapp:${to}`;
-        const formattedVariables = JSON.stringify(contentVariables);
-        console.log("[DEBUG] Sending Twilio template message with:", {
+
+        console.log("[DEBUG] Sending Twilio WhatsApp template message with:", {
             To: toNumber,
-            ContentSid: contentSid,
-            ContentVariables: formattedVariables
+            Template: templateName,
+            Parameters: parameters
         });
+
         const response = await axios.post(
             `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
             new URLSearchParams({
                 From: process.env.TWILIO_WHATSAPP_NUMBER,
                 To: toNumber,
                 MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-                Body: "Template Message",
-                ContentSid: contentSid,
-                ContentVariables: formattedVariables
+                Type: "template",
+                Template: JSON.stringify({
+                    name: templateName,
+                    language: { code: "en_US" },
+                    components: [
+                        {
+                            type: "body",
+                            parameters: parameters
+                        }
+                    ]
+                })
             }).toString(),
             {
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -180,10 +186,11 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
                 }
             }
         );
-        console.log(`[✅] Twilio template message sent successfully to ${toNumber} with ContentSid "${contentSid}"`);
+
+        console.log(`[✅] Twilio WhatsApp template message sent successfully to ${toNumber} using template "${templateName}"`);
         return true;
     } catch (error) {
-        console.error("[ERROR] Twilio template message failed:", error.response?.data || error.message);
+        console.error("[ERROR] Twilio WhatsApp template message failed:", error.response?.data || error.message);
         return false;
     }
 };
@@ -389,58 +396,82 @@ if (pendingState && (pendingState.pendingExpense || pendingState.pendingRevenue 
                 }
                 if (jobName) {
                     await setActiveJob(from, jobName);
-                    return res.send(`<Response><Message>✅ Job "${jobName}" is now active. All expenses will be assigned to this job.</Message></Response>`);
+                    
+                    const sent = await sendTemplateMessage(
+                        from,
+                        "start_job", // Ensure this matches the template name in Twilio
+                        [
+                            { type: "text", text: jobName }
+                        ]
+                    );
+                
+                    if (sent) {
+                        return res.send(`<Response><Message>✅ Quick Reply Sent. Please confirm the job.</Message></Response>`);
                 } else {
                     return res.send(`<Response><Message>⚠️ Could not determine the job name. Please specify the job name.</Message></Response>`);
                 }
+            } else {
+                return res.send(`<Response><Message>⚠️ Could not determine the job name. Please specify the job name.</Message></Response>`);
             }
+        }
 
             // 0.5 Add Bill Command
-            else if (body && body.toLowerCase().includes("bill")) {
-                let billData = null;
-                const billRegex = /bill\s+([\w\s]+)\s+\$([\d,]+(?:\.\d{1,2})?)\s+due\s+([\w\d-]+)/i;
-                const billMatch = body.match(billRegex);
-                if (billMatch) {
-                    billData = {
-                        billName: billMatch[1].trim(),
-                        amount: `$${parseFloat(billMatch[2].replace(/,/g, '')).toFixed(2)}`,
-                        dueDate: billMatch[3].trim()
-                    };
-                }
-                if (!billData || !billData.billName || !billData.amount || !billData.dueDate) {
-                    try {
-                        const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-                        const gptResponse = await openaiClient.chat.completions.create({
-                            model: "gpt-3.5-turbo",
-                            messages: [
-                                { role: "system", content: "Extract bill details from the following message. Return a JSON object with keys: billName, amount, dueDate." },
-                                { role: "user", content: `Message: "${body}"` }
-                            ],
-                            max_tokens: 60,
-                            temperature: 0.3
-                        });
-                        billData = JSON.parse(gptResponse.choices[0].message.content);
-                    } catch (error) {
-                        console.error("[ERROR] GPT fallback for bill parsing failed:", error);
-                    }
-                }
-                if (billData && billData.billName && billData.amount && billData.dueDate) {
-                    const activeJob = (await getActiveJob(from)) || "Uncategorized";
-                    await appendToUserSpreadsheet(from, [
-                        billData.dueDate,
-                        billData.billName,
-                        billData.amount,
-                        'Recurring Bill',
-                        activeJob,
-                        'bill',
-                        'recurring'
-                    ]);
-                    return res.send(`<Response><Message>✅ Bill "${billData.billName}" for ${billData.amount} due on ${billData.dueDate} added.</Message></Response>`);
-                } else {
-                    return res.send(`<Response><Message>⚠️ Could not parse bill details. Please provide the details in the format: "bill [name] $[amount] due [date]".</Message></Response>`);
-                }
-            }
+else if (body && body.toLowerCase().includes("bill")) {
+    let billData = null;
+    const billRegex = /bill\s+([\w\s]+)\s+\$([\d,]+(?:\.\d{1,2})?)\s+due\s+([\w\d-]+)/i;
+    const billMatch = body.match(billRegex);
+    if (billMatch) {
+        billData = {
+            billName: billMatch[1].trim(),
+            amount: `$${parseFloat(billMatch[2].replace(/,/g, '')).toFixed(2)}`,
+            dueDate: billMatch[3].trim(),
+            recurrence: "One-time" // Default to one-time if not provided
+        };
+    }
+    if (!billData || !billData.billName || !billData.amount || !billData.dueDate) {
+        try {
+            const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+            const gptResponse = await openaiClient.chat.completions.create({
+                model: "gpt-3.5-turbo",
+                messages: [
+                    { role: "system", content: "Extract bill details from the following message. Return a JSON object with keys: billName, amount, dueDate, recurrence." },
+                    { role: "user", content: `Message: "${body}"` }
+                ],
+                max_tokens: 60,
+                temperature: 0.3
+            });
+            billData = JSON.parse(gptResponse.choices[0].message.content);
+            billData.recurrence = billData.recurrence || "One-time"; // Ensure recurrence is always set
+        } catch (error) {
+            console.error("[ERROR] GPT fallback for bill parsing failed:", error);
+        }
+    }
+    if (billData && billData.billName && billData.amount && billData.dueDate) {
+        const activeJob = (await getActiveJob(from)) || "Uncategorized";
 
+        // Store the bill data temporarily for confirmation
+        await setPendingTransactionState(from, { pendingBill: billData });
+
+        // Send WhatsApp Template Message for Confirmation
+        const sent = await sendTemplateMessage(
+            from,
+            "bill_confirmation", // Ensure this matches the Twilio template name
+            [
+                { type: "text", text: billData.amount },
+                { type: "text", text: billData.dueDate },
+                { type: "text", text: billData.recurrence }
+            ]
+        );
+
+        if (sent) {
+            return res.send(`<Response><Message>✅ Quick Reply Sent. Please confirm the bill.</Message></Response>`);
+        } else {
+            return res.send(`<Response><Message>⚠️ Failed to send bill confirmation. Please try again.</Message></Response>`);
+        }
+    } else {
+        return res.send(`<Response><Message>⚠️ Could not parse bill details. Please provide the details in the format: "bill [name] $[amount] due [date]".</Message></Response>`);
+    }
+}
             // 2. Revenue Logging Branch
             else if (
                 body && (
@@ -499,9 +530,11 @@ if (pendingState && (pendingState.pendingExpense || pendingState.pendingRevenue 
                 await setPendingTransactionState(from, { pendingRevenue: revenueData });
                 const sent = await sendTemplateMessage(
                     from,
-                    confirmationTemplates.revenue,
-                    { "1": `Please confirm: Revenue of ${revenueData.amount} from ${revenueData.source} on ${revenueData.date}` }
-                );
+                    "revenue_confirmation", // Make sure this matches the actual template name in Twilio
+                    [
+                        { type: "text", text: `Revenue of ${revenueData.amount} from ${revenueData.source} on ${revenueData.date}.` }
+                    ]
+                );                
                 if (sent) {
                     return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
                 } else {
@@ -539,9 +572,11 @@ if (pendingState && (pendingState.pendingExpense || pendingState.pendingRevenue 
                     await setPendingTransactionState(from, { pendingExpense: expenseData });
                     const sent = await sendTemplateMessage(
                         from,
-                        confirmationTemplates.expense,
-                        { "1": `Please confirm: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?` }
-                    );
+                        "expense_confirmation", // Ensure this matches the template name in Twilio
+                        [
+                            { type: "text", text: `Expense: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}.` }
+                        ]
+                    );                    
                     if (sent) {
                         return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
                     } else {

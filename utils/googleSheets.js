@@ -140,31 +140,25 @@ async function logRevenueEntry(userEmail, date, amount, source, category, paymen
   const sheetName = 'Revenue';
 
   try {
-
-    
       // Ensure the sheet exists, create if necessary
       await ensureSheetExists(sheets, spreadsheetId, sheetName);
-// Format the revenue entry
-      const numericAmount = formatAmount(amount, 'revenue');
-// If you want to store it formatted with a dollar sign:
-const formattedAmount = `$${numericAmount.toFixed(2)}`;
-const values = [[date, formattedAmount, source, category, paymentMethod, notes]];
 
-      console.log("[DEBUG] Logging Revenue Entry:", { userEmail, date, amount, source, category, paymentMethod, notes });
+      // Use formatAmount to handle string-to-number conversion and formatting
+      const formattedAmount = formatAmount(amount, 'revenue'); // Returns "$500.00" for revenue
 
-      // Append the revenue entry
+      const values = [[date, source, formattedAmount, category, paymentMethod, notes]];
       await sheets.spreadsheets.values.append({
-          spreadsheetId: spreadsheetId,
+          spreadsheetId,
           range: `${sheetName}!A:F`,
           valueInputOption: 'USER_ENTERED',
-          resource: { values },
+          resource: { values }
       });
 
-      console.log(`Revenue entry logged: ${amount} from ${source}`);
+      console.log(`[✅] Revenue logged: ${formattedAmount} from ${source} on ${date}`);
       return true;
   } catch (error) {
-      console.error('Error logging revenue entry:', error);
-      return false;
+      console.error("Error logging revenue entry:", error.message);
+      throw error;
   }
 }
 
