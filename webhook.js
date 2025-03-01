@@ -414,10 +414,11 @@ else if (body && body.toLowerCase().includes("bill")) {
     const billRegex = /bill\s+([\w\s]+)\s+\$([\d,]+(?:\.\d{1,2})?)\s+(?:per\s+)?(\w+)?\s*(?:on|due)\s+([\w\d\s,-]+)/i;
     const billMatch = body.match(billRegex);
     if (billMatch) {
+        const rawRecurrence = billMatch[3] ? billMatch[3].toLowerCase() : "one-time";
         billData = {
             billName: billMatch[1].trim(),
             amount: `$${parseFloat(billMatch[2].replace(/,/g, '')).toFixed(2)}`,
-            recurrence: billMatch[3] ? billMatch[3].toLowerCase() : "one-time", // e.g., "month" → "monthly"
+            recurrence: rawRecurrence === "month" ? "monthly" : rawRecurrence, // Map "month" to "monthly"
             dueDate: billMatch[4].trim()
         };
     }
@@ -437,7 +438,7 @@ else if (body && body.toLowerCase().includes("bill")) {
             });
             billData = JSON.parse(gptResponse.choices[0].message.content);
             billData.amount = billData.amount ? `$${parseFloat(billData.amount.replace(/[^0-9.]/g, '')).toFixed(2)}` : null;
-            billData.recurrence = billData.recurrence || "one-time";
+            billData.recurrence = billData.recurrence === "month" ? "monthly" : billData.recurrence || "one-time";
         } catch (error) {
             console.error("[ERROR] GPT fallback for bill parsing failed:", error);
         }
@@ -454,7 +455,7 @@ else if (body && body.toLowerCase().includes("bill")) {
         );
         if (sent) {
             console.log("[DEBUG] Twilio template sent successfully, no additional message sent to WhatsApp.");
-            return res.send(`<Response></Response>`); // Hide "Quick Reply Sent"
+            return res.send(`<Response></Response>`);
         } else {
             return res.send(`<Response><Message>⚠️ Failed to send bill confirmation. Please try again.</Message></Response>`);
         }
