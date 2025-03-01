@@ -521,7 +521,7 @@ else if (body && body.toLowerCase().includes("bill")) {
     const sent = await sendTemplateMessage(
         from,
         confirmationTemplates.revenue, // "HXb3086ca639cb4882fb2c68f2cd569cb4"
-        { "1": `Please confirm: Revenue of ${revenueData.amount} from ${revenueData.source} on ${revenueData.date}` }
+        { "1": `Revenue of ${revenueData.amount} from ${revenueData.source} on ${revenueData.date}` }
     );
     if (sent) {
         return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
