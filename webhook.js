@@ -145,38 +145,28 @@ const confirmationTemplates = {
 };
 
 // ─── SEND TEMPLATE MESSAGE FUNCTION ─────────────────────
-const sendTemplateMessage = async (to, templateName, parameters) => {
+const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
     try {
-        if (!to || !process.env.TWILIO_WHATSAPP_NUMBER) {
-            console.error("[ERROR] Missing required phone numbers for Twilio message.");
+        if (!contentSid) {
+            console.error("[ERROR] Missing ContentSid for Twilio template message.");
             return false;
         }
-
         const toNumber = to.startsWith("whatsapp:") ? to : `whatsapp:${to}`;
-
-        console.log("[DEBUG] Sending Twilio WhatsApp template message with:", {
+        const formattedVariables = JSON.stringify(contentVariables);
+        console.log("[DEBUG] Sending Twilio template message with:", {
             To: toNumber,
-            Template: templateName,
-            Parameters: parameters
+            ContentSid: contentSid,
+            ContentVariables: formattedVariables
         });
-
         const response = await axios.post(
             `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
             new URLSearchParams({
                 From: process.env.TWILIO_WHATSAPP_NUMBER,
                 To: toNumber,
                 MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-                Type: "template",
-                Template: JSON.stringify({
-                    name: templateName,
-                    language: { code: "en_US" },
-                    components: [
-                        {
-                            type: "body",
-                            parameters: parameters
-                        }
-                    ]
-                })
+                Body: "Template Message",
+                ContentSid: contentSid,
+                ContentVariables: formattedVariables
             }).toString(),
             {
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -186,15 +176,13 @@ const sendTemplateMessage = async (to, templateName, parameters) => {
                 }
             }
         );
-
-        console.log(`[✅] Twilio WhatsApp template message sent successfully to ${toNumber} using template "${templateName}"`);
+        console.log(`[✅] Twilio template message sent successfully to ${toNumber} with ContentSid "${contentSid}"`);
         return true;
     } catch (error) {
-        console.error("[ERROR] Twilio WhatsApp template message failed:", error.response?.data || error.message);
+        console.error("[ERROR] Twilio template message failed:", error.response?.data || error.message);
         return false;
     }
 };
-
 // ─── WEBHOOK HANDLER ─────────────────────────────
 app.post('/webhook', async (req, res) => {
     const rawPhone = req.body.From;
