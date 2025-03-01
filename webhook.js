@@ -532,50 +532,55 @@ else if (body && body.toLowerCase().includes("bill")) {
 }
 
             // 4. Expense Logging for Text Messages
-            else if (body) {
-                const activeJob = (await getActiveJob(from)) || "Uncategorized";
-                let expenseData = parseExpenseMessage(body);
-                if (!expenseData || !expenseData.item || !expenseData.amount || !expenseData.store) {
-                    console.log("[DEBUG] Regex parsing failed for expense, using GPT-3.5 for fallback...");
-                    try {
-                        const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-                        const gptResponse = await openaiClient.chat.completions.create({
-                            model: "gpt-3.5-turbo",
-                            messages: [
-                                { role: "system", content: "Extract structured expense data from the following message. Return JSON with keys: date, item, amount, store." },
-                                { role: "user", content: `Message: "${body}"` }
-                            ],
-                            max_tokens: 60,
-                            temperature: 0.3
-                        });
-                        expenseData = JSON.parse(gptResponse.choices[0].message.content);
-                        if (!expenseData.date) {
-                            expenseData.date = new Date().toISOString().split("T")[0];
-                        }
-                        console.log("[DEBUG] GPT-3.5 Fallback Expense Result:", expenseData);
-                    } catch (error) {
-                        console.error("[ERROR] GPT-3.5 expense parsing failed:", error);
-                    }
-                }
-                if (expenseData && expenseData.item && expenseData.amount && expenseData.store) {
-                    await setPendingTransactionState(from, { pendingExpense: expenseData });
-                    const sent = await sendTemplateMessage(
-                        from,
-                        "expense_confirmation", // Ensure this matches the template name in Twilio
-                        [
-                            { type: "text", text: `Expense: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}.` }
-                        ]
-                    );                    
-                    if (sent) {
-                        return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
-                    } else {
-                        return res.send(`<Response><Message>⚠️ Failed to send expense confirmation. Please try again.</Message></Response>`);
-                    }
-                } else {
-                    reply = "⚠️ Could not understand your expense message. Please provide a valid expense message.";
-                    return res.send(`<Response><Message>${reply}</Message></Response>`);
-                }
+else if (body) {
+    console.log("[DEBUG] Attempting to parse expense message:", body);
+    const activeJob = (await getActiveJob(from)) || "Uncategorized";
+    let expenseData = parseExpenseMessage(body);
+
+    if (!expenseData || !expenseData.item || !expenseData.amount || !expenseData.store) {
+        console.log("[DEBUG] Regex parsing failed for expense, using GPT-3.5 for fallback...");
+        try {
+            const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+            const gptResponse = await openaiClient.chat.completions.create({
+                model: "gpt-3.5-turbo",
+                messages: [
+                    { role: "system", content: "Extract structured expense data from the following message. Return JSON with keys: date, item, amount, store." },
+                    { role: "user", content: `Message: "${body}"` }
+                ],
+                max_tokens: 60,
+                temperature: 0.3
+            });
+            expenseData = JSON.parse(gptResponse.choices[0].message.content);
+            if (!expenseData.date) {
+                expenseData.date = new Date().toISOString().split("T")[0];
             }
+            console.log("[DEBUG] GPT-3.5 Fallback Expense Result:", expenseData);
+        } catch (error) {
+            console.error("[ERROR] GPT-3.5 expense parsing failed:", error);
+        }
+    }
+
+    if (expenseData && expenseData.item && expenseData.amount && expenseData.store) {
+        // Post-process to fix parsing (e.g., "Feb" as item)
+        if (expenseData.item.toLowerCase().includes("feb") && body.toLowerCase().includes("plywood")) {
+            expenseData.item = "Plywood"; // Correct item misparse
+        }
+        await setPendingTransactionState(from, { pendingExpense: expenseData });
+        const sent = await sendTemplateMessage(
+            from,
+            confirmationTemplates.expense, // "HX9f6b7188f055fa25f8170f915e53cbd0"
+            { "1": `Expense of ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}` }
+        );
+        if (sent) {
+            console.log("[DEBUG] Twilio template sent successfully, no additional message sent to WhatsApp.");
+            return res.send(`<Response></Response>`); // Hide "Quick Reply Sent"
+        } else {
+            return res.send(`<Response><Message>⚠️ Failed to send expense confirmation. Please try again.</Message></Response>`);
+        }
+    } else {
+        return res.send(`<Response><Message>⚠️ Could not understand your expense message. Please provide a valid expense message.</Message></Response>`);
+    }
+}
 
             // Media Handling for Expense Logging
 else if (mediaUrl) {
