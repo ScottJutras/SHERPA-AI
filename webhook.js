@@ -406,60 +406,60 @@ app.post('/webhook', async (req, res) => {
         }
 
             // 0.5 Add Bill Command
+// 0.5 Add Bill Command
 else if (body && body.toLowerCase().includes("bill")) {
+    console.log("[DEBUG] Detected a bill message:", body);
+    const activeJob = (await getActiveJob(from)) || "Uncategorized";
     let billData = null;
-    const billRegex = /bill\s+([\w\s]+)\s+\$([\d,]+(?:\.\d{1,2})?)\s+due\s+([\w\d-]+)/i;
+    const billRegex = /bill\s+([\w\s]+)\s+\$([\d,]+(?:\.\d{1,2})?)\s+(?:per\s+)?(\w+)?\s*(?:on|due)\s+([\w\d\s,-]+)/i;
     const billMatch = body.match(billRegex);
     if (billMatch) {
         billData = {
             billName: billMatch[1].trim(),
             amount: `$${parseFloat(billMatch[2].replace(/,/g, '')).toFixed(2)}`,
-            dueDate: billMatch[3].trim(),
-            recurrence: "One-time" // Default to one-time if not provided
+            recurrence: billMatch[3] ? billMatch[3].toLowerCase() : "one-time", // e.g., "month" → "monthly"
+            dueDate: billMatch[4].trim()
         };
     }
+
     if (!billData || !billData.billName || !billData.amount || !billData.dueDate) {
+        console.log("[DEBUG] Regex parsing failed for bill, using GPT-3.5 for fallback...");
         try {
             const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
             const gptResponse = await openaiClient.chat.completions.create({
                 model: "gpt-3.5-turbo",
                 messages: [
-                    { role: "system", content: "Extract bill details from the following message. Return a JSON object with keys: billName, amount, dueDate, recurrence." },
+                    { role: "system", content: "Extract bill details from the following message. Return a JSON object with keys: billName, amount, dueDate, recurrence (e.g., 'monthly', 'one-time')." },
                     { role: "user", content: `Message: "${body}"` }
                 ],
                 max_tokens: 60,
                 temperature: 0.3
             });
             billData = JSON.parse(gptResponse.choices[0].message.content);
-            billData.recurrence = billData.recurrence || "One-time"; // Ensure recurrence is always set
+            billData.amount = billData.amount ? `$${parseFloat(billData.amount.replace(/[^0-9.]/g, '')).toFixed(2)}` : null;
+            billData.recurrence = billData.recurrence || "one-time";
         } catch (error) {
             console.error("[ERROR] GPT fallback for bill parsing failed:", error);
         }
     }
+
     if (billData && billData.billName && billData.amount && billData.dueDate) {
-        const activeJob = (await getActiveJob(from)) || "Uncategorized";
-
-        // Store the bill data temporarily for confirmation
         await setPendingTransactionState(from, { pendingBill: billData });
-
-        // Send WhatsApp Template Message for Confirmation
         const sent = await sendTemplateMessage(
             from,
-            "bill_confirmation", // Ensure this matches the Twilio template name
-            [
-                { type: "text", text: billData.amount },
-                { type: "text", text: billData.dueDate },
-                { type: "text", text: billData.recurrence }
-            ]
+            confirmationTemplates.bill, // "HX2f1814b7932c2a11e10b2ea8050f1614"
+            {
+                "1": `${billData.billName} for ${billData.amount} due on ${billData.dueDate} (${billData.recurrence})`
+            }
         );
-
         if (sent) {
-            return res.send(`<Response><Message>✅ Quick Reply Sent. Please confirm the bill.</Message></Response>`);
+            console.log("[DEBUG] Twilio template sent successfully, no additional message sent to WhatsApp.");
+            return res.send(`<Response></Response>`); // Hide "Quick Reply Sent"
         } else {
             return res.send(`<Response><Message>⚠️ Failed to send bill confirmation. Please try again.</Message></Response>`);
         }
     } else {
-        return res.send(`<Response><Message>⚠️ Could not parse bill details. Please provide the details in the format: "bill [name] $[amount] due [date]".</Message></Response>`);
+        return res.send(`<Response><Message>⚠️ Could not parse bill details. Please provide the details in the format: "bill [name] $[amount] due [date]" or "bill [name] $[amount] per [period] on [date]".</Message></Response>`);
     }
 }
             // 2. Revenue Logging Branch
