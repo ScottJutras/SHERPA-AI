@@ -527,20 +527,18 @@ else if (body && body.toLowerCase().includes("bill")) {
                     }
                 }
                 console.log("[DEBUG] Revenue data ready:", revenueData);
-                await setPendingTransactionState(from, { pendingRevenue: revenueData });
-                const sent = await sendTemplateMessage(
-                    from,
-                    "revenue_confirmation", // Make sure this matches the actual template name in Twilio
-                    [
-                        { type: "text", text: `Revenue of ${revenueData.amount} from ${revenueData.source} on ${revenueData.date}.` }
-                    ]
-                );                
-                if (sent) {
-                    return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
-                } else {
-                    return res.send(`<Response><Message>⚠️ Failed to send revenue confirmation. Please try again.</Message></Response>`);
-                }
-            }
+    await setPendingTransactionState(from, { pendingRevenue: revenueData });
+    const sent = await sendTemplateMessage(
+        from,
+        confirmationTemplates.revenue, // Ensure this is your new SID
+        { "1": `Please confirm: Revenue of ${revenueData.amount} from ${revenueData.source} on ${revenueData.date}` }
+    );
+    if (sent) {
+        return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+    } else {
+        return res.send(`<Response><Message>⚠️ Failed to send revenue confirmation. Please try again.</Message></Response>`);
+    }
+}
 
             // 4. Expense Logging for Text Messages
             else if (body) {
