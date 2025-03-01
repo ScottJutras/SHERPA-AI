@@ -1,17 +1,26 @@
-require('dotenv').config();
+require('dotenv').config(); // Load environment variables first
+
+// Core Node.js utilities
+const { URLSearchParams } = require('url');
+const fs = require('fs');
+const path = require('path');
+
+// Third-party libraries
 const admin = require("firebase-admin");
 const express = require('express');
 const OpenAI = require('openai');
 const bodyParser = require('body-parser');
 const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
-const areaCodeMap = require('./utils/areaCodes');
+const { google } = require('googleapis');
+
+// Local utilities
+const areaCodeMap = require('./utils/areaCodes'); // For onboarding region detection
 const { parseExpenseMessage, parseRevenueMessage } = require('./utils/expenseParser');
 const {
     getUserProfile,
     saveUserProfile,
     logRevenueEntry,
+    getAuthorizedClient,
     appendToUserSpreadsheet,
     getOrCreateUserSpreadsheet,
     fetchExpenseData,
@@ -25,10 +34,10 @@ const { extractTextFromImage } = require('./utils/visionService');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
 const { sendSpreadsheetEmail } = require('./utils/sendGridService');
 const { transcribeAudio } = require('./utils/transcriptionService');
-const storeList = require('./utils/storeList'); // Add this to imports
-const constructionStores = storeList.map(store => store.toLowerCase()); // Define globally
+const storeList = require('./utils/storeList');
+const constructionStores = storeList.map(store => store.toLowerCase());
 
-// ─── FIREBASE ADMIN SETUP ────────────────────────────────────────────
+// Firebase Admin Setup
 if (!admin.apps.length) {
     const firebaseCredentialsBase64 = process.env.FIREBASE_CREDENTIALS_BASE64;
     if (!firebaseCredentialsBase64) {
@@ -78,7 +87,7 @@ const deletePendingTransactionState = async (from) => {
     await db.collection('pendingTransactions').doc(from).delete();
 };
 
-// ─── UTILITY FUNCTIONS ─────────────────────────────────────────────
+// Utility Functions
 function normalizePhoneNumber(phone) {
     return phone
         .replace(/^whatsapp:/i, '')
@@ -108,12 +117,12 @@ function detectCountryAndRegion(phoneNumber) {
     return { country, region };
 }
 
-// ─── EXPRESS APP SETUP ───────────────────────────────────────────────
+// Express App Setup
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
-// ─── ONBOARDING STEPS & STATE ─────────────────────────────────────────
+// Onboarding Steps & State
 const onboardingSteps = [
     "Can I get your name?",
     "Are you in Canada or USA? (Canada/USA)",
@@ -143,7 +152,6 @@ const confirmationTemplates = {
     bill: "HX2f1814b7932c2a11e10b2ea8050f1614",
     startJob: "HXa4f19d568b70b3493e64933ce5e6a040"
 };
-
 // ─── SEND TEMPLATE MESSAGE FUNCTION ─────────────────────
 const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
     try {
@@ -548,7 +556,129 @@ else if (body && body.toLowerCase().includes("bill")) {
         return res.send(`<Response><Message>⚠️ Failed to send revenue confirmation. Please try again.</Message></Response>`);
     }
 }
+// 6. Metrics Queries
+else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().includes("profit") || body.toLowerCase().includes("margin") || body.toLowerCase().includes("spend"))) {
+    console.log("[DEBUG] Detected a metrics query:", body);
+    const activeJob = (await getActiveJob(from)) || "Uncategorized";
+    const spreadsheetId = userProfile.spreadsheetId;
 
+    // Fetch data from Google Sheets
+    const auth = await getAuthorizedClient();
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    // Define ranges (adjust based on your sheet structure)
+    const expenseRange = 'Sheet1!A:G'; // Assuming expenses and bills are in main sheet
+    const revenueRange = 'Revenue!A:F'; // Assuming revenues are in a separate tab
+
+    let expenses = [];
+    let revenues = [];
+    let bills = [];
+
+    try {
+        const expenseResponse = await sheets.spreadsheets.values.get({ spreadsheetId, range: expenseRange });
+        const allRows = expenseResponse.data.values || [];
+        expenses = allRows.filter(row => row[5] === "expense"); // Type "expense"
+        bills = allRows.filter(row => row[5] === "bill"); // Type "bill"
+
+        const revenueResponse = await sheets.spreadsheets.values.get({ spreadsheetId, range: revenueRange });
+        revenues = revenueResponse.data.values || [];
+    } catch (error) {
+        console.error("[ERROR] Failed to fetch data from Google Sheets:", error);
+        return res.send(`<Response><Message>⚠️ Could not retrieve your data. Please try again later.</Message></Response>`);
+    }
+
+    // Parse and calculate metrics
+    const now = new Date();
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const nextMonthStr = nextMonth.toISOString().split('T')[0].slice(0, 7); // e.g., "2025-03"
+
+    // Helper function to parse amount
+    const parseAmount = (amountStr) => parseFloat(amountStr.replace(/[^0-9.-]/g, '')) || 0;
+
+    // Example 1: "How much do I need to make to ensure that I can pay all of my bills next month?"
+    if (body.toLowerCase().includes("need to make") && body.toLowerCase().includes("bills") && body.toLowerCase().includes("next month")) {
+        const nextMonthBills = bills.filter(row => row[0].startsWith(nextMonthStr));
+        const totalBills = nextMonthBills.reduce((sum, row) => sum + parseAmount(row[2]), 0);
+        return res.send(`<Response><Message>You need to make $${totalBills.toFixed(2)} to cover your bills for ${nextMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}.</Message></Response>`);
+    }
+
+    // Example 2: "What was my profit margin on Job 75 Hampton?"
+    if (body.toLowerCase().includes("profit margin") && body.toLowerCase().includes("job")) {
+        const jobName = body.match(/job\s+([\w\s]+)/i)?.[1]?.trim() || activeJob;
+        const jobExpenses = expenses.filter(row => row[4] === jobName && row[5] === "expense");
+        const jobRevenues = revenues.filter(row => row[4] === jobName);
+        const totalExpenses = jobExpenses.reduce((sum, row) => sum + parseAmount(row[2]), 0); // Negative amounts
+        const totalRevenue = jobRevenues.reduce((sum, row) => sum + parseAmount(row[2]), 0); // Positive amounts
+        const profit = totalRevenue + totalExpenses;
+        const margin = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0;
+        return res.send(`<Response><Message>Your profit margin on Job ${jobName} was ${margin.toFixed(2)}% (Revenue: $${totalRevenue.toFixed(2)}, Expenses: $${Math.abs(totalExpenses).toFixed(2)}, Profit: $${profit.toFixed(2)}).</Message></Response>`);
+    }
+
+    // Example 3: "How much did I spend on materials on Job 75 Hampton?"
+    if (body.toLowerCase().includes("spend") && body.toLowerCase().includes("materials") && body.toLowerCase().includes("job")) {
+        const jobName = body.match(/job\s+([\w\s]+)/i)?.[1]?.trim() || activeJob;
+        const materialExpenses = expenses.filter(row => row[4] === jobName && row[5] === "expense" && row[6] === "Construction Materials");
+        const totalMaterialCost = materialExpenses.reduce((sum, row) => sum + parseAmount(row[2]), 0);
+        return res.send(`<Response><Message>You spent $${Math.abs(totalMaterialCost).toFixed(2)} on materials for Job ${jobName}.</Message></Response>`);
+    }
+
+    // Example 4: "How much profit did I make in February?"
+    if (body.toLowerCase().includes("profit") && body.toLowerCase().includes("in") && body.toLowerCase().match(/(january|february|march|april|may|june|july|august|september|october|november|december)/i)) {
+        const monthMatch = body.toLowerCase().match(/(january|february|march|april|may|june|july|august|september|october|november|december)/i)[1];
+        const monthIndex = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"].indexOf(monthMatch);
+        const year = new Date().getFullYear(); // Assume current year unless specified
+        const monthStr = `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
+        const monthExpenses = expenses.filter(row => row[0].startsWith(monthStr));
+        const monthRevenues = revenues.filter(row => row[0].startsWith(monthStr));
+        const totalExpenses = monthExpenses.reduce((sum, row) => sum + parseAmount(row[2]), 0);
+        const totalRevenue = monthRevenues.reduce((sum, row) => sum + parseAmount(row[2]), 0);
+        const profit = totalRevenue + totalExpenses;
+        return res.send(`<Response><Message>You made a profit of $${profit.toFixed(2)} in ${monthMatch.charAt(0).toUpperCase() + monthMatch.slice(1)} (Revenue: $${totalRevenue.toFixed(2)}, Expenses: $${Math.abs(totalExpenses).toFixed(2)}).</Message></Response>`);
+    }
+
+    // Example 5: "How much profit have I made year to date?"
+    if (body.toLowerCase().includes("profit") && body.toLowerCase().includes("year to date")) {
+        const yearStr = now.getFullYear().toString();
+        const ytdExpenses = expenses.filter(row => row[0].startsWith(yearStr));
+        const ytdRevenues = revenues.filter(row => row[0].startsWith(yearStr));
+        const totalExpenses = ytdExpenses.reduce((sum, row) => sum + parseAmount(row[2]), 0);
+        const totalRevenue = ytdRevenues.reduce((sum, row) => sum + parseAmount(row[2]), 0);
+        const profit = totalRevenue + totalExpenses;
+        return res.send(`<Response><Message>Your year-to-date profit is $${profit.toFixed(2)} (Revenue: $${totalRevenue.toFixed(2)}, Expenses: $${Math.abs(totalExpenses).toFixed(2)}).</Message></Response>`);
+    }
+
+    // Example 6: "What are my total expenses this month?"
+    if (body.toLowerCase().includes("total expenses") && body.toLowerCase().includes("this month")) {
+        const thisMonthStr = now.toISOString().split('T')[0].slice(0, 7); // e.g., "2025-03"
+        const thisMonthExpenses = expenses.filter(row => row[0].startsWith(thisMonthStr));
+        const totalExpenses = thisMonthExpenses.reduce((sum, row) => sum + parseAmount(row[2]), 0);
+        return res.send(`<Response><Message>Your total expenses this month are $${Math.abs(totalExpenses).toFixed(2)}.</Message></Response>`);
+    }
+
+    // Example 7: "How much revenue did I make on Job 75 Hampton?"
+    if (body.toLowerCase().includes("revenue") && body.toLowerCase().includes("job")) {
+        const jobName = body.match(/job\s+([\w\s]+)/i)?.[1]?.trim() || activeJob;
+        const jobRevenues = revenues.filter(row => row[4] === jobName);
+        const totalRevenue = jobRevenues.reduce((sum, row) => sum + parseAmount(row[2]), 0);
+        return res.send(`<Response><Message>You made $${totalRevenue.toFixed(2)} in revenue on Job ${jobName}.</Message></Response>`);
+    }
+
+    // Example 8: "What’s my average monthly profit this year?"
+    if (body.toLowerCase().includes("average monthly profit") && body.toLowerCase().includes("this year")) {
+        const yearStr = now.getFullYear().toString();
+        const ytdExpenses = expenses.filter(row => row[0].startsWith(yearStr));
+        const ytdRevenues = revenues.filter(row => row[0].startsWith(yearStr));
+        const totalExpenses = ytdExpenses.reduce((sum, row) => sum + parseAmount(row[2]), 0);
+        const totalRevenue = ytdRevenues.reduce((sum, row) => sum + parseAmount(row[2]), 0);
+        const profit = totalRevenue + totalExpenses;
+        const monthsSoFar = now.getMonth() + 1; // 1-based (e.g., March = 3)
+        const avgProfit = profit / monthsSoFar;
+        return res.send(`<Response><Message>Your average monthly profit this year is $${avgProfit.toFixed(2)} (Total Profit: $${profit.toFixed(2)} over ${monthsSoFar} months).</Message></Response>`);
+    }
+
+    // Default response for unrecognized metrics queries
+    return res.send(`<Response><Message>⚠️ I couldn’t understand your metrics request. Try asking about profit, expenses, or bills (e.g., "How much profit did I make in February?").</Message></Response>`);
+}
             // 4. Expense Logging for Text Messages
 else if (body) {
     console.log("[DEBUG] Attempting to parse expense message:", body);
@@ -704,6 +834,8 @@ else if (mediaUrl) {
         return res.send(`<Response><Message>⚠️ Internal Server Error. Please try again.</Message></Response>`);
     }
 });
+
+
 
 // ─── Helper Functions for Bill Management ─────────────────────────────
 async function updateBillInFirebase(userId, billData) {
