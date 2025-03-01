@@ -418,7 +418,7 @@ else if (body && body.toLowerCase().includes("bill")) {
         billData = {
             billName: billMatch[1].trim(),
             amount: `$${parseFloat(billMatch[2].replace(/,/g, '')).toFixed(2)}`,
-            recurrence: rawRecurrence === "month" ? "monthly" : rawRecurrence, // Map "month" to "monthly"
+            recurrence: rawRecurrence === "month" ? "monthly" : rawRecurrence,
             dueDate: billMatch[4].trim()
         };
     }
@@ -445,12 +445,29 @@ else if (body && body.toLowerCase().includes("bill")) {
     }
 
     if (billData && billData.billName && billData.amount && billData.dueDate) {
+        // Refine due date format (e.g., "March 1, 2025" → "March 1st")
+        const dateParts = billData.dueDate.match(/(\w+)\s+(\d{1,2}),?\s*(\d{4})/i);
+        let refinedDueDate = billData.dueDate;
+        if (dateParts) {
+            const month = dateParts[1];
+            const day = parseInt(dateParts[2], 10);
+            const year = dateParts[3];
+            const dayWithSuffix = day === 1 ? "1st" : day === 2 ? "2nd" : day === 3 ? "3rd" : `${day}th`;
+            refinedDueDate = `${month} ${dayWithSuffix}`;
+        }
+
         await setPendingTransactionState(from, { pendingBill: billData });
         const sent = await sendTemplateMessage(
             from,
             confirmationTemplates.bill, // "HX2f1814b7932c2a11e10b2ea8050f1614"
             {
-                "1": `${billData.billName} for ${billData.amount} due on ${billData.dueDate} (${billData.recurrence})`
+                "1": billData.amount, // Amount for current template
+                "2": refinedDueDate,  // Due Date for current template
+                "3": billData.recurrence.charAt(0).toUpperCase() + billData.recurrence.slice(1) // Recurrence for current template
+                // "1": billData.billName, // Uncomment and adjust indices when new template is approved
+                // "2": billData.amount,
+                // "3": refinedDueDate,
+                // "4": billData.recurrence.charAt(0).toUpperCase() + billData.recurrence.slice(1)
             }
         );
         if (sent) {
