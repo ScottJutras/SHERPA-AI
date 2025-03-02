@@ -678,122 +678,130 @@ else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().
     // Default response for unrecognized metrics queries
     return res.send(`<Response><Message>⚠️ I couldn’t understand your metrics request. Try asking about profit, expenses, or bills (e.g., "How much profit did I make in February?").</Message></Response>`);
 }
-else if (mediaUrl) {
-    console.log("[DEBUG] Checking media in message...");
-    let combinedText = "";
 
-    if (mediaType && mediaType.includes("audio")) {
-        try {
-            const audioResponse = await axios.get(mediaUrl, {
-                responseType: 'arraybuffer',
-                auth: {
-                    username: process.env.TWILIO_ACCOUNT_SID,
-                    password: process.env.TWILIO_AUTH_TOKEN
-                }
-            });
-            const audioBuffer = Buffer.from(audioResponse.data, 'binary');
-            const transcription = await transcribeAudio(audioBuffer);
-            if (transcription) {
-                combinedText += transcription + " ";
-                console.log(`[DEBUG] Voice Transcription: "${transcription}"`);
-            } else {
-                console.log("[DEBUG] No transcription returned from audio.");
-            }
-        } catch (error) {
-            console.error("[ERROR] Failed to process audio:", error.message);
-            return res.send(`<Response><Message>⚠️ Failed to process audio. Please try again.</Message></Response>`);
-        }
-    } else if (mediaType && mediaType.includes("image")) {
-        try {
-            console.log(`[DEBUG] Processing image from ${mediaUrl}`);
-            const ocrResult = await extractTextFromImage(mediaUrl);
-            console.log(`[DEBUG] OCR Result: ${JSON.stringify(ocrResult)}`);
-
-            if (ocrResult && typeof ocrResult === 'object' && ocrResult.text) {
-                combinedText += ocrResult.text + " ";
-                console.log(`[DEBUG] Extracted text from OCR: "${ocrResult.text}"`);
-            } else {
-                console.error("[ERROR] OCR did not return valid text data:", ocrResult);
-                return res.send(`<Response><Message>⚠️ No text extracted from the image. Please try again.</Message></Response>`);
-            }
-        } catch (err) {
-            console.error("[ERROR] OCR extraction error:", err.message);
-            return res.send(`<Response><Message>⚠️ Could not extract data from image. Please try again.</Message></Response>`);
-        }
-    }
-
-    if (combinedText) {
-        let expenseData = parseExpenseMessage(combinedText);
-        if (!expenseData || !expenseData.item || !expenseData.amount || expenseData.amount === "$0.00" || !expenseData.store) {
-            console.log("[DEBUG] Regex parsing failed or amount invalid for expense from media, using GPT-3.5 for fallback...");
+    //Media Handling
+    else if (mediaUrl) {
+        console.log("[DEBUG] Checking media in message...");
+        let combinedText = "";
+    
+        if (mediaType && mediaType.includes("audio")) {
             try {
-                const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-                const gptResponse = await openaiClient.chat.completions.create({
-                    model: "gpt-3.5-turbo",
-                    messages: [
-                        { 
-                            role: "system", 
-                            content: "Extract structured expense data from the following receipt text. Return JSON with keys: date, item, amount, store. Prefer 'TOTAL' amount if present (e.g., '$150.00'). Use store name from the top of the receipt if available (e.g., 'Standing Stone Gas'). Correct 'roof Mark' or 'roof Mart' to 'Roofmart'. If date is missing, use today's date." 
-                        },
-                        { role: "user", content: `Text: "${combinedText.trim()}"` }
-                    ],
-                    max_tokens: 60,
-                    temperature: 0.3
+                const audioResponse = await axios.get(mediaUrl, {
+                    responseType: 'arraybuffer',
+                    auth: {
+                        username: process.env.TWILIO_ACCOUNT_SID,
+                        password: process.env.TWILIO_AUTH_TOKEN
+                    }
                 });
-                expenseData = JSON.parse(gptResponse.choices[0].message.content);
-                console.log("[DEBUG] GPT-3.5 Initial Result:", expenseData);
-
-                if (!expenseData.date || expenseData.date.toLowerCase() === "yesterday") {
-                    const yesterday = new Date();
-                    yesterday.setDate(yesterday.getDate() - 1);
-                    expenseData.date = yesterday.toISOString().split("T")[0];
-                } else if (expenseData.date.toLowerCase() === "today") {
-                    expenseData.date = new Date().toISOString().split("T")[0];
+                const audioBuffer = Buffer.from(audioResponse.data, 'binary');
+                const transcription = await transcribeAudio(audioBuffer);
+                if (transcription) {
+                    combinedText += transcription + " ";
+                    console.log(`[DEBUG] Voice Transcription: "${transcription}"`);
+                } else {
+                    console.log("[DEBUG] No transcription returned from audio.");
                 }
-                expenseData.amount = expenseData.amount ? String(`$${parseFloat(expenseData.amount.replace(/[^0-9.]/g, '')).toFixed(2)}`) : null;
-
-                const storeLower = expenseData.store.toLowerCase().replace(/\s+/g, '');
-                const matchedStore = storeList.find(store => {
-                    const normalizedStore = store.toLowerCase().replace(/\s+/g, '');
-                    return normalizedStore === storeLower || 
-                           storeLower.includes(normalizedStore) || 
-                           normalizedStore.includes(storeLower);
-                }) || storeList.find(store => 
-                    store.toLowerCase().includes("roofmart") && 
-                    (expenseData.store.toLowerCase().includes("roof") || expenseData.store.toLowerCase().includes("mart"))
-                );
-                expenseData.store = matchedStore || expenseData.store;
-                expenseData.suggestedCategory = matchedStore || constructionStores.some(store => 
-                    expenseData.store.toLowerCase().includes(store)) 
-                    ? "Construction Materials" : "General";
-
-                console.log("[DEBUG] GPT-3.5 Post-Processed Expense Result:", expenseData);
             } catch (error) {
-                console.error("[ERROR] GPT-3.5 expense parsing failed:", error.message);
-                return res.send(`<Response><Message>⚠️ Failed to parse media expense. Please try again.</Message></Response>`);
+                console.error("[ERROR] Failed to process audio:", error.message);
+                return res.send(`<Response><Message>⚠️ Failed to process audio. Please try again.</Message></Response>`);
+            }
+        } else if (mediaType && mediaType.includes("image")) {
+            try {
+                console.log(`[DEBUG] Processing image from ${mediaUrl}`);
+                const ocrResult = await extractTextFromImage(mediaUrl);
+                console.log(`[DEBUG] OCR Result: ${JSON.stringify(ocrResult)}`);
+    
+                if (ocrResult && typeof ocrResult === 'object' && ocrResult.text) {
+                    combinedText += ocrResult.text + " ";
+                    console.log(`[DEBUG] Extracted text from OCR: "${ocrResult.text}"`);
+                } else {
+                    console.error("[ERROR] OCR did not return valid text data:", ocrResult);
+                    return res.send(`<Response><Message>⚠️ No text extracted from the image. Please try again.</Message></Response>`);
+                }
+            } catch (err) {
+                console.error("[ERROR] OCR extraction error:", err.message);
+                return res.send(`<Response><Message>⚠️ Could not extract data from image. Please try again.</Message></Response>`);
             }
         }
-        if (expenseData && expenseData.item && expenseData.amount && expenseData.amount !== "$0.00" && expenseData.store) {
-            await setPendingTransactionState(from, { pendingExpense: expenseData });
-            const sent = await sendTemplateMessage(
-                from,
-                confirmationTemplates.expense,
-                { "1": `Expense of ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}` }
-            );
-            if (sent) {
-                console.log("[DEBUG] Twilio template sent successfully, no additional message sent to WhatsApp.");
-                return res.send(`<Response></Response>`);
+    
+        if (combinedText) {
+            let expenseData;
+            // For audio, try regex first; for images, force GPT-3.5
+            if (mediaType && mediaType.includes("audio")) {
+                expenseData = parseExpenseMessage(combinedText);
+            }
+    
+            // If audio parsing fails or it's an image, use GPT-3.5
+            if (!mediaType || mediaType.includes("image") || !expenseData || !expenseData.item || !expenseData.amount || expenseData.amount === "$0.00" || !expenseData.store) {
+                console.log("[DEBUG] Regex parsing failed or media is an image, using GPT-3.5 for fallback...");
+                try {
+                    const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+                    const gptResponse = await openaiClient.chat.completions.create({
+                        model: "gpt-3.5-turbo",
+                        messages: [
+                            { 
+                                role: "system", 
+                                content: "Extract structured expense data from the following receipt text. Use the 'TOTAL' amount if present (e.g., '$150.00'). Identify the store name from the top of the receipt (e.g., 'Standing Stone Gas'). Return JSON with keys: date, item, amount, store. Correct 'roof Mark' or 'roof Mart' to 'Roofmart'. If date is missing, use today's date." 
+                            },
+                            { role: "user", content: `Text: "${combinedText.trim()}"` }
+                        ],
+                        max_tokens: 60,
+                        temperature: 0.3
+                    });
+                    expenseData = JSON.parse(gptResponse.choices[0].message.content);
+                    console.log("[DEBUG] GPT-3.5 Initial Result:", expenseData);
+    
+                    if (!expenseData.date || expenseData.date.toLowerCase() === "yesterday") {
+                        const yesterday = new Date();
+                        yesterday.setDate(yesterday.getDate() - 1);
+                        expenseData.date = yesterday.toISOString().split("T")[0];
+                    } else if (expenseData.date.toLowerCase() === "today") {
+                        expenseData.date = new Date().toISOString().split("T")[0];
+                    }
+                    expenseData.amount = expenseData.amount ? String(`$${parseFloat(expenseData.amount.replace(/[^0-9.]/g, '')).toFixed(2)}`) : null;
+    
+                    const storeLower = expenseData.store.toLowerCase().replace(/\s+/g, '');
+                    const matchedStore = storeList.find(store => {
+                        const normalizedStore = store.toLowerCase().replace(/\s+/g, '');
+                        return normalizedStore === storeLower || 
+                               storeLower.includes(normalizedStore) || 
+                               normalizedStore.includes(storeLower);
+                    }) || storeList.find(store => 
+                        store.toLowerCase().includes("roofmart") && 
+                        (expenseData.store.toLowerCase().includes("roof") || expenseData.store.toLowerCase().includes("mart"))
+                    );
+                    expenseData.store = matchedStore || expenseData.store;
+                    expenseData.suggestedCategory = matchedStore || constructionStores.some(store => 
+                        expenseData.store.toLowerCase().includes(store)) 
+                        ? "Construction Materials" : "General";
+    
+                    console.log("[DEBUG] GPT-3.5 Post-Processed Expense Result:", expenseData);
+                } catch (error) {
+                    console.error("[ERROR] GPT-3.5 expense parsing failed:", error.message);
+                    return res.send(`<Response><Message>⚠️ Failed to parse media expense. Please try again.</Message></Response>`);
+                }
+            }
+            if (expenseData && expenseData.item && expenseData.amount && expenseData.amount !== "$0.00" && expenseData.store) {
+                await setPendingTransactionState(from, { pendingExpense: expenseData });
+                const sent = await sendTemplateMessage(
+                    from,
+                    confirmationTemplates.expense,
+                    { "1": `Expense of ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}` }
+                );
+                if (sent) {
+                    console.log("[DEBUG] Twilio template sent successfully, no additional message sent to WhatsApp.");
+                    return res.send(`<Response></Response>`);
+                } else {
+                    return res.send(`<Response><Message>⚠️ Failed to send confirmation. Please try again.</Message></Response>`);
+                }
             } else {
-                return res.send(`<Response><Message>⚠️ Failed to send confirmation. Please try again.</Message></Response>`);
+                return res.send(`<Response><Message>⚠️ I couldn't parse a valid expense amount from the media. Please try again.</Message></Response>`);
             }
         } else {
-            return res.send(`<Response><Message>⚠️ I couldn't parse a valid expense amount from the media. Please try again.</Message></Response>`);
+            console.log("[DEBUG] No audio or supported media type detected (e.g., image ignored if not processed).");
+            return res.send(`<Response><Message>⚠️ No media detected or unable to extract information. Please resend.</Message></Response>`);
         }
-    } else {
-        console.log("[DEBUG] No audio or supported media type detected (e.g., image ignored if not processed).");
-        return res.send(`<Response><Message>⚠️ No media detected or unable to extract information. Please resend.</Message></Response>`);
     }
-}
 
         // 4. Expense Logging for Text Messages
 else if (body) {
