@@ -679,7 +679,126 @@ else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().
     // Default response for unrecognized metrics queries
     return res.send(`<Response><Message>⚠️ I couldn’t understand your metrics request. Try asking about profit, expenses, or bills (e.g., "How much profit did I make in February?").</Message></Response>`);
 }
-            // 4. Expense Logging for Text Messages
+         // Media Handling for Expense Logging
+else if (mediaUrl) {
+    console.log("[DEBUG] Checking media in message...");
+    let combinedText = "";
+  
+    if (mediaType && mediaType.includes("audio")) {
+        try {
+            const audioResponse = await axios.get(mediaUrl, {
+                responseType: 'arraybuffer',
+                auth: {
+                    username: process.env.TWILIO_ACCOUNT_SID,
+                    password: process.env.TWILIO_AUTH_TOKEN
+                }
+            });
+            const audioBuffer = Buffer.from(audioResponse.data, 'binary');
+            const transcription = await transcribeAudio(audioBuffer);
+            if (transcription) {
+                combinedText += transcription + " ";
+                console.log(`[DEBUG] Voice Transcription: "${transcription}"`);
+            } else {
+                console.log("[DEBUG] No transcription returned from audio.");
+            }
+        } catch (error) {
+            console.error("[ERROR] Failed to process audio:", error.message);
+            return res.send(`<Response><Message>⚠️ Failed to process audio. Please try again.</Message></Response>`);
+        }
+ } else if (mediaType && mediaType.includes("image")) {
+        try {
+            console.log("[DEBUG] Processing image receipt...");
+            const imageResponse = await axios.get(mediaUrl, {
+                responseType: 'arraybuffer',
+                auth: {
+                    username: process.env.TWILIO_ACCOUNT_SID,
+                    password: process.env.TWILIO_AUTH_TOKEN
+                }
+            });
+            const imageBuffer = Buffer.from(imageResponse.data, 'binary');
+            const extractedText = await extractTextFromImage(imageBuffer);
+            if (extractedText) {
+                combinedText += extractedText + " ";
+                console.log(`[DEBUG] Image Text Extraction: "${extractedText}"`);
+            } else {
+                console.log("[DEBUG] No text extracted from image.");
+            }
+        } catch (error) {
+            console.error("[ERROR] Failed to process image:", error.message);
+            return res.send(`<Response><Message>⚠️ Failed to process image receipt. Please try again.</Message></Response>`);
+        }
+    }
+  
+    if (combinedText) {
+        let expenseData = parseExpenseMessage(combinedText);
+        if (!expenseData || !expenseData.item || !expenseData.amount || !expenseData.store) {
+            console.log("[DEBUG] Regex parsing failed for expense from media, using GPT-3.5 for fallback...");
+            try {
+                const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+                const gptResponse = await openaiClient.chat.completions.create({
+                    model: "gpt-3.5-turbo",
+                    messages: [
+                        { role: "system", content: "Extract structured expense data from the following text. Return JSON with keys: date, item, amount, store. Correct 'roof Mark' or 'roof Mart' to 'Roofmart' if present." },
+                        { role: "user", content: `Text: "${combinedText.trim()}"` }
+                    ],
+                    max_tokens: 60,
+                    temperature: 0.3
+                });
+                expenseData = JSON.parse(gptResponse.choices[0].message.content);
+                console.log("[DEBUG] GPT-3.5 Initial Result:", expenseData);
+  
+                // Post-process GPT-3.5 output
+                if (!expenseData.date || expenseData.date.toLowerCase() === "yesterday") {
+                    const yesterday = new Date();
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    expenseData.date = yesterday.toISOString().split("T")[0];
+                }
+                expenseData.amount = expenseData.amount ? String(`$${parseFloat(expenseData.amount).toFixed(2)}`) : null;
+  
+                // Enhanced store name correction
+                const storeLower = expenseData.store.toLowerCase().replace(/\s+/g, ''); // "roofmark" or "roofmart"
+                const matchedStore = storeList.find(store => {
+                    const normalizedStore = store.toLowerCase().replace(/\s+/g, ''); // "roofmart"
+                    return normalizedStore === storeLower || 
+                           storeLower.includes(normalizedStore) || 
+                           normalizedStore.includes(storeLower);
+                }) || storeList.find(store => 
+                    store.toLowerCase().includes("roofmart") && 
+                    (expenseData.store.toLowerCase().includes("roof") || expenseData.store.toLowerCase().includes("mart"))
+                ); // Fallback for partial matches
+                expenseData.store = matchedStore || expenseData.store;
+                expenseData.suggestedCategory = matchedStore || constructionStores.some(store => 
+                    expenseData.store.toLowerCase().includes(store)) 
+                    ? "Construction Materials" : "General";
+  
+                console.log("[DEBUG] GPT-3.5 Post-Processed Expense Result:", expenseData);
+            } catch (error) {
+                console.error("[ERROR] GPT-3.5 expense parsing failed:", error.message);
+                return res.send(`<Response><Message>⚠️ Failed to parse audio expense. Please try again.</Message></Response>`);
+            }
+        }
+        if (expenseData && expenseData.item && expenseData.amount && expenseData.store) {
+            await setPendingTransactionState(from, { pendingExpense: expenseData });
+            const sent = await sendTemplateMessage(
+                from,
+                confirmationTemplates.expense,
+                { "1": `Please confirm: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?` }
+            );
+            if (sent) {
+                console.log("[DEBUG] Twilio template sent successfully, no additional message sent to WhatsApp.");
+                return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
+            } else {
+                return res.send(`<Response><Message>⚠️ Failed to send confirmation. Please try again.</Message></Response>`);
+            }
+        } else {
+            return res.send(`<Response><Message>⚠️ I couldn't parse the expense details from the audio. Please try again.</Message></Response>`);
+        }
+    } else {
+        return res.send(`<Response><Message>⚠️ No media detected or unable to extract information. Please resend.</Message></Response>`);
+    }
+  }   
+
+        // 4. Expense Logging for Text Messages
 else if (body) {
     console.log("[DEBUG] Attempting to parse expense message:", body);
     const activeJob = (await getActiveJob(from)) || "Uncategorized";
@@ -730,101 +849,7 @@ else if (body) {
     }
 }
 
-            // Media Handling for Expense Logging
-else if (mediaUrl) {
-  console.log("[DEBUG] Checking media in message...");
-  let combinedText = "";
-
-  if (mediaType && mediaType.includes("audio")) {
-      try {
-          const audioResponse = await axios.get(mediaUrl, {
-              responseType: 'arraybuffer',
-              auth: {
-                  username: process.env.TWILIO_ACCOUNT_SID,
-                  password: process.env.TWILIO_AUTH_TOKEN
-              }
-          });
-          const audioBuffer = Buffer.from(audioResponse.data, 'binary');
-          const transcription = await transcribeAudio(audioBuffer);
-          if (transcription) {
-              combinedText += transcription + " ";
-              console.log(`[DEBUG] Voice Transcription: "${transcription}"`);
-          } else {
-              console.log("[DEBUG] No transcription returned from audio.");
-          }
-      } catch (error) {
-          console.error("[ERROR] Failed to process audio:", error.message);
-          return res.send(`<Response><Message>⚠️ Failed to process audio. Please try again.</Message></Response>`);
-      }
-  }
-
-  if (combinedText) {
-      let expenseData = parseExpenseMessage(combinedText);
-      if (!expenseData || !expenseData.item || !expenseData.amount || !expenseData.store) {
-          console.log("[DEBUG] Regex parsing failed for expense from media, using GPT-3.5 for fallback...");
-          try {
-              const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-              const gptResponse = await openaiClient.chat.completions.create({
-                  model: "gpt-3.5-turbo",
-                  messages: [
-                      { role: "system", content: "Extract structured expense data from the following text. Return JSON with keys: date, item, amount, store. Correct 'roof Mark' or 'roof Mart' to 'Roofmart' if present." },
-                      { role: "user", content: `Text: "${combinedText.trim()}"` }
-                  ],
-                  max_tokens: 60,
-                  temperature: 0.3
-              });
-              expenseData = JSON.parse(gptResponse.choices[0].message.content);
-              console.log("[DEBUG] GPT-3.5 Initial Result:", expenseData);
-
-              // Post-process GPT-3.5 output
-              if (!expenseData.date || expenseData.date.toLowerCase() === "yesterday") {
-                  const yesterday = new Date();
-                  yesterday.setDate(yesterday.getDate() - 1);
-                  expenseData.date = yesterday.toISOString().split("T")[0];
-              }
-              expenseData.amount = expenseData.amount ? String(`$${parseFloat(expenseData.amount).toFixed(2)}`) : null;
-
-              // Enhanced store name correction
-              const storeLower = expenseData.store.toLowerCase().replace(/\s+/g, ''); // "roofmark" or "roofmart"
-              const matchedStore = storeList.find(store => {
-                  const normalizedStore = store.toLowerCase().replace(/\s+/g, ''); // "roofmart"
-                  return normalizedStore === storeLower || 
-                         storeLower.includes(normalizedStore) || 
-                         normalizedStore.includes(storeLower);
-              }) || storeList.find(store => 
-                  store.toLowerCase().includes("roofmart") && 
-                  (expenseData.store.toLowerCase().includes("roof") || expenseData.store.toLowerCase().includes("mart"))
-              ); // Fallback for partial matches
-              expenseData.store = matchedStore || expenseData.store;
-              expenseData.suggestedCategory = matchedStore || constructionStores.some(store => 
-                  expenseData.store.toLowerCase().includes(store)) 
-                  ? "Construction Materials" : "General";
-
-              console.log("[DEBUG] GPT-3.5 Post-Processed Expense Result:", expenseData);
-          } catch (error) {
-              console.error("[ERROR] GPT-3.5 expense parsing failed:", error.message);
-              return res.send(`<Response><Message>⚠️ Failed to parse audio expense. Please try again.</Message></Response>`);
-          }
-      }
-      if (expenseData && expenseData.item && expenseData.amount && expenseData.store) {
-          await setPendingTransactionState(from, { pendingExpense: expenseData });
-          const sent = await sendTemplateMessage(
-              from,
-              confirmationTemplates.expense,
-              { "1": `Please confirm: ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}?` }
-          );
-          if (sent) {
-              return res.send(`<Response><Message>✅ Quick Reply Sent. Please respond.</Message></Response>`);
-          } else {
-              return res.send(`<Response><Message>⚠️ Failed to send confirmation. Please try again.</Message></Response>`);
-          }
-      } else {
-          return res.send(`<Response><Message>⚠️ I couldn't parse the expense details from the audio. Please try again.</Message></Response>`);
-      }
-  } else {
-      return res.send(`<Response><Message>⚠️ No media detected or unable to extract information. Please resend.</Message></Response>`);
-  }
-}
+           
             // Default response for unhandled messages
             reply = "⚠️ Sorry, I didn't understand that. Please provide an expense, revenue, or job command.";
             return res.send(`<Response><Message>${reply}</Message></Response>`);
