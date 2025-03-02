@@ -726,12 +726,10 @@ else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().
     
         if (combinedText) {
             let expenseData;
-            // For audio, try regex first; for images, force GPT-3.5
             if (mediaType && mediaType.includes("audio")) {
                 expenseData = parseExpenseMessage(combinedText);
             }
     
-            // If audio parsing fails or it's an image, use GPT-3.5
             if (!mediaType || mediaType.includes("image") || !expenseData || !expenseData.item || !expenseData.amount || expenseData.amount === "$0.00" || !expenseData.store) {
                 console.log("[DEBUG] Regex parsing failed or media is an image, using GPT-3.5 for fallback...");
                 try {
@@ -741,7 +739,7 @@ else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().
                         messages: [
                             { 
                                 role: "system", 
-                                content: "Extract structured expense data from the following receipt text. Use the 'TOTAL' amount if present (e.g., '$150.00'). Identify the store name from the top of the receipt (e.g., 'Standing Stone Gas'). Return JSON with keys: date, item, amount, store. Correct 'roof Mark' or 'roof Mart' to 'Roofmart'. If date is missing, use today's date." 
+                                content: "Extract structured expense data from the following receipt text. Use the 'TOTAL' amount if present (e.g., '$150.00'). Identify the store name from the top of the receipt (e.g., 'Standing Stone Gas'). For fuel receipts, set item to 'Gas' or 'Fuel' unless a specific item is explicitly listed before the total. Return JSON with keys: date, item, amount, store. Correct 'roof Mark' or 'roof Mart' to 'Roofmart'. If date is missing, use today's date." 
                             },
                             { role: "user", content: `Text: "${combinedText.trim()}"` }
                         ],
@@ -804,56 +802,77 @@ else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().
     }
 
         // 4. Expense Logging for Text Messages
-else if (body) {
-    console.log("[DEBUG] Attempting to parse expense message:", body);
-    const activeJob = (await getActiveJob(from)) || "Uncategorized";
-    let expenseData = parseExpenseMessage(body);
-
-    if (!expenseData || !expenseData.item || !expenseData.amount || !expenseData.store) {
-        console.log("[DEBUG] Regex parsing failed for expense, using GPT-3.5 for fallback...");
-        try {
-            const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-            const gptResponse = await openaiClient.chat.completions.create({
-                model: "gpt-3.5-turbo",
-                messages: [
-                    { role: "system", content: "Extract structured expense data from the following message. Return JSON with keys: date, item, amount, store." },
-                    { role: "user", content: `Message: "${body}"` }
-                ],
-                max_tokens: 60,
-                temperature: 0.3
-            });
-            expenseData = JSON.parse(gptResponse.choices[0].message.content);
-            if (!expenseData.date) {
-                expenseData.date = new Date().toISOString().split("T")[0];
+        else if (body) {
+            console.log("[DEBUG] Attempting to parse expense message:", body);
+            const activeJob = (await getActiveJob(from)) || "Uncategorized";
+            let expenseData = parseExpenseMessage(body);
+        
+            if (!expenseData || !expenseData.item || !expenseData.amount || expenseData.amount === "$0.00" || !expenseData.store) {
+                console.log("[DEBUG] Regex parsing failed or amount invalid for expense, using GPT-3.5 for fallback...");
+                try {
+                    const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+                    const gptResponse = await openaiClient.chat.completions.create({
+                        model: "gpt-3.5-turbo",
+                        messages: [
+                            { 
+                                role: "system", 
+                                content: "Extract structured expense data from the following text. Expect formats like 'Expense of $amount for item from store on date' or '$amount for item at store on date'. Return JSON with keys: date, item, amount, store. Correct 'roof Mark' or 'roof Mart' to 'Roofmart'. If date is missing, use today's date." 
+                            },
+                            { role: "user", content: `Text: "${body.trim()}"` }
+                        ],
+                        max_tokens: 60,
+                        temperature: 0.3
+                    });
+                    expenseData = JSON.parse(gptResponse.choices[0].message.content);
+                    console.log("[DEBUG] GPT-3.5 Initial Result:", expenseData);
+        
+                    if (!expenseData.date || expenseData.date.toLowerCase() === "yesterday") {
+                        const yesterday = new Date();
+                        yesterday.setDate(yesterday.getDate() - 1);
+                        expenseData.date = yesterday.toISOString().split("T")[0];
+                    } else if (expenseData.date.toLowerCase() === "today") {
+                        expenseData.date = new Date().toISOString().split("T")[0];
+                    }
+                    expenseData.amount = expenseData.amount ? String(`$${parseFloat(expenseData.amount.replace(/[^0-9.]/g, '')).toFixed(2)}`) : null;
+        
+                    const storeLower = expenseData.store.toLowerCase().replace(/\s+/g, '');
+                    const matchedStore = storeList.find(store => {
+                        const normalizedStore = store.toLowerCase().replace(/\s+/g, '');
+                        return normalizedStore === storeLower || 
+                               storeLower.includes(normalizedStore) || 
+                               normalizedStore.includes(storeLower);
+                    }) || storeList.find(store => 
+                        store.toLowerCase().includes("roofmart") && 
+                        (expenseData.store.toLowerCase().includes("roof") || expenseData.store.toLowerCase().includes("mart"))
+                    );
+                    expenseData.store = matchedStore || expenseData.store;
+                    expenseData.suggestedCategory = matchedStore || constructionStores.some(store => 
+                        expenseData.store.toLowerCase().includes(store)) 
+                        ? "Construction Materials" : "General";
+        
+                    console.log("[DEBUG] GPT-3.5 Post-Processed Expense Result:", expenseData);
+                } catch (error) {
+                    console.error("[ERROR] GPT-3.5 expense parsing failed:", error.message);
+                    return res.send(`<Response><Message>⚠️ Could not understand your expense message. Please try again.</Message></Response>`);
+                }
             }
-            console.log("[DEBUG] GPT-3.5 Fallback Expense Result:", expenseData);
-        } catch (error) {
-            console.error("[ERROR] GPT-3.5 expense parsing failed:", error);
+            if (expenseData && expenseData.item && expenseData.amount && expenseData.amount !== "$0.00" && expenseData.store) {
+                await setPendingTransactionState(from, { pendingExpense: expenseData });
+                const sent = await sendTemplateMessage(
+                    from,
+                    confirmationTemplates.expense,
+                    { "1": `Expense of ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}` }
+                );
+                if (sent) {
+                    console.log("[DEBUG] Twilio template sent successfully, no additional message sent to WhatsApp.");
+                    return res.send(`<Response></Response>`);
+                } else {
+                    return res.send(`<Response><Message>⚠️ Failed to send expense confirmation. Please try again.</Message></Response>`);
+                }
+            } else {
+                return res.send(`<Response><Message>⚠️ Could not understand your expense message. Please try again.</Message></Response>`);
+            }
         }
-    }
-
-    if (expenseData && expenseData.item && expenseData.amount && expenseData.store) {
-        // Post-process to fix parsing (e.g., "Feb" as item)
-        if (expenseData.item.toLowerCase().includes("feb") && body.toLowerCase().includes("plywood")) {
-            expenseData.item = "Plywood"; // Correct item misparse
-        }
-        await setPendingTransactionState(from, { pendingExpense: expenseData });
-        const sent = await sendTemplateMessage(
-            from,
-            confirmationTemplates.expense, // "HX9f6b7188f055fa25f8170f915e53cbd0"
-            { "1": `Expense of ${expenseData.amount} for ${expenseData.item} from ${expenseData.store} on ${expenseData.date}` }
-        );
-        if (sent) {
-            console.log("[DEBUG] Twilio template sent successfully, no additional message sent to WhatsApp.");
-            return res.send(`<Response></Response>`); // Hide "Quick Reply Sent"
-        } else {
-            return res.send(`<Response><Message>⚠️ Failed to send expense confirmation. Please try again.</Message></Response>`);
-        }
-    } else {
-        return res.send(`<Response><Message>⚠️ Could not understand your expense message. Please provide a valid expense message.</Message></Response>`);
-    }
-}
-
            
             // Default response for unhandled messages
             reply = "⚠️ Sorry, I didn't understand that. Please provide an expense, revenue, or job command.";
