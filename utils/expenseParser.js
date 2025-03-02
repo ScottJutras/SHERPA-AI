@@ -65,7 +65,7 @@ function parseExpenseMessage(message) {
         : null;
 
     // Store name extraction: combines regex and predefined store list
-    let storeMatch = message.match(/(?:at|from)\s+([\w\s&'’-]+?)(?=\s*(?:today|yesterday|on|$|\n|\.))|(?:at|from)\s+([\w\s&'’-]+?)(?:\s|$|\.)/i);
+    let storeMatch = message.match(/(?:at|from)\s+([\w\s&'’-]+)(?=\s+(?:today|yesterday|\bon\b|$|\n|\.))|(?:at|from)\s+([\w\s&'’-]+)/i);
     let store = storeMatch ? (storeMatch[1] || storeMatch[2]).trim() : null;
 
     if (!store || store === "Unknown Store") {
