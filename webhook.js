@@ -346,10 +346,10 @@ app.post('/webhook', async (req, res) => {
     } else if (body && (body.toLowerCase() === 'no' || body.toLowerCase() === 'edit')) {
         reply = "✏️ Okay, please resend the correct details.";
         await deletePendingTransactionState(from);
-    return res.send(`<Response><Message>${reply}</Message></Response>`).then(() => {
-        console.log("[DEBUG] Reply sent to WhatsApp:", reply);
-    });
-    } else if (body && (body.toLowerCase() === 'cancel')) {
+        res.send(`<Response><Message>${reply}</Message></Response>`);
+        console.log("[DEBUG] Reply sent to WhatsApp:", reply); // Move logging after send
+        return;
+    } else if (body && body.toLowerCase() === 'cancel') {
         reply = "🚫 Entry canceled.";
         await deletePendingTransactionState(from);
         return res.send(`<Response><Message>${reply}</Message></Response>`);
@@ -413,8 +413,7 @@ app.post('/webhook', async (req, res) => {
             }
         }
 
-            // 0.5 Add Bill Command
-// 0.5 Add Bill Command
+        // 0.5 Add Bill Command
 else if (body && body.toLowerCase().includes("bill")) {
     console.log("[DEBUG] Detected a bill message:", body);
     const activeJob = (await getActiveJob(from)) || "Uncategorized";
@@ -679,7 +678,6 @@ else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().
     // Default response for unrecognized metrics queries
     return res.send(`<Response><Message>⚠️ I couldn’t understand your metrics request. Try asking about profit, expenses, or bills (e.g., "How much profit did I make in February?").</Message></Response>`);
 }
-        // Media Handling for Expense Logging
 else if (mediaUrl) {
     console.log("[DEBUG] Checking media in message...");
     let combinedText = "";
@@ -712,7 +710,7 @@ else if (mediaUrl) {
             console.log(`[DEBUG] OCR Result: ${JSON.stringify(ocrResult)}`);
 
             if (ocrResult && typeof ocrResult === 'object' && ocrResult.text) {
-                combinedText += ocrResult.text + " "; // Use ocrResult.text as plain text
+                combinedText += ocrResult.text + " ";
                 console.log(`[DEBUG] Extracted text from OCR: "${ocrResult.text}"`);
             } else {
                 console.error("[ERROR] OCR did not return valid text data:", ocrResult);
@@ -726,7 +724,6 @@ else if (mediaUrl) {
 
     if (combinedText) {
         let expenseData = parseExpenseMessage(combinedText);
-        // Force GPT-3.5 if amount is "$0.00" or missing
         if (!expenseData || !expenseData.item || !expenseData.amount || expenseData.amount === "$0.00" || !expenseData.store) {
             console.log("[DEBUG] Regex parsing failed or amount invalid for expense from media, using GPT-3.5 for fallback...");
             try {
@@ -736,7 +733,7 @@ else if (mediaUrl) {
                     messages: [
                         { 
                             role: "system", 
-                            content: "Extract structured expense data from the following text (likely a receipt or spoken expense). Convert spoken numbers (e.g., 'nine hundred dollars') to numeric values (e.g., '$900.00'). Correct 'roof Mark' or 'roof Mart' to 'Roofmart'. Return JSON with keys: date, item, amount, store. If date is missing, use today's date." 
+                            content: "Extract structured expense data from the following receipt text. Return JSON with keys: date, item, amount, store. Prefer 'TOTAL' amount if present (e.g., '$150.00'). Use store name from the top of the receipt if available (e.g., 'Standing Stone Gas'). Correct 'roof Mark' or 'roof Mart' to 'Roofmart'. If date is missing, use today's date." 
                         },
                         { role: "user", content: `Text: "${combinedText.trim()}"` }
                     ],
@@ -785,7 +782,7 @@ else if (mediaUrl) {
             );
             if (sent) {
                 console.log("[DEBUG] Twilio template sent successfully, no additional message sent to WhatsApp.");
-                return res.send(`<Response></Response>`); // Hide "Quick Reply Sent"
+                return res.send(`<Response></Response>`);
             } else {
                 return res.send(`<Response><Message>⚠️ Failed to send confirmation. Please try again.</Message></Response>`);
             }
