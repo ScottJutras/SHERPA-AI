@@ -121,12 +121,13 @@ const SCOPES = [
  */
 async function getAuthorizedClient() {
   try {
+    const credentials = JSON.parse(Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8'));
     const auth = new google.auth.GoogleAuth({
-      credentials: googleCredentials,
-      scopes: SCOPES,
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
     console.log('[DEBUG] Google API client authorized successfully.');
-    return auth;
+    return await auth.getClient();
   } catch (error) {
     console.error('[ERROR] Failed to authorize Google API client:', error.message);
     throw error;
@@ -612,6 +613,7 @@ module.exports = {
   parseReceiptText,
   calculateIncomeGoal,
   logRevenueEntry,
+  getAuthorizedClient,
   ensureSheetExists
 };
 

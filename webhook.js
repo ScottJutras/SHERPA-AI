@@ -564,13 +564,13 @@ else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().
     const activeJob = (await getActiveJob(from)) || "Uncategorized";
     const spreadsheetId = userProfile.spreadsheetId;
 
-    // Fetch data from Google Sheets
+    console.log("[DEBUG] Attempting to authorize Google Sheets client...");
     const auth = await getAuthorizedClient();
+    console.log("[DEBUG] Google Sheets client authorized successfully.");
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // Define ranges (adjust based on your sheet structure)
-    const expenseRange = 'Sheet1!A:G'; // Assuming expenses and bills are in main sheet
-    const revenueRange = 'Revenue!A:F'; // Assuming revenues are in a separate tab
+    const expenseRange = 'Sheet1!A:G';
+    const revenueRange = 'Revenue!A:F';
 
     let expenses = [];
     let revenues = [];
@@ -579,22 +579,22 @@ else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().
     try {
         const expenseResponse = await sheets.spreadsheets.values.get({ spreadsheetId, range: expenseRange });
         const allRows = expenseResponse.data.values || [];
-        expenses = allRows.filter(row => row[5] === "expense"); // Type "expense"
-        bills = allRows.filter(row => row[5] === "bill"); // Type "bill"
+        expenses = allRows.filter(row => row[5] === "expense");
+        bills = allRows.filter(row => row[5] === "bill");
+        console.log("[DEBUG] Retrieved expenses:", expenses);
 
         const revenueResponse = await sheets.spreadsheets.values.get({ spreadsheetId, range: revenueRange });
         revenues = revenueResponse.data.values || [];
+        console.log("[DEBUG] Retrieved revenues:", revenues);
     } catch (error) {
         console.error("[ERROR] Failed to fetch data from Google Sheets:", error);
         return res.send(`<Response><Message>⚠️ Could not retrieve your data. Please try again later.</Message></Response>`);
     }
 
-    // Parse and calculate metrics
     const now = new Date();
     const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    const nextMonthStr = nextMonth.toISOString().split('T')[0].slice(0, 7); // e.g., "2025-03"
+    const nextMonthStr = nextMonth.toISOString().split('T')[0].slice(0, 7);
 
-    // Helper function to parse amount
     const parseAmount = (amountStr) => parseFloat(amountStr.replace(/[^0-9.-]/g, '')) || 0;
 
     // Example 1: "How much do I need to make to ensure that I can pay all of my bills next month?"
