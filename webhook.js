@@ -287,7 +287,7 @@ app.post('/webhook', async (req, res) => {
             const pendingState = await getPendingTransactionState(from);
 
  
- // 1. Pending Confirmations (Updated to Set Edit Flag)
+ // Pending Confirmations (Ensure isEditing Persists)
 if (pendingState && (pendingState.pendingExpense || pendingState.pendingRevenue || pendingState.pendingBill)) {
     const pendingData = pendingState.pendingExpense || pendingState.pendingRevenue || pendingState.pendingBill;
     const type = pendingState.pendingExpense ? 'expense' : pendingState.pendingRevenue ? 'revenue' : 'bill';
@@ -346,8 +346,9 @@ if (pendingState && (pendingState.pendingExpense || pendingState.pendingRevenue 
         return res.send(`<Response><Message>${reply}</Message></Response>`);
     } else if (body && (body.toLowerCase() === 'no' || body.toLowerCase() === 'edit')) {
         reply = "✏️ Okay, please resend the correct details.";
-        await setPendingTransactionState(from, { ...pendingState, isEditing: true }); // Set edit flag first
-        await deletePendingTransactionState(from); // Then clear other pending data
+        // Set isEditing first, then clear other data
+        await setPendingTransactionState(from, { isEditing: true });
+        await deletePendingTransactionState(from);
         res.send(`<Response><Message>${reply}</Message></Response>`);
         console.log("[DEBUG] Reply sent to WhatsApp:", reply);
         return;
@@ -802,18 +803,20 @@ else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().
             return res.send(`<Response><Message>⚠️ No media detected or unable to extract information. Please resend.</Message></Response>`);
         }
     }
-        // Text Expense Logging (Updated to Handle Edit Directly)
+       // Text Expense Logging (Updated to Handle Edit Directly)
 else if (body) {
     console.log("[DEBUG] Attempting to parse expense message:", body);
     const activeJob = (await getActiveJob(from)) || "Uncategorized";
     const pendingState = await getPendingTransactionState(from);
     let expenseData;
 
+    console.log("[DEBUG] Pending state before parsing:", pendingState); // Debug state
+
     // Check if this is an edit response
     if (pendingState && pendingState.isEditing) {
         console.log("[DEBUG] Detected edit response, processing user text directly...");
-        // Match formats: "Expense of $amount for item from store on date" or "$amount for item from/at store on date"
-        const editMatch = body.match(/(?:Expense of )?\$([\d.]+) for (.+?) (?:from|at) (.+?) on (\d{4}-\d{2}-\d{2})/i);
+        // Match formats: "Expense of $amount for item from store on date", "$amount for item from/at store on date", or "Spent $amount on item from store on date"
+        const editMatch = body.match(/(?:Expense of |Spent )?\$([\d.]+) (?:for|on) (.+?) (?:from|at) (.+?) on (\d{4}-\d{2}-\d{2})/i);
         if (editMatch) {
             expenseData = {
                 amount: `$${parseFloat(editMatch[1]).toFixed(2)}`,
@@ -833,7 +836,7 @@ else if (body) {
                     messages: [
                         { 
                             role: "system", 
-                            content: "Extract structured expense data from the following text as an edit response. Expect formats like 'Expense of $amount for item from store on date' or '$amount for item at store on date'. Return JSON with keys: date, item, amount, store. Correct 'roof Mark' or 'roof Mart' to 'Roofmart'. If date is missing, use today's date." 
+                            content: "Extract structured expense data from the following text as an edit response. Expect formats like 'Expense of $amount for item from store on date', '$amount for item at store on date', or 'Spent $amount on item from store on date'. Return JSON with keys: date, item, amount, store. Correct 'roof Mark' or 'roof Mart' to 'Roofmart'. If date is missing, use today's date." 
                         },
                         { role: "user", content: `Text: "${body.trim()}"` }
                     ],
@@ -842,7 +845,7 @@ else if (body) {
                 });
                 expenseData = JSON.parse(gptResponse.choices[0].message.content);
                 console.log("[DEBUG] GPT-3.5 Initial Result:", expenseData);
-                await setPendingTransactionState(from, { isEditing: false }); // Clear edit flag
+                await setPendingTransactionState(from, { isEditing: false });
             } catch (error) {
                 console.error("[ERROR] GPT-3.5 expense parsing failed:", error.message);
                 return res.send(`<Response><Message>⚠️ Could not understand your edited expense message. Please try again.</Message></Response>`);
@@ -862,7 +865,7 @@ else if (body) {
                     messages: [
                         { 
                             role: "system", 
-                            content: "Extract structured expense data from the following text. Expect formats like 'Expense of $amount for item from store on date' or '$amount for item at store on date'. Return JSON with keys: date, item, amount, store. Correct 'roof Mark' or 'roof Mart' to 'Roofmart'. If date is missing, use today's date." 
+                            content: "Extract structured expense data from the following text. Expect formats like 'Expense of $amount for item from store on date', '$amount for item at store on date', or 'Spent $amount on item from store on date'. Return JSON with keys: date, item, amount, store. Correct 'roof Mark' or 'roof Mart' to 'Roofmart'. If date is missing, use today's date." 
                         },
                         { role: "user", content: `Text: "${body.trim()}"` }
                     ],
