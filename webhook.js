@@ -609,8 +609,8 @@ else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().
         const jobName = body.match(/job\s+([\w\s]+)/i)?.[1]?.trim() || activeJob;
         const jobExpenses = expenses.filter(row => row[4] === jobName && row[5] === "expense");
         const jobRevenues = revenues.filter(row => row[4] === jobName);
-        const totalExpenses = jobExpenses.reduce((sum, row) => sum + parseAmount(row[2]), 0); // Negative amounts
-        const totalRevenue = jobRevenues.reduce((sum, row) => sum + parseAmount(row[2]), 0); // Positive amounts
+        const totalExpenses = jobExpenses.reduce((sum, row) => sum + parseAmount(row[2]), 0);
+        const totalRevenue = jobRevenues.reduce((sum, row) => sum + parseAmount(row[2]), 0);
         const profit = totalRevenue + totalExpenses;
         const margin = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0;
         return res.send(`<Response><Message>Your profit margin on Job ${jobName} was ${margin.toFixed(2)}% (Revenue: $${totalRevenue.toFixed(2)}, Expenses: $${Math.abs(totalExpenses).toFixed(2)}, Profit: $${profit.toFixed(2)}).</Message></Response>`);
@@ -628,7 +628,7 @@ else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().
     if (body.toLowerCase().includes("profit") && body.toLowerCase().includes("in") && body.toLowerCase().match(/(january|february|march|april|may|june|july|august|september|october|november|december)/i)) {
         const monthMatch = body.toLowerCase().match(/(january|february|march|april|may|june|july|august|september|october|november|december)/i)[1];
         const monthIndex = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"].indexOf(monthMatch);
-        const year = new Date().getFullYear(); // Assume current year unless specified
+        const year = new Date().getFullYear();
         const monthStr = `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
         const monthExpenses = expenses.filter(row => row[0].startsWith(monthStr));
         const monthRevenues = revenues.filter(row => row[0].startsWith(monthStr));
@@ -651,7 +651,7 @@ else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().
 
     // Example 6: "What are my total expenses this month?"
     if (body.toLowerCase().includes("total expenses") && body.toLowerCase().includes("this month")) {
-        const thisMonthStr = now.toISOString().split('T')[0].slice(0, 7); // e.g., "2025-03"
+        const thisMonthStr = now.toISOString().split('T')[0].slice(0, 7);
         const thisMonthExpenses = expenses.filter(row => row[0].startsWith(thisMonthStr));
         const totalExpenses = thisMonthExpenses.reduce((sum, row) => sum + parseAmount(row[2]), 0);
         return res.send(`<Response><Message>Your total expenses this month are $${Math.abs(totalExpenses).toFixed(2)}.</Message></Response>`);
@@ -673,13 +673,52 @@ else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().
         const totalExpenses = ytdExpenses.reduce((sum, row) => sum + parseAmount(row[2]), 0);
         const totalRevenue = ytdRevenues.reduce((sum, row) => sum + parseAmount(row[2]), 0);
         const profit = totalRevenue + totalExpenses;
-        const monthsSoFar = now.getMonth() + 1; // 1-based (e.g., March = 3)
+        const monthsSoFar = now.getMonth() + 1;
         const avgProfit = profit / monthsSoFar;
         return res.send(`<Response><Message>Your average monthly profit this year is $${avgProfit.toFixed(2)} (Total Profit: $${profit.toFixed(2)} over ${monthsSoFar} months).</Message></Response>`);
     }
 
-    // Default response for unrecognized metrics queries
-    return res.send(`<Response><Message>⚠️ I couldn’t understand your metrics request. Try asking about profit, expenses, or bills (e.g., "How much profit did I make in February?").</Message></Response>`);
+    // AI Fallback for imprecise queries or help requests
+    console.log("[DEBUG] No exact match found, falling back to AI interpretation...");
+    try {
+        const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        const gptResponse = await openaiClient.chat.completions.create({
+            model: "gpt-3.5-turbo",
+            messages: [
+                { 
+                    role: "system", 
+                    content: `You are an assistant interpreting financial metrics queries for a construction business. The user has expense and revenue data in Google Sheets (Expenses in 'Sheet1!A:G': Date, Item, Amount, Store, Job, Type, Category; Revenues in 'Revenue!A:F'). Interpret the user's query and return a JSON object with: { intent: 'profit|spend|revenue|margin|help|...', job: 'job name or null', period: 'year to date|this month|... or null', response: 'text to send back' }. For 'help' intent (e.g., "What can I do here?"), provide a list of capabilities and financial tips. For other intents, extract details and suggest a corrected query if needed. If unclear, provide guidance.` 
+                },
+                { role: "user", content: `Query: "${body.trim()}"` }
+            ],
+            max_tokens: 150,
+            temperature: 0.3
+        });
+        const aiResult = JSON.parse(gptResponse.choices[0].message.content);
+        console.log("[DEBUG] AI Interpretation Result:", aiResult);
+
+        if (aiResult.intent === "help") {
+            return res.send(`<Response><Message>${aiResult.response || "I’m here to help you manage your construction business finances! You can:\n- Log expenses (e.g., '$50 for nails from Home Depot on 2025-03-01')\n- Track revenue (e.g., 'I got paid $500')\n- Check profits (e.g., 'How much profit have I made year to date?' or 'How much profit did I make on Job 75 Hampton?')\n- Monitor spending (e.g., 'How much did I spend on materials on Job 74 Hampton?')\n- Plan ahead (e.g., 'How much do I need to make to cover bills next month?')\nTo become financially astute, regularly log your expenses and revenue, then ask me for insights to spot trends and optimize profits. What would you like to try?"}</Message></Response>`);
+        } else if (aiResult.intent === "profit" && aiResult.job) {
+            const jobName = aiResult.job;
+            const jobExpenses = expenses.filter(row => row[4] === jobName && row[5] === "expense");
+            const jobRevenues = revenues.filter(row => row[4] === jobName);
+            const totalExpenses = jobExpenses.reduce((sum, row) => sum + parseAmount(row[2]), 0);
+            const totalRevenue = jobRevenues.reduce((sum, row) => sum + parseAmount(row[2]), 0);
+            const profit = totalRevenue + totalExpenses;
+            return res.send(`<Response><Message>${aiResult.response || `I assume you meant "How much profit did I make on Job ${jobName}?" Your profit for Job ${jobName} is $${profit.toFixed(2)} (Revenue: $${totalRevenue.toFixed(2)}, Expenses: $${Math.abs(totalExpenses).toFixed(2)}). If I got that wrong, try "How much profit did I make on Job ${jobName}?"`}</Message></Response>`);
+        } else if (aiResult.intent === "spend" && aiResult.job) {
+            const jobName = aiResult.job;
+            const jobExpenses = expenses.filter(row => row[4] === jobName && row[5] === "expense");
+            const totalExpenses = jobExpenses.reduce((sum, row) => sum + parseAmount(row[2]), 0);
+            return res.send(`<Response><Message>${aiResult.response || `I assume you meant "How much did I spend on Job ${jobName}?" You spent $${Math.abs(totalExpenses).toFixed(2)} on Job ${jobName}. If I got that wrong, try "How much did I spend on Job ${jobName}?"`}</Message></Response>`);
+        } else {
+            return res.send(`<Response><Message>${aiResult.response || "⚠️ I couldn’t understand your metrics request. Try asking like 'How much profit did I make on Job 74 Hampton?' or 'How much have I spent this month?'"}</Message></Response>`);
+        }
+    } catch (error) {
+        console.error("[ERROR] AI fallback failed:", error.message);
+        return res.send(`<Response><Message>⚠️ I couldn’t process your request. Please try again with something like 'How much profit did I make on Job 74 Hampton?'</Message></Response>`);
+    }
 }
 
     //Media Handling
