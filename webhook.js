@@ -573,9 +573,8 @@ else if (body && (body.toLowerCase().includes("how much") ||
                   body.toLowerCase().includes("profit") || 
                   body.toLowerCase().includes("margin") || 
                   body.toLowerCase().includes("spend") || 
-                  body.toLowerCase().includes("spent") || // Added for broader coverage
-                  body.toLowerCase().includes("how about") || // Catch "How about 74 Hampton?"
-                  /\d+\s+[a-zA-Z]+\s*(street|st|avenue|ave|road|rd|job)?/i.test(body))) { // Catch "74 Hampton"
+                  body.toLowerCase().includes("spent") || 
+                  (body.toLowerCase().includes("how about") && (await getLastQuery(from))?.intent))) {
     console.log("[DEBUG] Detected a metrics query:", body);
     const activeJob = (await getActiveJob(from)) || "Uncategorized";
     const spreadsheetId = userProfile.spreadsheetId;
@@ -675,10 +674,11 @@ else if (body && (body.toLowerCase().includes("how much") ||
     }
 
     // Example 7: "How much revenue did I make on Job 75 Hampton?"
-    if (body.toLowerCase().includes("revenue") && body.toLowerCase().includes("job")) {
-        const jobName = body.match(/job\s+([\w\s]+)/i)?.[1]?.trim() || activeJob;
-        const jobRevenues = revenues.filter(row => row[1] === jobName); // Assuming source/job in column B
+    if ((body.toLowerCase().includes("revenue") || (body.toLowerCase().includes("how much") && body.toLowerCase().includes("make") && body.toLowerCase().includes("on"))) && /\d+\s+[a-zA-Z]+/.test(body)) {
+        const jobName = body.match(/(?:job|on)\s+([\w\s]+)/i)?.[1]?.trim() || activeJob;
+        const jobRevenues = revenues.filter(row => row[1] === jobName);
         const totalRevenue = jobRevenues.reduce((sum, row) => sum + parseAmount(row[2]), 0);
+        await setLastQuery(from, { intent: "revenue", timestamp: new Date().toISOString() });
         return res.send(`<Response><Message>You made $${totalRevenue.toFixed(2)} in revenue on Job ${jobName}.</Message></Response>`);
     }
 
@@ -695,31 +695,39 @@ else if (body && (body.toLowerCase().includes("how much") ||
         return res.send(`<Response><Message>Your average monthly profit this year is $${avgProfit.toFixed(2)} (Total Profit: $${profit.toFixed(2)} over ${monthsSoFar} months).</Message></Response>`);
     }
 
+    if (body.toLowerCase().includes("how much") && body.toLowerCase().includes("make") && body.toLowerCase().includes("on") && /\d+\s+[a-zA-Z]+/.test(body)) {
+        const jobName = body.match(/on\s+([\w\s]+)/i)?.[1]?.trim() || activeJob;
+        const jobRevenues = revenues.filter(row => row[1] === jobName);
+        const totalRevenue = jobRevenues.reduce((sum, row) => sum + parseAmount(row[2]), 0);
+        await setLastQuery(from, { intent: "revenue", timestamp: new Date().toISOString() });
+        return res.send(`<Response><Message>You made $${totalRevenue.toFixed(2)} in revenue on Job ${jobName}.</Message></Response>`);
+    }
+
     // AI Fallback for imprecise queries or help requests
-        console.log("[DEBUG] No exact match found, falling back to AI interpretation...");
-        try {
-          const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-          const lastQuery = await getLastQuery(from);
-          const contextMessage = lastQuery && (new Date().getTime() - new Date(lastQuery.timestamp).getTime()) < 5 * 60 * 1000 // 5-minute window
+    console.log("[DEBUG] No exact match found, falling back to AI interpretation...");
+    try {
+        const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        const lastQuery = await getLastQuery(from);
+        const contextMessage = lastQuery && (new Date().getTime() - new Date(lastQuery.timestamp).getTime()) < 5 * 60 * 1000
             ? `The user recently asked about "${lastQuery.intent}" metrics. If this query seems like a follow-up (e.g., asking about another job), assume they want the same metric type unless specified otherwise.`
             : "No recent context available.";
-          
-          const gptResponse = await openaiClient.chat.completions.create({
+        
+        const gptResponse = await openaiClient.chat.completions.create({
             model: "gpt-3.5-turbo",
             messages: [
-              { 
-                role: "system", 
-                content: `You are an assistant interpreting financial metrics queries for a construction business. The user has expense data in 'Sheet1!A:G' (Date, Item, Amount, Store, Job, Type, Category) and revenue data in 'Revenue!A:F' (Date, Source, Amount, ...). Interpret the user's query and return a JSON object with: { intent: 'profit|spend|revenue|margin|help|unknown', job: 'job name or null', period: 'year to date|this month|specific month|null', response: 'text to send back' }. ${contextMessage} For 'help' intent, provide a list of capabilities. For metrics intents, extract job names (e.g., '74 Hampton') or periods if present, and suggest a corrected query if unclear.` 
-              },
-              { role: "user", content: `Query: "${body.trim()}"` }
+                { 
+                    role: "system", 
+                    content: `You are an assistant interpreting financial metrics queries for a construction business. The user has expense data in 'Sheet1!A:G' (Date, Item, Amount, Store, Job, Type, Category) and revenue data in 'Revenue!A:F' (Date, Source, Amount, ...). Interpret the user's query and return a JSON object with: { intent: 'profit|spend|revenue|margin|help|unknown', job: 'job name or null', period: 'year to date|this month|specific month|null', response: 'text to send back' }. ${contextMessage} For 'help' intent, provide a list of capabilities. For metrics intents, extract job names (e.g., '74 Hampton') or periods if present, and suggest a corrected query if unclear.` 
+                },
+                { role: "user", content: `Query: "${body.trim()}"` }
             ],
             max_tokens: 150,
             temperature: 0.3
-          });
-          const aiResult = JSON.parse(gptResponse.choices[0].message.content);
-          console.log("[DEBUG] AI Interpretation Result:", aiResult);
-      
-          if (aiResult.intent === "help") {
+        });
+        const aiResult = JSON.parse(gptResponse.choices[0].message.content);
+        console.log("[DEBUG] AI Interpretation Result:", aiResult);
+
+        if (aiResult.intent === "help") {
             return res.send(`<Response><Message>${aiResult.response || "I’m here to help you manage your construction business finances! You can:\n- Log expenses (e.g., '$50 for nails from Home Depot')\n- Track revenue (e.g., 'Received $500 from client')\n- Check profits (e.g., 'How much profit have I made year to date?')\n- Monitor spending (e.g., 'How much did I spend on Job 74 Hampton?')\nWhat would you like to try?"}</Message></Response>`);
         } else if (aiResult.intent === "profit" && aiResult.job) {
             const jobName = aiResult.job;
@@ -730,8 +738,13 @@ else if (body && (body.toLowerCase().includes("how much") ||
             const profit = totalRevenue - totalExpenses;
             await setLastQuery(from, { intent: "profit", timestamp: new Date().toISOString() });
             return res.send(`<Response><Message>${aiResult.response || `Profit for Job ${jobName} is $${profit.toFixed(2)} (Revenue: $${totalRevenue.toFixed(2)}, Expenses: $${Math.abs(totalExpenses).toFixed(2)}).`}</Message></Response>`);
+        } else if (aiResult.intent === "revenue" && aiResult.job) { // New condition
+            const jobName = aiResult.job;
+            const jobRevenues = revenues.filter(row => row[1] === jobName);
+            const totalRevenue = jobRevenues.reduce((sum, row) => sum + parseAmount(row[2]), 0);
+            await setLastQuery(from, { intent: "revenue", timestamp: new Date().toISOString() }); // Set context
+            return res.send(`<Response><Message>${aiResult.response || `You made $${totalRevenue.toFixed(2)} in revenue on Job ${jobName}.`}</Message></Response>`);
         } else if (aiResult.intent === "unknown") {
-            // Fall through to next branch if AI can’t resolve
             console.log("[DEBUG] AI fallback deemed query unknown, proceeding to next branch...");
         } else {
             return res.send(`<Response><Message>${aiResult.response || "⚠️ I couldn’t understand your request. Try 'How much profit on Job 74 Hampton?'"}</Message></Response>`);
@@ -740,7 +753,7 @@ else if (body && (body.toLowerCase().includes("how much") ||
         console.error("[ERROR] AI fallback failed:", error.message);
         return res.send(`<Response><Message>⚠️ I couldn’t process your request...</Message></Response>`);
     }
-} 
+}
 
     //6. Media Handling
     else if (mediaUrl) {
@@ -870,7 +883,11 @@ else if (body) {
     const pendingState = await getPendingTransactionState(from);
     let expenseData;
 
-    console.log("[DEBUG] Pending state before parsing:", pendingState); // Debug state
+    // Skip parsing if body is too short or lacks expense-like structure
+    if (body.length < 3 || (!body.includes("$") && !body.match(/\d+/))) {
+        console.log("[DEBUG] Input too vague, likely not an expense:", body);
+        return res.send(`<Response><Message>⚠️ I didn’t understand '${body}'. Try something like '$50 for nails from Home Depot' or ask a question!</Message></Response>`);
+    }
 
     // Check if this is an edit response
     if (pendingState && pendingState.isEditing) {
@@ -925,14 +942,23 @@ else if (body) {
                     messages: [
                         { 
                             role: "system", 
-                            content: "Extract structured expense data from the following text. Expect formats like 'Expense of $amount for item from store on date', '$amount for item at store on date', or 'Spent $amount on item from store on date'. Return JSON with keys: date, item, amount, store. Correct 'roof Mark' or 'roof Mart' to 'Roofmart'. If date is missing, use today's date." 
+                            content: "Extract structured expense data from the following text. Expect formats like 'Expense of $amount for item from store on date', '$amount for item at store on date', or 'Spent $amount on item from store on date'. Return a JSON string with keys: date, item, amount, store. If no expense data is present, return '{}'. Correct 'roof Mark' or 'roof Mart' to 'Roofmart'. If date is missing, use today's date." 
                         },
                         { role: "user", content: `Text: "${body.trim()}"` }
                     ],
                     max_tokens: 60,
                     temperature: 0.3
                 });
-                expenseData = JSON.parse(gptResponse.choices[0].message.content);
+                const responseText = gptResponse.choices[0].message.content.trim();
+                try {
+                    expenseData = JSON.parse(responseText);
+                    if (Object.keys(expenseData).length === 0) {
+                        return res.send(`<Response><Message>⚠️ Could not understand your expense message. Please try again with details like '$50 for nails from Home Depot'.</Message></Response>`);
+                    }
+                } catch (jsonError) {
+                    console.error("[ERROR] GPT-3.5 returned invalid JSON:", responseText);
+                    return res.send(`<Response><Message>⚠️ Could not parse your message as an expense. Please try again.</Message></Response>`);
+                }
                 console.log("[DEBUG] GPT-3.5 Initial Result:", expenseData);
             } catch (error) {
                 console.error("[ERROR] GPT-3.5 expense parsing failed:", error.message);
@@ -982,14 +1008,14 @@ else if (body) {
     }
 }
            
-            // Default response for unhandled messages
-            reply = "⚠️ Sorry, I didn't understand that. Please provide an expense, revenue, or job command.";
-            return res.send(`<Response><Message>${reply}</Message></Response>`);
         }
     } catch (error) {
         console.error("[ERROR] Processing webhook request failed:", error);
         return res.send(`<Response><Message>⚠️ Internal Server Error. Please try again.</Message></Response>`);
     }
+    // Default response for unhandled messages
+reply = "⚠️ Sorry, I didn't understand that. Please provide an expense, revenue, or job command.";
+return res.send(`<Response><Message>${reply}</Message></Response>`);
 });
 
 
