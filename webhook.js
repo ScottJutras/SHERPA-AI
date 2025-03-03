@@ -16,7 +16,7 @@ const { google } = require('googleapis');
 // Local utilities
 const areaCodeMap = require('./utils/areaCodes'); // For onboarding region detection
 const { parseExpenseMessage, parseRevenueMessage } = require('./utils/expenseParser');
-const { inferMissingData } = require('./transcriptionService'); // For AI fallback
+const { inferMissingData } = require('./utils/transcriptionService'); // For AI fallback
 const {
     getUserProfile,
     saveUserProfile,
