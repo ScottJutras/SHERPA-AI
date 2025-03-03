@@ -16,6 +16,7 @@ const { google } = require('googleapis');
 // Local utilities
 const areaCodeMap = require('./utils/areaCodes'); // For onboarding region detection
 const { parseExpenseMessage, parseRevenueMessage } = require('./utils/expenseParser');
+const { inferMissingData } = require('./transcriptionService'); // For AI fallback
 const {
     getUserProfile,
     saveUserProfile,
@@ -88,6 +89,15 @@ const deletePendingTransactionState = async (from) => {
 };
 
 // Utility Functions
+const setLastQuery = async (from, queryData) => {
+    await db.collection('lastQueries').doc(from).set(queryData, { merge: true });
+};
+
+const getLastQuery = async (from) => {
+    const doc = await db.collection('lastQueries').doc(from).get();
+    return doc.exists ? doc.data() : null;
+};
+
 function normalizePhoneNumber(phone) {
     return phone
         .replace(/^whatsapp:/i, '')
@@ -287,7 +297,7 @@ app.post('/webhook', async (req, res) => {
             const pendingState = await getPendingTransactionState(from);
 
  
- // Pending Confirmations (Ensure isEditing Persists)
+ // 1. Pending Confirmations (Ensure isEditing Persists)
 if (pendingState && (pendingState.pendingExpense || pendingState.pendingRevenue || pendingState.pendingBill)) {
     const pendingData = pendingState.pendingExpense || pendingState.pendingRevenue || pendingState.pendingBill;
     const type = pendingState.pendingExpense ? 'expense' : pendingState.pendingRevenue ? 'revenue' : 'bill';
@@ -371,7 +381,7 @@ if (pendingState && (pendingState.pendingExpense || pendingState.pendingRevenue 
     }
 }
 
-            // 0. Start Job Command
+            // 2. Start Job Command
             if (body && /^(start job|job start)\s+(.+)/i.test(body)) {
                 let jobName;
                 const jobMatch = body.match(/^(start job|job start)\s+(.+)/i);
@@ -416,7 +426,7 @@ if (pendingState && (pendingState.pendingExpense || pendingState.pendingRevenue 
             }
         }
 
-        // 0.5 Add Bill Command
+        // 3. Add Bill Command
 else if (body && body.toLowerCase().includes("bill")) {
     console.log("[DEBUG] Detected a bill message:", body);
     const activeJob = (await getActiveJob(from)) || "Uncategorized";
@@ -490,7 +500,7 @@ else if (body && body.toLowerCase().includes("bill")) {
         return res.send(`<Response><Message>⚠️ Could not parse bill details. Please provide the details in the format: "bill [name] $[amount] due [date]" or "bill [name] $[amount] per [period] on [date]".</Message></Response>`);
     }
 }
-            // 2. Revenue Logging Branch
+            // 4. Revenue Logging Branch
             else if (
                 body && (
                     body.toLowerCase().includes("received") ||
@@ -558,8 +568,14 @@ else if (body && body.toLowerCase().includes("bill")) {
         return res.send(`<Response><Message>⚠️ Failed to send revenue confirmation. Please try again.</Message></Response>`);
     }
 }
-// 6. Metrics Queries
-else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().includes("profit") || body.toLowerCase().includes("margin") || body.toLowerCase().includes("spend"))) {
+// 5. Metrics Queries
+else if (body && (body.toLowerCase().includes("how much") || 
+                  body.toLowerCase().includes("profit") || 
+                  body.toLowerCase().includes("margin") || 
+                  body.toLowerCase().includes("spend") || 
+                  body.toLowerCase().includes("spent") || // Added for broader coverage
+                  body.toLowerCase().includes("how about") || // Catch "How about 74 Hampton?"
+                  /\d+\s+[a-zA-Z]+\s*(street|st|avenue|ave|road|rd|job)?/i.test(body))) { // Catch "74 Hampton"
     console.log("[DEBUG] Detected a metrics query:", body);
     const activeJob = (await getActiveJob(from)) || "Uncategorized";
     const spreadsheetId = userProfile.spreadsheetId;
@@ -579,12 +595,12 @@ else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().
     try {
         const expenseResponse = await sheets.spreadsheets.values.get({ spreadsheetId, range: expenseRange });
         const allRows = expenseResponse.data.values || [];
-        expenses = allRows.filter(row => row[5] === "expense");
-        bills = allRows.filter(row => row[5] === "bill");
+        expenses = allRows.slice(1).filter(row => row[5] === "expense"); // Skip header
+        bills = allRows.slice(1).filter(row => row[5] === "bill");
         console.log("[DEBUG] Retrieved expenses:", expenses);
 
         const revenueResponse = await sheets.spreadsheets.values.get({ spreadsheetId, range: revenueRange });
-        revenues = revenueResponse.data.values || [];
+        revenues = (revenueResponse.data.values || []).slice(1); // Skip header
         console.log("[DEBUG] Retrieved revenues:", revenues);
     } catch (error) {
         console.error("[ERROR] Failed to fetch data from Google Sheets:", error);
@@ -605,21 +621,21 @@ else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().
     }
 
     // Example 2: "What was my profit margin on Job 75 Hampton?"
-    if (body.toLowerCase().includes("profit margin") && body.toLowerCase().includes("job")) {
+    if (body.toLowerCase().includes("profit") && body.toLowerCase().includes("job")) {
         const jobName = body.match(/job\s+([\w\s]+)/i)?.[1]?.trim() || activeJob;
-        const jobExpenses = expenses.filter(row => row[4] === jobName && row[5] === "expense");
-        const jobRevenues = revenues.filter(row => row[4] === jobName);
+        const jobExpenses = expenses.filter(row => row[4] === jobName);
+        const jobRevenues = revenues.filter(row => row[1] === jobName);
         const totalExpenses = jobExpenses.reduce((sum, row) => sum + parseAmount(row[2]), 0);
         const totalRevenue = jobRevenues.reduce((sum, row) => sum + parseAmount(row[2]), 0);
-        const profit = totalRevenue + totalExpenses;
-        const margin = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0;
-        return res.send(`<Response><Message>Your profit margin on Job ${jobName} was ${margin.toFixed(2)}% (Revenue: $${totalRevenue.toFixed(2)}, Expenses: $${Math.abs(totalExpenses).toFixed(2)}, Profit: $${profit.toFixed(2)}).</Message></Response>`);
-    }
+        const profit = totalRevenue - totalExpenses;
+        await setLastQuery(from, { intent: "profit", timestamp: new Date().toISOString() });
+        return res.send(`<Response><Message>Your profit on Job ${jobName} is $${profit.toFixed(2)}...</Message></Response>`);
+      }
 
     // Example 3: "How much did I spend on materials on Job 75 Hampton?"
     if (body.toLowerCase().includes("spend") && body.toLowerCase().includes("materials") && body.toLowerCase().includes("job")) {
         const jobName = body.match(/job\s+([\w\s]+)/i)?.[1]?.trim() || activeJob;
-        const materialExpenses = expenses.filter(row => row[4] === jobName && row[5] === "expense" && row[6] === "Construction Materials");
+        const materialExpenses = expenses.filter(row => row[4] === jobName && row[6] === "Construction Materials");
         const totalMaterialCost = materialExpenses.reduce((sum, row) => sum + parseAmount(row[2]), 0);
         return res.send(`<Response><Message>You spent $${Math.abs(totalMaterialCost).toFixed(2)} on materials for Job ${jobName}.</Message></Response>`);
     }
@@ -634,7 +650,7 @@ else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().
         const monthRevenues = revenues.filter(row => row[0].startsWith(monthStr));
         const totalExpenses = monthExpenses.reduce((sum, row) => sum + parseAmount(row[2]), 0);
         const totalRevenue = monthRevenues.reduce((sum, row) => sum + parseAmount(row[2]), 0);
-        const profit = totalRevenue + totalExpenses;
+        const profit = totalRevenue - totalExpenses; // Fixed
         return res.send(`<Response><Message>You made a profit of $${profit.toFixed(2)} in ${monthMatch.charAt(0).toUpperCase() + monthMatch.slice(1)} (Revenue: $${totalRevenue.toFixed(2)}, Expenses: $${Math.abs(totalExpenses).toFixed(2)}).</Message></Response>`);
     }
 
@@ -645,7 +661,8 @@ else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().
         const ytdRevenues = revenues.filter(row => row[0].startsWith(yearStr));
         const totalExpenses = ytdExpenses.reduce((sum, row) => sum + parseAmount(row[2]), 0);
         const totalRevenue = ytdRevenues.reduce((sum, row) => sum + parseAmount(row[2]), 0);
-        const profit = totalRevenue + totalExpenses;
+        const profit = totalRevenue - totalExpenses;
+        await setLastQuery(from, { intent: "profit", timestamp: new Date().toISOString() });
         return res.send(`<Response><Message>Your year-to-date profit is $${profit.toFixed(2)} (Revenue: $${totalRevenue.toFixed(2)}, Expenses: $${Math.abs(totalExpenses).toFixed(2)}).</Message></Response>`);
     }
 
@@ -660,7 +677,7 @@ else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().
     // Example 7: "How much revenue did I make on Job 75 Hampton?"
     if (body.toLowerCase().includes("revenue") && body.toLowerCase().includes("job")) {
         const jobName = body.match(/job\s+([\w\s]+)/i)?.[1]?.trim() || activeJob;
-        const jobRevenues = revenues.filter(row => row[4] === jobName);
+        const jobRevenues = revenues.filter(row => row[1] === jobName); // Assuming source/job in column B
         const totalRevenue = jobRevenues.reduce((sum, row) => sum + parseAmount(row[2]), 0);
         return res.send(`<Response><Message>You made $${totalRevenue.toFixed(2)} in revenue on Job ${jobName}.</Message></Response>`);
     }
@@ -672,56 +689,60 @@ else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().
         const ytdRevenues = revenues.filter(row => row[0].startsWith(yearStr));
         const totalExpenses = ytdExpenses.reduce((sum, row) => sum + parseAmount(row[2]), 0);
         const totalRevenue = ytdRevenues.reduce((sum, row) => sum + parseAmount(row[2]), 0);
-        const profit = totalRevenue + totalExpenses;
+        const profit = totalRevenue - totalExpenses; // Fixed
         const monthsSoFar = now.getMonth() + 1;
         const avgProfit = profit / monthsSoFar;
         return res.send(`<Response><Message>Your average monthly profit this year is $${avgProfit.toFixed(2)} (Total Profit: $${profit.toFixed(2)} over ${monthsSoFar} months).</Message></Response>`);
     }
 
     // AI Fallback for imprecise queries or help requests
-    console.log("[DEBUG] No exact match found, falling back to AI interpretation...");
-    try {
-        const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-        const gptResponse = await openaiClient.chat.completions.create({
+        console.log("[DEBUG] No exact match found, falling back to AI interpretation...");
+        try {
+          const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+          const lastQuery = await getLastQuery(from);
+          const contextMessage = lastQuery && (new Date().getTime() - new Date(lastQuery.timestamp).getTime()) < 5 * 60 * 1000 // 5-minute window
+            ? `The user recently asked about "${lastQuery.intent}" metrics. If this query seems like a follow-up (e.g., asking about another job), assume they want the same metric type unless specified otherwise.`
+            : "No recent context available.";
+          
+          const gptResponse = await openaiClient.chat.completions.create({
             model: "gpt-3.5-turbo",
             messages: [
-                { 
-                    role: "system", 
-                    content: `You are an assistant interpreting financial metrics queries for a construction business. The user has expense and revenue data in Google Sheets (Expenses in 'Sheet1!A:G': Date, Item, Amount, Store, Job, Type, Category; Revenues in 'Revenue!A:F'). Interpret the user's query and return a JSON object with: { intent: 'profit|spend|revenue|margin|help|...', job: 'job name or null', period: 'year to date|this month|... or null', response: 'text to send back' }. For 'help' intent (e.g., "What can I do here?"), provide a list of capabilities and financial tips. For other intents, extract details and suggest a corrected query if needed. If unclear, provide guidance.` 
-                },
-                { role: "user", content: `Query: "${body.trim()}"` }
+              { 
+                role: "system", 
+                content: `You are an assistant interpreting financial metrics queries for a construction business. The user has expense data in 'Sheet1!A:G' (Date, Item, Amount, Store, Job, Type, Category) and revenue data in 'Revenue!A:F' (Date, Source, Amount, ...). Interpret the user's query and return a JSON object with: { intent: 'profit|spend|revenue|margin|help|unknown', job: 'job name or null', period: 'year to date|this month|specific month|null', response: 'text to send back' }. ${contextMessage} For 'help' intent, provide a list of capabilities. For metrics intents, extract job names (e.g., '74 Hampton') or periods if present, and suggest a corrected query if unclear.` 
+              },
+              { role: "user", content: `Query: "${body.trim()}"` }
             ],
             max_tokens: 150,
             temperature: 0.3
-        });
-        const aiResult = JSON.parse(gptResponse.choices[0].message.content);
-        console.log("[DEBUG] AI Interpretation Result:", aiResult);
-
-        if (aiResult.intent === "help") {
-            return res.send(`<Response><Message>${aiResult.response || "I’m here to help you manage your construction business finances! You can:\n- Log expenses (e.g., '$50 for nails from Home Depot on 2025-03-01')\n- Track revenue (e.g., 'I got paid $500')\n- Check profits (e.g., 'How much profit have I made year to date?' or 'How much profit did I make on Job 75 Hampton?')\n- Monitor spending (e.g., 'How much did I spend on materials on Job 74 Hampton?')\n- Plan ahead (e.g., 'How much do I need to make to cover bills next month?')\nTo become financially astute, regularly log your expenses and revenue, then ask me for insights to spot trends and optimize profits. What would you like to try?"}</Message></Response>`);
+          });
+          const aiResult = JSON.parse(gptResponse.choices[0].message.content);
+          console.log("[DEBUG] AI Interpretation Result:", aiResult);
+      
+          if (aiResult.intent === "help") {
+            return res.send(`<Response><Message>${aiResult.response || "I’m here to help you manage your construction business finances! You can:\n- Log expenses (e.g., '$50 for nails from Home Depot')\n- Track revenue (e.g., 'Received $500 from client')\n- Check profits (e.g., 'How much profit have I made year to date?')\n- Monitor spending (e.g., 'How much did I spend on Job 74 Hampton?')\nWhat would you like to try?"}</Message></Response>`);
         } else if (aiResult.intent === "profit" && aiResult.job) {
             const jobName = aiResult.job;
-            const jobExpenses = expenses.filter(row => row[4] === jobName && row[5] === "expense");
-            const jobRevenues = revenues.filter(row => row[4] === jobName);
+            const jobExpenses = expenses.filter(row => row[4] === jobName);
+            const jobRevenues = revenues.filter(row => row[1] === jobName);
             const totalExpenses = jobExpenses.reduce((sum, row) => sum + parseAmount(row[2]), 0);
             const totalRevenue = jobRevenues.reduce((sum, row) => sum + parseAmount(row[2]), 0);
-            const profit = totalRevenue + totalExpenses;
-            return res.send(`<Response><Message>${aiResult.response || `I assume you meant "How much profit did I make on Job ${jobName}?" Your profit for Job ${jobName} is $${profit.toFixed(2)} (Revenue: $${totalRevenue.toFixed(2)}, Expenses: $${Math.abs(totalExpenses).toFixed(2)}). If I got that wrong, try "How much profit did I make on Job ${jobName}?"`}</Message></Response>`);
-        } else if (aiResult.intent === "spend" && aiResult.job) {
-            const jobName = aiResult.job;
-            const jobExpenses = expenses.filter(row => row[4] === jobName && row[5] === "expense");
-            const totalExpenses = jobExpenses.reduce((sum, row) => sum + parseAmount(row[2]), 0);
-            return res.send(`<Response><Message>${aiResult.response || `I assume you meant "How much did I spend on Job ${jobName}?" You spent $${Math.abs(totalExpenses).toFixed(2)} on Job ${jobName}. If I got that wrong, try "How much did I spend on Job ${jobName}?"`}</Message></Response>`);
+            const profit = totalRevenue - totalExpenses;
+            await setLastQuery(from, { intent: "profit", timestamp: new Date().toISOString() });
+            return res.send(`<Response><Message>${aiResult.response || `Profit for Job ${jobName} is $${profit.toFixed(2)} (Revenue: $${totalRevenue.toFixed(2)}, Expenses: $${Math.abs(totalExpenses).toFixed(2)}).`}</Message></Response>`);
+        } else if (aiResult.intent === "unknown") {
+            // Fall through to next branch if AI can’t resolve
+            console.log("[DEBUG] AI fallback deemed query unknown, proceeding to next branch...");
         } else {
-            return res.send(`<Response><Message>${aiResult.response || "⚠️ I couldn’t understand your metrics request. Try asking like 'How much profit did I make on Job 74 Hampton?' or 'How much have I spent this month?'"}</Message></Response>`);
+            return res.send(`<Response><Message>${aiResult.response || "⚠️ I couldn’t understand your request. Try 'How much profit on Job 74 Hampton?'"}</Message></Response>`);
         }
     } catch (error) {
         console.error("[ERROR] AI fallback failed:", error.message);
-        return res.send(`<Response><Message>⚠️ I couldn’t process your request. Please try again with something like 'How much profit did I make on Job 74 Hampton?'</Message></Response>`);
+        return res.send(`<Response><Message>⚠️ I couldn’t process your request...</Message></Response>`);
     }
-}
+} 
 
-    //Media Handling
+    //6. Media Handling
     else if (mediaUrl) {
         console.log("[DEBUG] Checking media in message...");
         let combinedText = "";
@@ -842,7 +863,7 @@ else if (body && (body.toLowerCase().includes("how much") || body.toLowerCase().
             return res.send(`<Response><Message>⚠️ No media detected or unable to extract information. Please resend.</Message></Response>`);
         }
     }
-       // Text Expense Logging (Updated to Handle Edit Directly)
+       // 7. Text Expense Logging (Updated to Handle Edit Directly)
 else if (body) {
     console.log("[DEBUG] Attempting to parse expense message:", body);
     const activeJob = (await getActiveJob(from)) || "Uncategorized";
