@@ -255,117 +255,120 @@ app.post('/webhook', async (req, res) => {
 
     try {
         // ─── ONBOARDING FLOW ─────────────────────────
-        if (userProfile.onboarding_in_progress) {
-            let state = await getOnboardingState(from);
-            if (!state) {
-                state = { step: 0, responses: {}, detectedLocation: detectCountryAndRegion(from), locationConfirmed: false };
-                await setOnboardingState(from, state);
-                console.log(`[DEBUG] Initialized state for ${from}:`, state);
+if (userProfile.onboarding_in_progress) {
+    let state = await getOnboardingState(from);
+    if (!state) {
+        state = { step: 0, responses: {}, detectedLocation: detectCountryAndRegion(from), locationConfirmed: false };
+        await setOnboardingState(from, state);
+        console.log(`[DEBUG] Initialized state for ${from}:`, state);
 
-                // Step 0: Detect and confirm location
-                const { country, region } = state.detectedLocation;
-                if (country !== "Unknown" && region !== "Unknown") {
-                    const sent = await sendTemplateMessage(
-                        from,
-                        confirmationTemplates.locationConfirmation,
-                        [
-                            { type: "text", text: country },
-                            { type: "text", text: region }
-                        ]
-                    );
-                    if (sent) {
-                        console.log(`[DEBUG] Sent location confirmation template to ${from}`);
-                        return res.send(`<Response></Response>`);
-                    } else {
-                        console.error("[ERROR] Failed to send location confirmation template, falling back to manual input");
-                        return res.send(`<Response><Message>⚠️ Couldn’t detect your location automatically. ${onboardingSteps[0]}</Message></Response>`);
-                    }
-                } else {
-                    console.log(`[DEBUG] Location detection failed, starting with first question`);
-                    return res.send(`<Response><Message>${onboardingSteps[0]}</Message></Response>`);
-                }
+        const { country, region } = state.detectedLocation;
+        if (country !== "Unknown" && region !== "Unknown") {
+            const sent = await sendTemplateMessage(
+                from,
+                confirmationTemplates.locationConfirmation,
+                [
+                    { type: "text", text: country },
+                    { type: "text", text: region }
+                ]
+            );
+            if (sent) {
+                console.log(`[DEBUG] Sent location confirmation template to ${from}`);
+                return res.send(`<Response></Response>`);
+            } else {
+                console.error("[ERROR] Failed to send location confirmation template, falling back to manual input");
+                return res.send(`<Response><Message>⚠️ Couldn’t detect your location automatically. ${onboardingSteps[0]}</Message></Response>`);
             }
+        } else {
+            console.log(`[DEBUG] Location detection failed, starting with first question`);
+            return res.send(`<Response><Message>${onboardingSteps[0]}</Message></Response>`);
+        }
+    }
 
-            // Handle location confirmation response
-            if (state.step === 0 && !state.locationConfirmed && state.detectedLocation.country !== "Unknown" && state.detectedLocation.region !== "Unknown") {
-                const responseLower = body.toLowerCase();
-                if (responseLower === "yes") {
-                    state.responses.step_1 = state.detectedLocation.country;
-                    state.responses.step_2 = state.detectedLocation.region;
-                    state.locationConfirmed = true;
-                    state.step = 3; // Skip to business type
-                    await setOnboardingState(from, state);
-                    const nextQuestion = onboardingSteps[state.step];
+    // Handle location confirmation response
+    if (state.step === 0 && !state.locationConfirmed && state.detectedLocation.country !== "Unknown" && state.detectedLocation.region !== "Unknown") {
+        const response = req.body.ButtonText || body; // Prefer ButtonText for Twilio buttons
+        const responseLower = response.toLowerCase();
+        if (responseLower === "yes") {
+            state.responses.step_1 = state.detectedLocation.country;
+            state.responses.step_2 = state.detectedLocation.region;
+            state.locationConfirmed = true;
+            state.step = 3; // Skip to business type
+            await setOnboardingState(from, state);
+            const nextQuestion = onboardingSteps[state.step];
+            console.log(`[DEBUG] Location confirmed, advancing to step ${state.step}: ${nextQuestion}`);
+            return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
+        } else if (responseLower === "edit" || responseLower === "cancel") {
+            state.locationConfirmed = true;
+            state.step = 1; // Manual input starting with country
+            await setOnboardingState(from, state);
+            console.log(`[DEBUG] Location edit/cancel, advancing to step 1`);
+            return res.send(`<Response><Message>${onboardingSteps[1]}</Message></Response>`);
+        } else {
+            console.log(`[DEBUG] Invalid response to location confirmation: ${response}`);
+            return res.send(`<Response><Message>⚠️ Please reply with 'Yes', 'Edit', or 'Cancel'.</Message></Response>`);
+        }
+    }
+
+    // Handle regular onboarding steps
+    if (state.step > 0 && state.step < onboardingSteps.length) {
+        state.responses[`step_${state.step}`] = body;
+        console.log(`[DEBUG] Recorded response for step ${state.step}:`, body);
+        state.step++;
+        await setOnboardingState(from, state);
+
+        if (state.step < onboardingSteps.length) {
+            const nextQuestion = onboardingSteps[state.step];
+            console.log(`[DEBUG] Next question (step ${state.step}) for ${from}:`, nextQuestion);
+            if (onboardingTemplates.hasOwnProperty(state.step)) {
+                const sent = await sendTemplateMessage(from, onboardingTemplates[state.step], {});
+                if (!sent) {
+                    console.error("Falling back to plain text question because template message sending failed");
                     return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
-                } else if (responseLower === "edit" || responseLower === "cancel") {
-                    state.locationConfirmed = true;
-                    state.step = 1; // Manual input starting with country
-                    await setOnboardingState(from, state);
-                    return res.send(`<Response><Message>${onboardingSteps[1]}</Message></Response>`);
-                } else {
-                    return res.send(`<Response><Message>⚠️ Please reply with 'Yes', 'Edit', or 'Cancel'.</Message></Response>`);
                 }
+                console.log(`[DEBUG] Sent interactive template for step ${state.step} to ${from}`);
+                return res.send(`<Response></Response>`);
+            } else {
+                console.log(`[DEBUG] Sending plain text for step ${state.step} to ${from}`);
+                return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
             }
-
-            // Handle regular onboarding steps
-            if (state.step < onboardingSteps.length) {
-                state.responses[`step_${state.step}`] = body;
-                console.log(`[DEBUG] Recorded response for step ${state.step}:`, body);
-                state.step++;
-                await setOnboardingState(from, state);
-
-                if (state.step < onboardingSteps.length) {
-                    const nextQuestion = onboardingSteps[state.step];
-                    console.log(`[DEBUG] Next question (step ${state.step}) for ${from}:`, nextQuestion);
-                    if (onboardingTemplates.hasOwnProperty(state.step)) {
-                        const sent = await sendTemplateMessage(from, onboardingTemplates[state.step], {});
-                        if (!sent) {
-                            console.error("Falling back to plain text question because template message sending failed");
-                            return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
-                        }
-                        console.log(`[DEBUG] Sent interactive template for step ${state.step} to ${from}`);
-                        return res.send(`<Response></Response>`);
-                    } else {
-                        console.log(`[DEBUG] Sending plain text for step ${state.step} to ${from}`);
-                        return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
-                    }
-                } else {
-                    const emailStep = state.locationConfirmed ? 8 : 10;
-                    const email = state.responses[`step_${emailStep}`];
-                    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-                    if (!emailRegex.test(email)) {
-                        return res.send(`<Response><Message>⚠️ The email address you provided doesn't seem valid. Please enter a valid email address.</Message></Response>`);
-                    }
-                    try {
-                        const userProfileData = {
-                            user_id: from,
-                            name: state.responses.step_0,
-                            country: state.responses.step_1,
-                            province: state.responses.step_2,
-                            business_type: state.responses.step_3,
-                            industry: state.responses.step_4,
-                            personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
-                            track_mileage: state.responses.step_6.toLowerCase() === "yes",
-                            track_home_office: state.responses.step_7.toLowerCase() === "yes",
-                            financial_goals: state.responses.step_8,
-                            add_bills: state.responses.step_9?.toLowerCase() === "yes",
-                            email: email,
-                            created_at: userProfile.created_at, // Preserve original timestamp
-                            onboarding_in_progress: false
-                        };
-                        await saveUserProfile(userProfileData);
-                        const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
-                        await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
-                        await deleteOnboardingState(from);
-                        console.log(`[DEBUG] Onboarding complete for ${from}:`, userProfileData);
-                        return res.send(`<Response><Message>✅ Onboarding complete, ${userProfileData.name}! Your spreadsheet has been emailed to you.</Message></Response>`);
-                    } catch (error) {
-                        console.error("[ERROR] Failed to complete onboarding:", error);
-                        return res.send(`<Response><Message>⚠️ Sorry, something went wrong while completing your profile. Please try again later.</Message></Response>`);
-                    }
-                }
+        } else {
+            const emailStep = state.locationConfirmed ? 8 : 10;
+            const email = state.responses[`step_${emailStep}`];
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(email)) {
+                return res.send(`<Response><Message>⚠️ The email address you provided doesn't seem valid. Please enter a valid email address.</Message></Response>`);
+            }
+            try {
+                const userProfileData = {
+                    user_id: from,
+                    name: state.responses.step_0,
+                    country: state.responses.step_1,
+                    province: state.responses.step_2,
+                    business_type: state.responses.step_3,
+                    industry: state.responses.step_4,
+                    personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
+                    track_mileage: state.responses.step_6.toLowerCase() === "yes",
+                    track_home_office: state.responses.step_7.toLowerCase() === "yes",
+                    financial_goals: state.responses.step_8,
+                    add_bills: state.responses.step_9?.toLowerCase() === "yes",
+                    email: email,
+                    created_at: userProfile.created_at,
+                    onboarding_in_progress: false
+                };
+                await saveUserProfile(userProfileData);
+                const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
+                await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
+                await deleteOnboardingState(from);
+                console.log(`[DEBUG] Onboarding complete for ${from}:`, userProfileData);
+                return res.send(`<Response><Message>✅ Onboarding complete, ${userProfileData.name}! Your spreadsheet has been emailed to you.</Message></Response>`);
+            } catch (error) {
+                console.error("[ERROR] Failed to complete onboarding:", error);
+                return res.send(`<Response><Message>⚠️ Sorry, something went wrong while completing your profile. Please try again later.</Message></Response>`);
             }
         }
+    }
+}
         // ─── NON-ONBOARDING FLOW (RETURNING USERS) ─────────────────────────
         else {
             let reply;
