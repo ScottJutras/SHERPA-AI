@@ -268,10 +268,17 @@ if (userProfile.onboarding_in_progress) {
     }
 
     // If the user's name is not yet provided, keep asking for it before anything else
-    if (!state.responses.step_0) {
-        console.log(`[DEBUG] User's name is missing, ensuring it's collected first.`);
-        return res.send(`<Response><Message>Please tell me your name before we continue.</Message></Response>`);
-    }
+    if (state.step === 0) {
+        // Store the user's name and proceed to the next step
+        state.responses.step_0 = body.trim();  // Store the provided name
+        state.step = 1; // Move to the next step
+        await setOnboardingState(from, state);
+        
+        console.log(`[DEBUG] User's name recorded as: ${state.responses.step_0}. Advancing to step 1.`);
+        
+        // Proceed with the next question (which could be location confirmation or another step)
+        return res.send(`<Response><Message>Thanks, ${state.responses.step_0}! Now, let's continue. ${onboardingSteps[state.step]}</Message></Response>`);
+    } 
 
     const { country, region } = state.detectedLocation;
     if (country !== "Unknown" && region !== "Unknown" && !state.locationConfirmed) {
