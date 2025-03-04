@@ -392,18 +392,22 @@ async function fetchExpenseData(phoneNumber, jobName) {
 
 // ─── ACTIVE JOB HANDLING (Using Firestore) ───────────────────────────────────
 /**
- * Set the active job for a user in Firestore.
+ * Set the active job for a user in Firestore and log its start time in job history.
  *
  * @param {string} phoneNumber - The user's phone number.
  * @param {string} jobName - The job to set as active.
  */
 async function setActiveJob(phoneNumber, jobName) {
   try {
-    await db.collection('users').doc(phoneNumber).set({ activeJob: jobName }, { merge: true });
-    console.log(`[✅ SUCCESS] Active job set for ${phoneNumber}: ${jobName}`);
+      const timestamp = new Date().toISOString();
+      await db.collection('users').doc(phoneNumber).set({ 
+          activeJob: jobName,
+          jobHistory: admin.firestore.FieldValue.arrayUnion({ jobName, startTime: timestamp, status: 'active' })
+      }, { merge: true });
+      console.log(`[✅ SUCCESS] Active job set for ${phoneNumber}: ${jobName} at ${timestamp}`);
   } catch (error) {
-    console.error('[❌ ERROR] Failed to set active job:', error.message);
-    throw error;
+      console.error('[❌ ERROR] Failed to set active job:', error.message);
+      throw error;
   }
 }
 

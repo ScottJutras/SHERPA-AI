@@ -1,4 +1,4 @@
-require('dotenv').config(); // Load environment variables first
+require('dotenv').config();
 
 // Core Node.js utilities
 const { URLSearchParams } = require('url');
@@ -14,9 +14,9 @@ const axios = require('axios');
 const { google } = require('googleapis');
 
 // Local utilities
-const areaCodeMap = require('./utils/areaCodes'); // For onboarding region detection
+const areaCodeMap = require('./utils/areaCodes');
 const { parseExpenseMessage, parseRevenueMessage } = require('./utils/expenseParser');
-const { inferMissingData } = require('./utils/transcriptionService'); // For AI fallback
+const { transcribeAudio, inferMissingData } = require('./utils/transcriptionService');
 const {
     getUserProfile,
     saveUserProfile,
@@ -34,7 +34,6 @@ const {
 const { extractTextFromImage } = require('./utils/visionService');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
 const { sendSpreadsheetEmail } = require('./utils/sendGridService');
-const { transcribeAudio } = require('./utils/transcriptionService');
 const storeList = require('./utils/storeList');
 const constructionStores = storeList.map(store => store.toLowerCase());
 
@@ -88,7 +87,7 @@ const deletePendingTransactionState = async (from) => {
     await db.collection('pendingTransactions').doc(from).delete();
 };
 
-// Utility Functions
+// Helper functions for query context and job management
 const setLastQuery = async (from, queryData) => {
     await db.collection('lastQueries').doc(from).set(queryData, { merge: true });
 };
@@ -98,6 +97,21 @@ const getLastQuery = async (from) => {
     return doc.exists ? doc.data() : null;
 };
 
+const finishJob = async (phoneNumber, jobName) => {
+    const timestamp = new Date().toISOString();
+    const userRef = db.collection('users').doc(phoneNumber);
+    const doc = await userRef.get();
+    const jobHistory = doc.data().jobHistory || [];
+    const updatedHistory = jobHistory.map(job => 
+        job.jobName === jobName && job.status === 'active' 
+            ? { ...job, endTime: timestamp, status: 'finished' } 
+            : job
+    );
+    await userRef.set({ activeJob: null, jobHistory: updatedHistory }, { merge: true });
+    console.log(`[✅] Job ${jobName} finished at ${timestamp}`);
+};
+
+// Utility Functions
 function normalizePhoneNumber(phone) {
     return phone
         .replace(/^whatsapp:/i, '')
@@ -126,7 +140,6 @@ function detectCountryAndRegion(phoneNumber) {
     }
     return { country, region };
 }
-
 // Express App Setup
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -519,6 +532,7 @@ else if (body && body.toLowerCase().includes("bill")) {
                     body.toLowerCase().includes("collected a check") ||
                     body.toLowerCase().includes("got a cashapp") ||
                     body.toLowerCase().includes("got an etransfer") ||
+                    body.toLowerCase().includes("I made") ||
                     body.toLowerCase().includes("received an etransfer") ||
                     body.toLowerCase().includes("got paid")
                 )
@@ -568,6 +582,12 @@ else if (body && body.toLowerCase().includes("bill")) {
         return res.send(`<Response><Message>⚠️ Failed to send revenue confirmation. Please try again.</Message></Response>`);
     }
 }
+else if (body && /^(finish job|job finish)\s+(.+)/i.test(body)) {
+    const jobName = body.match(/^(finish job|job finish)\s+(.+)/i)[2].trim();
+    await finishJob(from, jobName);
+    return res.send(`<Response><Message>✅ Job '${jobName}' finished.</Message></Response>`);
+}
+
 // 5. Metrics Queries
 else if (body && (body.toLowerCase().includes("how much") || 
                   body.toLowerCase().includes("profit") || 
@@ -1067,7 +1087,7 @@ async function handleStartJob(from, body) {
     const jobMatch = body.match(/^(?:start job|job start)\s+(.+)/i);
     if (!jobMatch) return "⚠️ Please specify a job name. Example: 'Start job 75 Hampton Crt'";
     const jobName = jobMatch[1].trim();
-    await setActiveJob(from, jobName);
+    await setActiveJob(from, jobName); // Uses top-level version
     return `✅ Job '${jobName}' is now active. All expenses will be assigned to this job.`;
 }
 
