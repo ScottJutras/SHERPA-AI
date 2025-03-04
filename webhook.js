@@ -323,7 +323,16 @@ if (userProfile.onboarding_in_progress) {
             await setOnboardingState(from, state);
             const nextQuestion = onboardingSteps[state.step] || "Please continue with the next step.";
             console.log(`[DEBUG] Location confirmed. Moving to step ${state.step}.`);
-            return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
+            // Send quick reply template for step 4 if available
+            if (onboardingTemplates.hasOwnProperty(state.step)) {
+                const sent = await sendTemplateMessage(from, onboardingTemplates[state.step], {});
+                if (!sent) {
+                    return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
+                }
+                return res.send(`<Response></Response>`);
+            } else {
+                return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
+            }
         } else if (responseLower === "edit" || responseLower === "cancel") {
             // User wants to manually enter location details
             state.locationConfirmed = false;
@@ -352,14 +361,23 @@ if (userProfile.onboarding_in_progress) {
         // Manual input for state/province
         state.responses.step_2 = body.trim();
         state.editMode = false;
-        state.step = 3; // Proceed to next onboarding step (business type)
+        state.step = 4; // Proceed to business type question
         await setOnboardingState(from, state);
         const nextQuestion = onboardingSteps[state.step] || "Please continue with the next step.";
-        return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
+        // Send quick reply for step 4 if available
+        if (onboardingTemplates.hasOwnProperty(state.step)) {
+            const sent = await sendTemplateMessage(from, onboardingTemplates[state.step], {});
+            if (!sent) {
+                return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
+            }
+            return res.send(`<Response></Response>`);
+        } else {
+            return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
+        }
     }
 
-    // Continue with regular onboarding steps (steps 3 and onward)
-    if (state.step >= 3 && state.step < onboardingSteps.length) {
+    // Continue with regular onboarding steps (steps 4 and onward)
+    if (state.step >= 4 && state.step < onboardingSteps.length) {
         state.responses[`step_${state.step}`] = body.trim();
         console.log(`[DEBUG] Recorded response for step ${state.step}:`, body);
         state.step++;
@@ -382,7 +400,6 @@ if (userProfile.onboarding_in_progress) {
             }
         } else {
             // Final step: email collection and profile creation
-            // For auto-confirmed location, email is at step 11; if manual, it's at step 10.
             const emailStep = state.locationConfirmed ? 11 : 10;
             const email = state.responses[`step_${emailStep}`];
             const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
