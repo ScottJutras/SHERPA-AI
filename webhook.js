@@ -162,7 +162,7 @@ const onboardingSteps = [
     "Can I get your email address?"
   ];
   
-const onboardingTemplates = {
+  const onboardingTemplates = {
     1: "HX4cf7529ecaf5a488fdfa96b931025023",
     3: "HX066a88aad4089ba4336a21116e923557",
     4: "HX1d4c5b90e5f5d7417283f3ee522436f4",
@@ -171,14 +171,14 @@ const onboardingTemplates = {
     7: "HX3e231458c97ba2ca1c5588b54e87c081",
     8: "HX20b1be5490ea39f3730fb9e70d5275df",
     9: "HX99fd5cad1d49ab68e9afc6a70fe4d24a"
-};
-const confirmationTemplates = {
+  };
+  const confirmationTemplates = {
     revenue: "HXb3086ca639cb4882fb2c68f2cd569cb4",
     expense: "HX9f6b7188f055fa25f8170f915e53cbd0",
     bill: "HX6de403c09a8ec90183fbb3fe05413252",
     startJob: "HXa4f19d568b70b3493e64933ce5e6a040",
     locationConfirmation: "HX0280df498999848aaff04cc079e16c31"
-};
+  };
 // ─── SEND TEMPLATE MESSAGE FUNCTION ─────────────────────
 const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
     try {
@@ -319,7 +319,7 @@ if (userProfile.onboarding_in_progress) {
             state.responses.step_2 = state.detectedLocation.region;
             state.locationConfirmed = true;
             state.awaitingLocationResponse = false;
-            state.step = 3; // Skip manual country/state input and proceed to business type (assumed step 3)
+            state.step = 4; // Skip manual country/state input and proceed to business type (step 4)
             await setOnboardingState(from, state);
             const nextQuestion = onboardingSteps[state.step] || "Please continue with the next step.";
             console.log(`[DEBUG] Location confirmed. Moving to step ${state.step}.`);
@@ -382,7 +382,8 @@ if (userProfile.onboarding_in_progress) {
             }
         } else {
             // Final step: email collection and profile creation
-            const emailStep = state.locationConfirmed ? 8 : 10;
+            // For auto-confirmed location, email is at step 11; if manual, it's at step 10.
+            const emailStep = state.locationConfirmed ? 11 : 10;
             const email = state.responses[`step_${emailStep}`];
             const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             if (!emailRegex.test(email)) {
