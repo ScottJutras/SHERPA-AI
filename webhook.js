@@ -293,11 +293,12 @@ if (userProfile.onboarding_in_progress) {
             state.responses.step_1 = state.detectedLocation.country;
             state.responses.step_2 = state.detectedLocation.region;
             state.locationConfirmed = true;
-            state.step = 3; // Skip to business type
+            state.step = 2; // Ensure correct step sequence
             await setOnboardingState(from, state);
+            console.log(`[DEBUG] Location confirmed. Skipping redundant province request.`);
             const nextQuestion = onboardingSteps[state.step];
             console.log(`[DEBUG] Location confirmed, advancing to step ${state.step}: ${nextQuestion}`);
-            return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
+            return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);        
         } else if (responseLower === "edit" || responseLower === "cancel") {
             state.locationConfirmed = true;
             state.step = 1; // Manual input starting with country
