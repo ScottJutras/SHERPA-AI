@@ -405,55 +405,82 @@ if (userProfile.onboarding_in_progress) {
             }
         } else {
             // Final step: email collection and profile creation
-            const emailStep = 11;
-            const email = state.responses[`step_${emailStep}`];
-            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-            if (!emailRegex.test(email)) {
-                return res.send(`<Response><Message>⚠️ The email address you provided doesn't seem valid. Please enter a valid email address.</Message></Response>`);
+if (state.step >= onboardingSteps.length) {
+    // Determine which step holds the email address based on location flow.
+    const emailStep = state.locationConfirmed ? 11 : 10;
+    const email = state.responses[`step_${emailStep}`];
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        return res.send(`<Response><Message>⚠️ The email address you provided doesn't seem valid. Please enter a valid email address.</Message></Response>`);
+    }
+    
+    // Based on the flow, assign the remaining values:
+    let business_type, industry, personal_expenses_enabled, track_mileage, track_home_office, financial_goals, add_bills;
+    if (state.locationConfirmed) {
+        // Auto-confirmed flow: country & province were auto-filled in steps 1 & 2; business type starts at step 4.
+        business_type = state.responses.step_4;
+        industry = state.responses.step_5;
+        personal_expenses_enabled = state.responses.step_6.toLowerCase() === "yes";
+        track_mileage = state.responses.step_7.toLowerCase() === "yes";
+        track_home_office = state.responses.step_8.toLowerCase() === "yes";
+        financial_goals = state.responses.step_9;
+        add_bills = state.responses.step_10?.toLowerCase() === "yes";
+    } else {
+        // Manual flow: user entered country and province manually at steps 1 and 2; business type is then step 3.
+        business_type = state.responses.step_3;
+        industry = state.responses.step_4;
+        personal_expenses_enabled = state.responses.step_5.toLowerCase() === "yes";
+        track_mileage = state.responses.step_6.toLowerCase() === "yes";
+        track_home_office = state.responses.step_7.toLowerCase() === "yes";
+        financial_goals = state.responses.step_8;
+        add_bills = state.responses.step_9?.toLowerCase() === "yes";
+    }
+
+    try {
+        const userProfileData = {
+            user_id: from,
+            name: state.responses.step_0,
+            country: state.responses.step_1, // Either auto-filled or manual
+            province: state.responses.step_2,  // Either auto-filled or manual
+            business_type: business_type,
+            industry: industry,
+            personal_expenses_enabled: personal_expenses_enabled,
+            track_mileage: track_mileage,
+            track_home_office: track_home_office,
+            financial_goals: financial_goals,
+            add_bills: add_bills,
+            email: email,
+            created_at: userProfile.created_at,
+            onboarding_in_progress: false
+        };
+        await saveUserProfile(userProfileData);
+        const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
+        await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
+        
+        // Delete the onboarding state now that we're done
+        await deleteOnboardingState(from);
+        console.log(`[DEBUG] Onboarding complete for ${from}:`, userProfileData);
+        
+        // Send the call-to-action template with the spreadsheet link.
+        const sentLink = await sendTemplateMessage(
+            from,
+            confirmationTemplates.spreadsheetlink,
+            {
+                "1": userProfileData.name,
+                "2": spreadsheetId
             }
-            try {
-                const userProfileData = {
-                    user_id: from,
-                    name: state.responses.step_0,
-                    country: state.responses.step_1,
-                    province: state.responses.step_2,
-                    business_type: state.responses.step_3,
-                    industry: state.responses.step_4,
-                    personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
-                    track_mileage: state.responses.step_6.toLowerCase() === "yes",
-                    track_home_office: state.responses.step_7.toLowerCase() === "yes",
-                    financial_goals: state.responses.step_8,
-                    add_bills: state.responses.step_9?.toLowerCase() === "yes",
-                    email: email,
-                    created_at: userProfile.created_at,
-                    onboarding_in_progress: false
-                };
-                await saveUserProfile(userProfileData);
-                const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
-                await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
-                
-                // Delete the onboarding state now that we're done
-                await deleteOnboardingState(from);
-                console.log(`[DEBUG] Onboarding complete for ${from}:`, userProfileData);
-                
-                // Send the call-to-action template with the spreadsheet link
-                const sentLink = await sendTemplateMessage(
-                    from,
-                    confirmationTemplates.spreadsheet_link,
-                    {
-                        "1": userProfileData.name,
-                        "2": spreadsheetId
-                    }
-                );
-                if (!sentLink) {
-                    console.error("Failed to send spreadsheet link template, falling back to plain text.");
-                    return res.send(`<Response><Message>✅ Onboarding complete, ${userProfileData.name}! Your spreadsheet is available at https://docs.google.com/spreadsheets/d/${spreadsheetId}</Message></Response>`);
-                }
-                return res.send(`<Response><Message>✅ Onboarding complete, ${userProfileData.name}! Your spreadsheet has been emailed to you and the link has been sent via WhatsApp.</Message></Response>`);
-            } catch (error) {
-                console.error("[ERROR] Failed to complete onboarding:", error);
-                return res.send(`<Response><Message>⚠️ Sorry, something went wrong while completing your profile. Please try again later.</Message></Response>`);
-            }
+        );
+        if (!sentLink) {
+            console.error("Failed to send spreadsheet link template, falling back to plain text.");
+            return res.send(`<Response><Message>✅ Onboarding complete, ${userProfileData.name}! Your spreadsheet is available at https://docs.google.com/spreadsheets/d/${spreadsheetId}</Message></Response>`);
+        }
+        return res.send(`<Response><Message>✅ Onboarding complete, ${userProfileData.name}! Your spreadsheet has been emailed to you and the link has been sent via WhatsApp.</Message></Response>`);
+    } catch (error) {
+        console.error("[ERROR] Failed to complete onboarding:", error);
+        return res.send(`<Response><Message>⚠️ Sorry, something went wrong while completing your profile. Please try again later.</Message></Response>`);
+    }
+}
+
         }
     }
 }
