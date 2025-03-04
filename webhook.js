@@ -383,7 +383,11 @@ if (userProfile.onboarding_in_progress) {
         console.log(`[DEBUG] Recorded response for step ${state.step}:`, body);
         state.step++;
         await setOnboardingState(from, state);
-
+        if (state.step === 10 && state.responses.step_9 && 
+            (state.responses.step_9.toLowerCase() === "yes" || state.responses.step_9.toLowerCase() === "no")) {
+            state.step = 11;
+            await setOnboardingState(from, state);
+        }
         if (state.step < onboardingSteps.length) {
             const nextQuestion = onboardingSteps[state.step];
             console.log(`[DEBUG] Next question (step ${state.step}) for ${from}:`, nextQuestion);
@@ -401,7 +405,7 @@ if (userProfile.onboarding_in_progress) {
             }
         } else {
             // Final step: email collection and profile creation
-            const emailStep = state.locationConfirmed ? 11 : 10;
+            const emailStep = 11;
             const email = state.responses[`step_${emailStep}`];
             const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             if (!emailRegex.test(email)) {
@@ -427,28 +431,30 @@ if (userProfile.onboarding_in_progress) {
                 await saveUserProfile(userProfileData);
                 const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
                 await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
+                
+                // Delete the onboarding state now that we're done
                 await deleteOnboardingState(from);
                 console.log(`[DEBUG] Onboarding complete for ${from}:`, userProfileData);
                 
-                // Prepare and send the call-to-action template with the spreadsheet link.
-        const sentLink = await sendTemplateMessage(
-            from,
-            confirmationTemplates.spreadsheet_link,
-            {
-                "1": userProfileData.name,
-                "2": spreadsheetId
+                // Send the call-to-action template with the spreadsheet link
+                const sentLink = await sendTemplateMessage(
+                    from,
+                    confirmationTemplates.spreadsheet_link,
+                    {
+                        "1": userProfileData.name,
+                        "2": spreadsheetId
+                    }
+                );
+                if (!sentLink) {
+                    console.error("Failed to send spreadsheet link template, falling back to plain text.");
+                    return res.send(`<Response><Message>✅ Onboarding complete, ${userProfileData.name}! Your spreadsheet is available at https://docs.google.com/spreadsheets/d/${spreadsheetId}</Message></Response>`);
+                }
+                return res.send(`<Response><Message>✅ Onboarding complete, ${userProfileData.name}! Your spreadsheet has been emailed to you and the link has been sent via WhatsApp.</Message></Response>`);
+            } catch (error) {
+                console.error("[ERROR] Failed to complete onboarding:", error);
+                return res.send(`<Response><Message>⚠️ Sorry, something went wrong while completing your profile. Please try again later.</Message></Response>`);
             }
-        );
-        if (!sentLink) {
-            console.error("Failed to send spreadsheet link template, falling back to plain text.");
-            return res.send(`<Response><Message>✅ Onboarding complete, ${userProfileData.name}! Your spreadsheet is available at https://docs.google.com/spreadsheets/d/${spreadsheetId}</Message></Response>`);
         }
-        return res.send(`<Response><Message>✅ Onboarding complete, ${userProfileData.name}! Your spreadsheet has been emailed to you and the link has been sent via WhatsApp.</Message></Response>`);
-    } catch (error) {
-        console.error("[ERROR] Failed to complete onboarding:", error);
-        return res.send(`<Response><Message>⚠️ Sorry, something went wrong while completing your profile. Please try again later.</Message></Response>`);
-    }
-}
     }
 }
 
