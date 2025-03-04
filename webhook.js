@@ -254,102 +254,113 @@ app.post('/webhook', async (req, res) => {
     }
 
     try {
-       // ─── ONBOARDING FLOW ─────────────────────────
+    // ─── ONBOARDING FLOW ─────────────────────────
 if (userProfile.onboarding_in_progress) {
     let state = await getOnboardingState(from);
     if (!state) {
-        state = { step: 0, responses: {}, detectedLocation: detectCountryAndRegion(from), locationConfirmed: false };
+        // Initialize state with detected location and default flags
+        state = { 
+            step: 0, 
+            responses: {}, 
+            detectedLocation: detectCountryAndRegion(from), 
+            locationConfirmed: false,
+            awaitingLocationResponse: false,
+            editMode: false
+        };
         await setOnboardingState(from, state);
         console.log(`[DEBUG] Initialized state for ${from}:`, state);
-
-        // Always ask for name first
-        console.log(`[DEBUG] Asking for user's name first.`);
+        // Step 0: Ask for user's name first
         return res.send(`<Response><Message>Welcome! What's your name?</Message></Response>`);
     }
 
-    // If the user's name is not yet provided, keep asking for it before anything else
+    // Step 0: Collect user's name
     if (state.step === 0) {
-        // Store the user's name and proceed to the next step
-        state.responses.step_0 = body.trim();  // Store the provided name
-        state.step = 1; // Move to the next step
+        state.responses.step_0 = body.trim();
+        state.step = 1; // Move to location confirmation
         await setOnboardingState(from, state);
-        
-        console.log(`[DEBUG] User's name recorded as: ${state.responses.step_0}. Advancing to step 1.`);
-    
-        // Ensure the bot sends the correct next question
-        const nextQuestion = onboardingSteps[state.step] || "Let's move forward. Please confirm your location.";
-        
-        return res.send(`<Response><Message>Thanks, ${state.responses.step_0}! ${nextQuestion}</Message></Response>`);
-    }
-    
 
-    const { country, region } = state.detectedLocation;
-    if (country !== "Unknown" && region !== "Unknown" && !state.locationConfirmed) {
-        const sent = await sendTemplateMessage(
-            from,
-            confirmationTemplates.locationConfirmation,
-            [
-                { type: "text", text: country },
-                { type: "text", text: region }
-            ]
-        );
-        if (sent) {
-            console.log(`[DEBUG] Sent location confirmation template to ${from}`);
-            return res.send(`<Response></Response>`);
+        const { country, region } = state.detectedLocation;
+        // If we have a valid detected location, send the confirmation template
+        if (country !== "Unknown" && region !== "Unknown") {
+            state.awaitingLocationResponse = true;
+            await setOnboardingState(from, state);
+            const sent = await sendTemplateMessage(
+                from,
+                confirmationTemplates.locationConfirmation,
+                [
+                    { type: "text", text: country },
+                    { type: "text", text: region }
+                ]
+            );
+            if (sent) {
+                console.log(`[DEBUG] Sent location confirmation template to ${from}`);
+                return res.send(`<Response></Response>`);
+            } else {
+                console.error("[ERROR] Failed to send location confirmation template, falling back to manual input");
+                state.awaitingLocationResponse = false;
+                await setOnboardingState(from, state);
+                return res.send(`<Response><Message>⚠️ Couldn’t detect your location automatically. Please enter your country.</Message></Response>`);
+            }
         } else {
-            console.error("[ERROR] Failed to send location confirmation template, falling back to manual input");
-            return res.send(`<Response><Message>⚠️ Couldn’t detect your location automatically. Please enter your country.</Message></Response>`);
+            // If location detection failed, prompt for manual country input
+            state.awaitingLocationResponse = false;
+            await setOnboardingState(from, state);
+            return res.send(`<Response><Message>Please enter your country.</Message></Response>`);
         }
-    } else if (state.locationConfirmed) {
-        console.log(`[DEBUG] Location confirmed, skipping redundant country request.`);
-        state.step = 3; // Move directly to business type step
-        await setOnboardingState(from, state);
-        return res.send(`<Response><Message>${onboardingSteps[state.step]}</Message></Response>`);
-    } else {
-        console.log(`[DEBUG] Location detection failed, starting manual location entry.`);
-        return res.send(`<Response><Message>Please enter your country.</Message></Response>`);
     }
-    // Handle location confirmation response
-    if (state.step === 0 && !state.locationConfirmed && state.detectedLocation.country !== "Unknown" && state.detectedLocation.region !== "Unknown") {
-        const response = req.body.ButtonText || body; // Prefer ButtonText for Twilio buttons
+
+    // Handle response to location confirmation (Step 1) when awaiting a reply
+    if (state.step === 1 && state.awaitingLocationResponse) {
+        const response = req.body.ButtonText || body; // Use ButtonText if available from Twilio's quick reply
         const responseLower = response.toLowerCase();
         if (responseLower === "yes") {
+            // User confirms detected location: auto-fill country and region
             state.responses.step_1 = state.detectedLocation.country;
             state.responses.step_2 = state.detectedLocation.region;
             state.locationConfirmed = true;
-        
-            // Ensure we ask for the name if it hasn't been provided
-            if (!state.responses.step_0) {
-                state.step = 0; // Force name question first
-                await setOnboardingState(from, state);
-                console.log(`[DEBUG] Location confirmed, but name is missing. Asking for name.`);
-                return res.send(`<Response><Message>Great! Before we continue, what's your name?</Message></Response>`);
-            }
-        
-            // Skip country/province request and proceed to business type
-            state.step = 3; 
-        
+            state.awaitingLocationResponse = false;
+            state.step = 3; // Skip manual country/state input and proceed to business type (assumed step 3)
             await setOnboardingState(from, state);
-            console.log(`[DEBUG] Location confirmed. Skipping country/province step and moving to step ${state.step}.`);
-        
-            const nextQuestion = onboardingSteps[state.step];
+            const nextQuestion = onboardingSteps[state.step] || "Please continue with the next step.";
+            console.log(`[DEBUG] Location confirmed. Moving to step ${state.step}.`);
             return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
-                 
         } else if (responseLower === "edit" || responseLower === "cancel") {
-            state.locationConfirmed = true;
-            state.step = 1; // Manual input starting with country
+            // User wants to manually enter location details
+            state.locationConfirmed = false;
+            state.awaitingLocationResponse = false;
+            state.editMode = true;
+            state.step = 1; // Remain at step 1 for manual country input
             await setOnboardingState(from, state);
-            console.log(`[DEBUG] Location edit/cancel, advancing to step 1`);
-            return res.send(`<Response><Message>${onboardingSteps[1]}</Message></Response>`);
+            console.log(`[DEBUG] User opted to edit location. Advancing to manual country input.`);
+            return res.send(`<Response><Message>Please enter your country:</Message></Response>`);
         } else {
             console.log(`[DEBUG] Invalid response to location confirmation: ${response}`);
             return res.send(`<Response><Message>⚠️ Please reply with 'Yes', 'Edit', or 'Cancel'.</Message></Response>`);
         }
     }
 
-    // Handle regular onboarding steps
-    if (state.step > 0 && state.step < onboardingSteps.length) {
-        state.responses[`step_${state.step}`] = body;
+    // Handle manual location input in edit mode
+    if (state.editMode && state.step === 1) {
+        // Manual input for country
+        state.responses.step_1 = body.trim();
+        state.editMode = false; // Reset edit flag
+        state.step = 2; // Move to state/province input
+        await setOnboardingState(from, state);
+        return res.send(`<Response><Message>Please enter your state or province:</Message></Response>`);
+    }
+    if (state.editMode && state.step === 2) {
+        // Manual input for state/province
+        state.responses.step_2 = body.trim();
+        state.editMode = false;
+        state.step = 3; // Proceed to next onboarding step (business type)
+        await setOnboardingState(from, state);
+        const nextQuestion = onboardingSteps[state.step] || "Please continue with the next step.";
+        return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
+    }
+
+    // Continue with regular onboarding steps (steps 3 and onward)
+    if (state.step >= 3 && state.step < onboardingSteps.length) {
+        state.responses[`step_${state.step}`] = body.trim();
         console.log(`[DEBUG] Recorded response for step ${state.step}:`, body);
         state.step++;
         await setOnboardingState(from, state);
@@ -370,6 +381,7 @@ if (userProfile.onboarding_in_progress) {
                 return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
             }
         } else {
+            // Final step: email collection and profile creation
             const emailStep = state.locationConfirmed ? 8 : 10;
             const email = state.responses[`step_${emailStep}`];
             const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -406,6 +418,7 @@ if (userProfile.onboarding_in_progress) {
         }
     }
 }
+
         // ─── NON-ONBOARDING FLOW (RETURNING USERS) ─────────────────────────
         else {
             let reply;
