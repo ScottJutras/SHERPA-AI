@@ -177,7 +177,8 @@ const onboardingSteps = [
     expense: "HX9f6b7188f055fa25f8170f915e53cbd0",
     bill: "HX6de403c09a8ec90183fbb3fe05413252",
     startJob: "HXa4f19d568b70b3493e64933ce5e6a040",
-    locationConfirmation: "HX0280df498999848aaff04cc079e16c31"
+    locationConfirmation: "HX0280df498999848aaff04cc079e16c31",
+    spreadsheetLink: "HXf5964d5ffeecc5e7f4e94d7b3379e084"
   };
 // ─── SEND TEMPLATE MESSAGE FUNCTION ─────────────────────
 const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
@@ -428,12 +429,26 @@ if (userProfile.onboarding_in_progress) {
                 await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
                 await deleteOnboardingState(from);
                 console.log(`[DEBUG] Onboarding complete for ${from}:`, userProfileData);
-                return res.send(`<Response><Message>✅ Onboarding complete, ${userProfileData.name}! Your spreadsheet has been emailed to you.</Message></Response>`);
-            } catch (error) {
-                console.error("[ERROR] Failed to complete onboarding:", error);
-                return res.send(`<Response><Message>⚠️ Sorry, something went wrong while completing your profile. Please try again later.</Message></Response>`);
+                
+                // Prepare and send the call-to-action template with the spreadsheet link.
+        const sentLink = await sendTemplateMessage(
+            from,
+            confirmationTemplates.spreadsheet_link,
+            {
+                "1": userProfileData.name,
+                "2": spreadsheetId
             }
+        );
+        if (!sentLink) {
+            console.error("Failed to send spreadsheet link template, falling back to plain text.");
+            return res.send(`<Response><Message>✅ Onboarding complete, ${userProfileData.name}! Your spreadsheet is available at https://docs.google.com/spreadsheets/d/${spreadsheetId}</Message></Response>`);
         }
+        return res.send(`<Response><Message>✅ Onboarding complete, ${userProfileData.name}! Your spreadsheet has been emailed to you and the link has been sent via WhatsApp.</Message></Response>`);
+    } catch (error) {
+        console.error("[ERROR] Failed to complete onboarding:", error);
+        return res.send(`<Response><Message>⚠️ Sorry, something went wrong while completing your profile. Please try again later.</Message></Response>`);
+    }
+}
     }
 }
 
