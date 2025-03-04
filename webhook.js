@@ -395,49 +395,45 @@ if (pendingState && (pendingState.pendingExpense || pendingState.pendingRevenue 
 }
 
             // 2. Start Job Command
-            if (body && /^(start job|job start)\s+(.+)/i.test(body)) {
-                let jobName;
-                const jobMatch = body.match(/^(start job|job start)\s+(.+)/i);
-                if (jobMatch && jobMatch[2]) {
-                    jobName = jobMatch[2].trim();
-                }
-                if (!jobName) {
-                    try {
-                        const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-                        const gptResponse = await openaiClient.chat.completions.create({
-                            model: "gpt-3.5-turbo",
-                            messages: [
-                                { role: "system", content: "Extract the job name from the following message. Return only the job name as plain text." },
-                                { role: "user", content: `Message: "${body}"` }
-                            ],
-                            max_tokens: 20,
-                            temperature: 0.3
-                        });
-                        jobName = gptResponse.choices[0].message.content.trim();
-                    } catch (error) {
-                        console.error("[ERROR] GPT fallback for start job failed:", error);
-                    }
-                }
-                if (jobName) {
-                    await setActiveJob(from, jobName);
-                    
-                    const sent = await sendTemplateMessage(
-                        from,
-                        "start_job", // Ensure this matches the template name in Twilio
-                        [
-                            { type: "text", text: jobName }
-                        ]
-                    );
-                
-                    if (sent) {
-                        return res.send(`<Response><Message>✅ Quick Reply Sent. Please confirm the job.</Message></Response>`);
-                } else {
-                    return res.send(`<Response><Message>⚠️ Could not determine the job name. Please specify the job name.</Message></Response>`);
-                }
-            } else {
-                return res.send(`<Response><Message>⚠️ Could not determine the job name. Please specify the job name.</Message></Response>`);
-            }
+if (body && /^(start job|job start)\s+(.+)/i.test(body)) {
+    let jobName;
+    const jobMatch = body.match(/^(start job|job start)\s+(.+)/i);
+    if (jobMatch && jobMatch[2]) {
+        jobName = jobMatch[2].trim();
+    }
+    if (!jobName) {
+        try {
+            const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+            const gptResponse = await openaiClient.chat.completions.create({
+                model: "gpt-3.5-turbo",
+                messages: [
+                    { role: "system", content: "Extract the job name from the following message. Return only the job name as plain text." },
+                    { role: "user", content: `Message: "${body}"` }
+                ],
+                max_tokens: 20,
+                temperature: 0.3
+            });
+            jobName = gptResponse.choices[0].message.content.trim();
+        } catch (error) {
+            console.error("[ERROR] GPT fallback for start job failed:", error);
         }
+    }
+    if (jobName) {
+        await setActiveJob(from, jobName);
+        const sent = await sendTemplateMessage(
+            from,
+            "startJob", // Matches confirmationTemplates.startJob
+            [{ type: "text", text: jobName }]
+        );
+        if (sent) {
+            return res.send(`<Response><Message>✅ Quick Reply Sent. Please confirm the job.</Message></Response>`);
+        } else {
+            return res.send(`<Response><Message>✅ Job '${jobName}' started, but confirmation failed. It’s still active!</Message></Response>`);
+        }
+    } else {
+        return res.send(`<Response><Message>⚠️ Could not determine the job name. Please specify the job name.</Message></Response>`);
+    }
+}
 
         // 3. Add Bill Command
 else if (body && body.toLowerCase().includes("bill")) {
