@@ -121,23 +121,25 @@ function normalizePhoneNumber(phone) {
 
 function detectCountryAndRegion(phoneNumber) {
     if (!phoneNumber.startsWith("+")) {
-        phoneNumber = `+${phoneNumber}`; // Fixed typo from +${phoneNumber}
+        phoneNumber = `+${phoneNumber}`; // Ensure +19053279955
     }
     const phoneInfo = parsePhoneNumberFromString(phoneNumber);
     if (!phoneInfo || !phoneInfo.isValid()) {
         return { country: "Unknown", region: "Unknown" };
     }
-    const country = phoneInfo.country;
-    const nationalNumber = phoneInfo.nationalNumber;
-    const areaCode = nationalNumber.substring(0, 3);
+    const nationalNumber = phoneInfo.nationalNumber; // "9053279955"
+    const areaCode = nationalNumber.substring(0, 3); // "905"
     const location = areaCodeMap[areaCode];
-    if (location && location.country === country) {
+    if (location) {
         return {
-            country: location.country,
-            region: location.state || location.province || "Unknown"
+            country: location.country, // "Canada"
+            region: location.province || location.state || "Unknown" // "Ontario"
         };
     }
-    return { country: country || "Unknown", region: "Unknown" };
+    return {
+        country: phoneInfo.country || "Unknown", // "CA" as fallback
+        region: "Unknown"
+    };
 }
 // Express App Setup
 const app = express();
@@ -242,7 +244,7 @@ app.post('/webhook', async (req, res) => {
             {
                 user_id: from,
                 created_at: new Date().toISOString(),
-                onboarding_in_progress: true // Flag for onboarding
+                onboarding_in_progress: true
             },
             { merge: true }
         );
@@ -252,10 +254,10 @@ app.post('/webhook', async (req, res) => {
 
     try {
         // ─── ONBOARDING FLOW ─────────────────────────
-        if (userProfile.onboarding_in_progress) { // Check flag instead of !userProfile
+        if (userProfile.onboarding_in_progress) {
             let state = await getOnboardingState(from);
             if (!state) {
-                state = { step: 0, responses: {}, detectedLocation: detectCountryAndRegion(from), locationConfirmed: false, editMode: false };
+                state = { step: 0, responses: {}, detectedLocation: detectCountryAndRegion(from), locationConfirmed: false };
                 await setOnboardingState(from, state);
                 console.log(`[DEBUG] Initialized state for ${from}:`, state);
 
@@ -284,7 +286,7 @@ app.post('/webhook', async (req, res) => {
             }
 
             // Handle location confirmation response
-            if (state.step === 0 && !state.locationConfirmed) {
+            if (state.step === 0 && !state.locationConfirmed && state.detectedLocation.country !== "Unknown" && state.detectedLocation.region !== "Unknown") {
                 const responseLower = body.toLowerCase();
                 if (responseLower === "yes") {
                     state.responses.step_1 = state.detectedLocation.country;
@@ -294,12 +296,7 @@ app.post('/webhook', async (req, res) => {
                     await setOnboardingState(from, state);
                     const nextQuestion = onboardingSteps[state.step];
                     return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
-                } else if (responseLower === "edit") {
-                    state.editMode = true;
-                    state.step = 1; // Start editing with country
-                    await setOnboardingState(from, state);
-                    return res.send(`<Response><Message>Please enter your country:</Message></Response>`);
-                } else if (responseLower === "cancel") {
+                } else if (responseLower === "edit" || responseLower === "cancel") {
                     state.locationConfirmed = true;
                     state.step = 1; // Manual input starting with country
                     await setOnboardingState(from, state);
@@ -309,78 +306,62 @@ app.post('/webhook', async (req, res) => {
                 }
             }
 
-            // Handle edit mode for country and region
-            if (state.editMode && state.step === 1) {
-                state.responses.step_1 = body; // Country
-                state.step = 2;
-                await setOnboardingState(from, state);
-                return res.send(`<Response><Message>Please enter your state or province:</Message></Response>`);
-            }
-            if (state.editMode && state.step === 2) {
-                state.responses.step_2 = body; // Region
-                state.editMode = false;
-                state.step = 3; // Move to business type
-                await setOnboardingState(from, state);
-                const nextQuestion = onboardingSteps[state.step];
-                return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
-            }
-
-            // Continue normal onboarding flow
+            // Handle regular onboarding steps
             if (state.step < onboardingSteps.length) {
                 state.responses[`step_${state.step}`] = body;
                 console.log(`[DEBUG] Recorded response for step ${state.step}:`, body);
                 state.step++;
                 await setOnboardingState(from, state);
-            }
 
-            if (state.step < onboardingSteps.length) {
-                const nextQuestion = onboardingSteps[state.step];
-                console.log(`[DEBUG] Next question (step ${state.step}) for ${from}:`, nextQuestion);
-                if (onboardingTemplates.hasOwnProperty(state.step)) {
-                    const sent = await sendTemplateMessage(from, onboardingTemplates[state.step], {});
-                    if (!sent) {
-                        console.error("Falling back to plain text question because template message sending failed");
+                if (state.step < onboardingSteps.length) {
+                    const nextQuestion = onboardingSteps[state.step];
+                    console.log(`[DEBUG] Next question (step ${state.step}) for ${from}:`, nextQuestion);
+                    if (onboardingTemplates.hasOwnProperty(state.step)) {
+                        const sent = await sendTemplateMessage(from, onboardingTemplates[state.step], {});
+                        if (!sent) {
+                            console.error("Falling back to plain text question because template message sending failed");
+                            return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
+                        }
+                        console.log(`[DEBUG] Sent interactive template for step ${state.step} to ${from}`);
+                        return res.send(`<Response></Response>`);
+                    } else {
+                        console.log(`[DEBUG] Sending plain text for step ${state.step} to ${from}`);
                         return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
                     }
-                    console.log(`[DEBUG] Sent interactive template for step ${state.step} to ${from}`);
-                    return res.send(`<Response></Response>`);
                 } else {
-                    console.log(`[DEBUG] Sending plain text for step ${state.step} to ${from}`);
-                    return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
-                }
-            } else {
-                const emailStep = state.locationConfirmed && !state.editMode ? 8 : 10;
-                const email = state.responses[`step_${emailStep}`];
-                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-                if (!emailRegex.test(email)) {
-                    return res.send(`<Response><Message>⚠️ The email address you provided doesn't seem valid. Please enter a valid email address.</Message></Response>`);
-                }
-                try {
-                    const userProfileData = {
-                        user_id: from,
-                        name: state.responses.step_0,
-                        country: state.responses.step_1,
-                        province: state.responses.step_2,
-                        business_type: state.responses.step_3,
-                        industry: state.responses.step_4,
-                        personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
-                        track_mileage: state.responses.step_6.toLowerCase() === "yes",
-                        track_home_office: state.responses.step_7.toLowerCase() === "yes",
-                        financial_goals: state.responses.step_8,
-                        add_bills: state.responses.step_9?.toLowerCase() === "yes",
-                        email: email,
-                        created_at: new Date().toISOString(),
-                        onboarding_in_progress: false // Mark onboarding complete
-                    };
-                    await saveUserProfile(userProfileData);
-                    const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
-                    await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
-                    await deleteOnboardingState(from);
-                    console.log(`[DEBUG] Onboarding complete for ${from}:`, userProfileData);
-                    return res.send(`<Response><Message>✅ Onboarding complete, ${userProfileData.name}! Your spreadsheet has been emailed to you.</Message></Response>`);
-                } catch (error) {
-                    console.error("[ERROR] Failed to complete onboarding:", error);
-                    return res.send(`<Response><Message>⚠️ Sorry, something went wrong while completing your profile. Please try again later.</Message></Response>`);
+                    const emailStep = state.locationConfirmed ? 8 : 10;
+                    const email = state.responses[`step_${emailStep}`];
+                    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                    if (!emailRegex.test(email)) {
+                        return res.send(`<Response><Message>⚠️ The email address you provided doesn't seem valid. Please enter a valid email address.</Message></Response>`);
+                    }
+                    try {
+                        const userProfileData = {
+                            user_id: from,
+                            name: state.responses.step_0,
+                            country: state.responses.step_1,
+                            province: state.responses.step_2,
+                            business_type: state.responses.step_3,
+                            industry: state.responses.step_4,
+                            personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
+                            track_mileage: state.responses.step_6.toLowerCase() === "yes",
+                            track_home_office: state.responses.step_7.toLowerCase() === "yes",
+                            financial_goals: state.responses.step_8,
+                            add_bills: state.responses.step_9?.toLowerCase() === "yes",
+                            email: email,
+                            created_at: userProfile.created_at, // Preserve original timestamp
+                            onboarding_in_progress: false
+                        };
+                        await saveUserProfile(userProfileData);
+                        const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
+                        await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
+                        await deleteOnboardingState(from);
+                        console.log(`[DEBUG] Onboarding complete for ${from}:`, userProfileData);
+                        return res.send(`<Response><Message>✅ Onboarding complete, ${userProfileData.name}! Your spreadsheet has been emailed to you.</Message></Response>`);
+                    } catch (error) {
+                        console.error("[ERROR] Failed to complete onboarding:", error);
+                        return res.send(`<Response><Message>⚠️ Sorry, something went wrong while completing your profile. Please try again later.</Message></Response>`);
+                    }
                 }
             }
         }
