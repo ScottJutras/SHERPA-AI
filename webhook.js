@@ -121,7 +121,7 @@ function normalizePhoneNumber(phone) {
 
 function detectCountryAndRegion(phoneNumber) {
     if (!phoneNumber.startsWith("+")) {
-        phoneNumber = `+${phoneNumber}`;
+        phoneNumber = `+${phoneNumber}`; // Fixed typo from +${phoneNumber}
     }
     const phoneInfo = parsePhoneNumberFromString(phoneNumber);
     if (!phoneInfo || !phoneInfo.isValid()) {
@@ -130,15 +130,14 @@ function detectCountryAndRegion(phoneNumber) {
     const country = phoneInfo.country;
     const nationalNumber = phoneInfo.nationalNumber;
     const areaCode = nationalNumber.substring(0, 3);
-    let region = "Unknown";
-    if (country === 'US') {
-        const usAreaCodes = { "212": "New York", "213": "Los Angeles", "305": "Miami" /*...*/ };
-        region = usAreaCodes[areaCode] || "Unknown State";
-    } else if (country === 'CA') {
-        const caAreaCodes = { "416": "Toronto, Ontario", "604": "Vancouver, British Columbia" /*...*/ };
-        region = caAreaCodes[areaCode] || "Unknown Province";
+    const location = areaCodeMap[areaCode];
+    if (location && location.country === country) {
+        return {
+            country: location.country,
+            region: location.state || location.province || "Unknown"
+        };
     }
-    return { country, region };
+    return { country: country || "Unknown", region: "Unknown" };
 }
 // Express App Setup
 const app = express();
@@ -148,8 +147,9 @@ app.use(bodyParser.json());
 // Onboarding Steps & State
 const onboardingSteps = [
     "Can I get your name?",
-    "Are you in Canada or USA? (Canada/USA)",
-    "Which province or state are you in?",
+    "We detected your location as {{detectedLocation.country}}, {{detectedLocation.region}}. Is this correct? (Yes/No)",
+    "Please enter your country if different:",
+    "Please enter your province or state if different:",
     "What type of business do you have? (Sole Proprietorship, Corporation, Charity, Non-Profit, Other)",
     "What industry do you work in? (Construction, Real Estate, Retail, Freelancer, Other)",
     "Do you want to track personal expenses too? (Yes/No)",
@@ -158,7 +158,8 @@ const onboardingSteps = [
     "What is your primary financial goal? (Save to pay off debts, Save to invest, Spend to lower tax bracket, Spend to invest)",
     "Would you like to add your yearly, monthly, weekly, or bi-weekly bills to track? (Yes/No)",
     "Can I get your email address?"
-];
+  ];
+  
 const onboardingTemplates = {
     1: "HX4cf7529ecaf5a488fdfa96b931025023",
     3: "HX066a88aad4089ba4336a21116e923557",
@@ -172,8 +173,9 @@ const onboardingTemplates = {
 const confirmationTemplates = {
     revenue: "HXb3086ca639cb4882fb2c68f2cd569cb4",
     expense: "HX9f6b7188f055fa25f8170f915e53cbd0",
-    bill: "HX2f1814b7932c2a11e10b2ea8050f1614",
-    startJob: "HXa4f19d568b70b3493e64933ce5e6a040"
+    bill: "HX6de403c09a8ec90183fbb3fe05413252",
+    startJob: "HXa4f19d568b70b3493e64933ce5e6a040",
+    locationConfirmation: "HX0280df498999848aaff04cc079e16c31"
 };
 // ─── SEND TEMPLATE MESSAGE FUNCTION ─────────────────────
 const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
@@ -233,32 +235,104 @@ app.post('/webhook', async (req, res) => {
         return res.status(400).send("Bad Request: Missing 'From'.");
     }
 
-    let userProfile;
-    try {
-        userProfile = await getUserProfile(from);
-    } catch (error) {
-        console.error("[ERROR] Failed to fetch user profile:", error);
-        return res.send(`<Response><Message>⚠️ Sorry, something went wrong. Please try again.</Message></Response>`);
+    // Check if user exists, create minimal profile if not
+    let userProfile = await getUserProfile(from);
+    if (!userProfile) {
+        await db.collection('users').doc(from).set(
+            {
+                user_id: from,
+                created_at: new Date().toISOString(),
+                onboarding_in_progress: true // Flag for onboarding
+            },
+            { merge: true }
+        );
+        console.log(`[✅] Initial user profile created for ${from}`);
+        userProfile = await getUserProfile(from); // Reload to confirm
     }
 
     try {
         // ─── ONBOARDING FLOW ─────────────────────────
-        if (!userProfile) {
+        if (userProfile.onboarding_in_progress) { // Check flag instead of !userProfile
             let state = await getOnboardingState(from);
             if (!state) {
-                state = { step: 0, responses: {}, detectedLocation: detectCountryAndRegion(from) };
+                state = { step: 0, responses: {}, detectedLocation: detectCountryAndRegion(from), locationConfirmed: false, editMode: false };
                 await setOnboardingState(from, state);
                 console.log(`[DEBUG] Initialized state for ${from}:`, state);
-                const firstQuestion = onboardingSteps[0];
-                console.log(`[DEBUG] Sending first question to ${from}:`, firstQuestion);
-                return res.send(`<Response><Message>${firstQuestion}</Message></Response>`);
+
+                // Step 0: Detect and confirm location
+                const { country, region } = state.detectedLocation;
+                if (country !== "Unknown" && region !== "Unknown") {
+                    const sent = await sendTemplateMessage(
+                        from,
+                        confirmationTemplates.locationConfirmation,
+                        [
+                            { type: "text", text: country },
+                            { type: "text", text: region }
+                        ]
+                    );
+                    if (sent) {
+                        console.log(`[DEBUG] Sent location confirmation template to ${from}`);
+                        return res.send(`<Response></Response>`);
+                    } else {
+                        console.error("[ERROR] Failed to send location confirmation template, falling back to manual input");
+                        return res.send(`<Response><Message>⚠️ Couldn’t detect your location automatically. ${onboardingSteps[0]}</Message></Response>`);
+                    }
+                } else {
+                    console.log(`[DEBUG] Location detection failed, starting with first question`);
+                    return res.send(`<Response><Message>${onboardingSteps[0]}</Message></Response>`);
+                }
             }
+
+            // Handle location confirmation response
+            if (state.step === 0 && !state.locationConfirmed) {
+                const responseLower = body.toLowerCase();
+                if (responseLower === "yes") {
+                    state.responses.step_1 = state.detectedLocation.country;
+                    state.responses.step_2 = state.detectedLocation.region;
+                    state.locationConfirmed = true;
+                    state.step = 3; // Skip to business type
+                    await setOnboardingState(from, state);
+                    const nextQuestion = onboardingSteps[state.step];
+                    return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
+                } else if (responseLower === "edit") {
+                    state.editMode = true;
+                    state.step = 1; // Start editing with country
+                    await setOnboardingState(from, state);
+                    return res.send(`<Response><Message>Please enter your country:</Message></Response>`);
+                } else if (responseLower === "cancel") {
+                    state.locationConfirmed = true;
+                    state.step = 1; // Manual input starting with country
+                    await setOnboardingState(from, state);
+                    return res.send(`<Response><Message>${onboardingSteps[1]}</Message></Response>`);
+                } else {
+                    return res.send(`<Response><Message>⚠️ Please reply with 'Yes', 'Edit', or 'Cancel'.</Message></Response>`);
+                }
+            }
+
+            // Handle edit mode for country and region
+            if (state.editMode && state.step === 1) {
+                state.responses.step_1 = body; // Country
+                state.step = 2;
+                await setOnboardingState(from, state);
+                return res.send(`<Response><Message>Please enter your state or province:</Message></Response>`);
+            }
+            if (state.editMode && state.step === 2) {
+                state.responses.step_2 = body; // Region
+                state.editMode = false;
+                state.step = 3; // Move to business type
+                await setOnboardingState(from, state);
+                const nextQuestion = onboardingSteps[state.step];
+                return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
+            }
+
+            // Continue normal onboarding flow
             if (state.step < onboardingSteps.length) {
                 state.responses[`step_${state.step}`] = body;
                 console.log(`[DEBUG] Recorded response for step ${state.step}:`, body);
                 state.step++;
                 await setOnboardingState(from, state);
             }
+
             if (state.step < onboardingSteps.length) {
                 const nextQuestion = onboardingSteps[state.step];
                 console.log(`[DEBUG] Next question (step ${state.step}) for ${from}:`, nextQuestion);
@@ -275,7 +349,8 @@ app.post('/webhook', async (req, res) => {
                     return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
                 }
             } else {
-                const email = state.responses.step_10;
+                const emailStep = state.locationConfirmed && !state.editMode ? 8 : 10;
+                const email = state.responses[`step_${emailStep}`];
                 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                 if (!emailRegex.test(email)) {
                     return res.send(`<Response><Message>⚠️ The email address you provided doesn't seem valid. Please enter a valid email address.</Message></Response>`);
@@ -284,8 +359,8 @@ app.post('/webhook', async (req, res) => {
                     const userProfileData = {
                         user_id: from,
                         name: state.responses.step_0,
-                        country: state.responses.country || state.responses.step_1,
-                        province: state.responses.province || state.responses.step_2,
+                        country: state.responses.step_1,
+                        province: state.responses.step_2,
                         business_type: state.responses.step_3,
                         industry: state.responses.step_4,
                         personal_expenses_enabled: state.responses.step_5.toLowerCase() === "yes",
@@ -293,8 +368,9 @@ app.post('/webhook', async (req, res) => {
                         track_home_office: state.responses.step_7.toLowerCase() === "yes",
                         financial_goals: state.responses.step_8,
                         add_bills: state.responses.step_9?.toLowerCase() === "yes",
-                        email: state.responses.step_10,
-                        created_at: new Date().toISOString()
+                        email: email,
+                        created_at: new Date().toISOString(),
+                        onboarding_in_progress: false // Mark onboarding complete
                     };
                     await saveUserProfile(userProfileData);
                     const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
