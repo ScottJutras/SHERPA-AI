@@ -187,10 +187,12 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
             return false;
         }
         const toNumber = to.startsWith("whatsapp:") ? to : `whatsapp:${to}`;
-        // Transform array into Twilio's expected key-value format
         const formattedVariables = JSON.stringify(
             Array.isArray(contentVariables)
-                ? { "1": contentVariables[0].text } // Map to { "1": "72 Hampton" }
+                ? contentVariables.reduce((acc, item, index) => {
+                      acc[index + 1] = item.text; // Map "1": country, "2": region, etc.
+                      return acc;
+                  }, {})
                 : contentVariables
         );
         console.log("[DEBUG] Sending Twilio template message with:", {
@@ -204,7 +206,6 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
                 From: process.env.TWILIO_WHATSAPP_NUMBER,
                 To: toNumber,
                 MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-                Body: "Template Message",
                 ContentSid: contentSid,
                 ContentVariables: formattedVariables
             }).toString(),
