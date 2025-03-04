@@ -275,10 +275,13 @@ if (userProfile.onboarding_in_progress) {
         await setOnboardingState(from, state);
         
         console.log(`[DEBUG] User's name recorded as: ${state.responses.step_0}. Advancing to step 1.`);
+    
+        // Ensure the bot sends the correct next question
+        const nextQuestion = onboardingSteps[state.step] || "Let's move forward. Please confirm your location.";
         
-        // Proceed with the next question (which could be location confirmation or another step)
-        return res.send(`<Response><Message>Thanks, ${state.responses.step_0}! Now, let's continue. ${onboardingSteps[state.step]}</Message></Response>`);
-    } 
+        return res.send(`<Response><Message>Thanks, ${state.responses.step_0}! ${nextQuestion}</Message></Response>`);
+    }
+    
 
     const { country, region } = state.detectedLocation;
     if (country !== "Unknown" && region !== "Unknown" && !state.locationConfirmed) {
