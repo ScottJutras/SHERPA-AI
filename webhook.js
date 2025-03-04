@@ -254,7 +254,7 @@ app.post('/webhook', async (req, res) => {
     }
 
     try {
-        // ─── ONBOARDING FLOW ─────────────────────────
+       // ─── ONBOARDING FLOW ─────────────────────────
 if (userProfile.onboarding_in_progress) {
     let state = await getOnboardingState(from);
     if (!state) {
@@ -262,29 +262,43 @@ if (userProfile.onboarding_in_progress) {
         await setOnboardingState(from, state);
         console.log(`[DEBUG] Initialized state for ${from}:`, state);
 
-        const { country, region } = state.detectedLocation;
-        if (country !== "Unknown" && region !== "Unknown") {
-            const sent = await sendTemplateMessage(
-                from,
-                confirmationTemplates.locationConfirmation,
-                [
-                    { type: "text", text: country },
-                    { type: "text", text: region }
-                ]
-            );
-            if (sent) {
-                console.log(`[DEBUG] Sent location confirmation template to ${from}`);
-                return res.send(`<Response></Response>`);
-            } else {
-                console.error("[ERROR] Failed to send location confirmation template, falling back to manual input");
-                return res.send(`<Response><Message>⚠️ Couldn’t detect your location automatically. ${onboardingSteps[0]}</Message></Response>`);
-            }
-        } else {
-            console.log(`[DEBUG] Location detection failed, starting with first question`);
-            return res.send(`<Response><Message>${onboardingSteps[0]}</Message></Response>`);
-        }
+        // Always ask for name first
+        console.log(`[DEBUG] Asking for user's name first.`);
+        return res.send(`<Response><Message>Welcome! What's your name?</Message></Response>`);
     }
 
+    // If the user's name is not yet provided, keep asking for it before anything else
+    if (!state.responses.step_0) {
+        console.log(`[DEBUG] User's name is missing, ensuring it's collected first.`);
+        return res.send(`<Response><Message>Please tell me your name before we continue.</Message></Response>`);
+    }
+
+    const { country, region } = state.detectedLocation;
+    if (country !== "Unknown" && region !== "Unknown" && !state.locationConfirmed) {
+        const sent = await sendTemplateMessage(
+            from,
+            confirmationTemplates.locationConfirmation,
+            [
+                { type: "text", text: country },
+                { type: "text", text: region }
+            ]
+        );
+        if (sent) {
+            console.log(`[DEBUG] Sent location confirmation template to ${from}`);
+            return res.send(`<Response></Response>`);
+        } else {
+            console.error("[ERROR] Failed to send location confirmation template, falling back to manual input");
+            return res.send(`<Response><Message>⚠️ Couldn’t detect your location automatically. Please enter your country.</Message></Response>`);
+        }
+    } else if (state.locationConfirmed) {
+        console.log(`[DEBUG] Location confirmed, skipping redundant country request.`);
+        state.step = 3; // Move directly to business type step
+        await setOnboardingState(from, state);
+        return res.send(`<Response><Message>${onboardingSteps[state.step]}</Message></Response>`);
+    } else {
+        console.log(`[DEBUG] Location detection failed, starting manual location entry.`);
+        return res.send(`<Response><Message>Please enter your country.</Message></Response>`);
+    }
     // Handle location confirmation response
     if (state.step === 0 && !state.locationConfirmed && state.detectedLocation.country !== "Unknown" && state.detectedLocation.region !== "Unknown") {
         const response = req.body.ButtonText || body; // Prefer ButtonText for Twilio buttons
@@ -293,12 +307,24 @@ if (userProfile.onboarding_in_progress) {
             state.responses.step_1 = state.detectedLocation.country;
             state.responses.step_2 = state.detectedLocation.region;
             state.locationConfirmed = true;
-            state.step = 2; // Ensure correct step sequence
+        
+            // Ensure we ask for the name if it hasn't been provided
+            if (!state.responses.step_0) {
+                state.step = 0; // Force name question first
+                await setOnboardingState(from, state);
+                console.log(`[DEBUG] Location confirmed, but name is missing. Asking for name.`);
+                return res.send(`<Response><Message>Great! Before we continue, what's your name?</Message></Response>`);
+            }
+        
+            // Skip country/province request and proceed to business type
+            state.step = 3; 
+        
             await setOnboardingState(from, state);
-            console.log(`[DEBUG] Location confirmed. Skipping redundant province request.`);
+            console.log(`[DEBUG] Location confirmed. Skipping country/province step and moving to step ${state.step}.`);
+        
             const nextQuestion = onboardingSteps[state.step];
-            console.log(`[DEBUG] Location confirmed, advancing to step ${state.step}: ${nextQuestion}`);
-            return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);        
+            return res.send(`<Response><Message>${nextQuestion}</Message></Response>`);
+                 
         } else if (responseLower === "edit" || responseLower === "cancel") {
             state.locationConfirmed = true;
             state.step = 1; // Manual input starting with country
