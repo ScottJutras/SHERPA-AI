@@ -183,7 +183,12 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
             return false;
         }
         const toNumber = to.startsWith("whatsapp:") ? to : `whatsapp:${to}`;
-        const formattedVariables = JSON.stringify(contentVariables);
+        // Transform array into Twilio's expected key-value format
+        const formattedVariables = JSON.stringify(
+            Array.isArray(contentVariables)
+                ? { "1": contentVariables[0].text } // Map to { "1": "72 Hampton" }
+                : contentVariables
+        );
         console.log("[DEBUG] Sending Twilio template message with:", {
             To: toNumber,
             ContentSid: contentSid,
@@ -214,6 +219,7 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
         return false;
     }
 };
+
 // ─── WEBHOOK HANDLER ─────────────────────────────
 app.post('/webhook', async (req, res) => {
     const rawPhone = req.body.From;
@@ -394,7 +400,7 @@ if (pendingState && (pendingState.pendingExpense || pendingState.pendingRevenue 
     }
 }
 
-            // 2. Start Job Command
+         // 2. Start Job Command
 if (body && /^(start job|job start)\s+(.+)/i.test(body)) {
     let jobName;
     const jobMatch = body.match(/^(start job|job start)\s+(.+)/i);
@@ -434,7 +440,6 @@ if (body && /^(start job|job start)\s+(.+)/i.test(body)) {
         return res.send(`<Response><Message>⚠️ Could not determine the job name. Please specify the job name.</Message></Response>`);
     }
 }
-
         // 3. Add Bill Command
 else if (body && body.toLowerCase().includes("bill")) {
     console.log("[DEBUG] Detected a bill message:", body);
