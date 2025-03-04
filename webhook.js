@@ -400,7 +400,7 @@ if (pendingState && (pendingState.pendingExpense || pendingState.pendingRevenue 
     }
 }
 
-         // 2. Start Job Command
+        // 2. Start Job Command
 if (body && /^(start job|job start)\s+(.+)/i.test(body)) {
     let jobName;
     const jobMatch = body.match(/^(start job|job start)\s+(.+)/i);
@@ -428,7 +428,7 @@ if (body && /^(start job|job start)\s+(.+)/i.test(body)) {
         await setActiveJob(from, jobName);
         const sent = await sendTemplateMessage(
             from,
-            "startJob", // Matches confirmationTemplates.startJob
+            confirmationTemplates.startJob, // Use the correct SID from confirmationTemplates
             [{ type: "text", text: jobName }]
         );
         if (sent) {
@@ -440,6 +440,7 @@ if (body && /^(start job|job start)\s+(.+)/i.test(body)) {
         return res.send(`<Response><Message>⚠️ Could not determine the job name. Please specify the job name.</Message></Response>`);
     }
 }
+
         // 3. Add Bill Command
 else if (body && body.toLowerCase().includes("bill")) {
     console.log("[DEBUG] Detected a bill message:", body);
