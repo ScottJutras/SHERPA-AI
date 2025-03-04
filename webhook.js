@@ -676,7 +676,7 @@ else if (body && (body.toLowerCase().includes("how much") ||
     // Example 7: "How much revenue did I make on Job 75 Hampton?"
     if ((body.toLowerCase().includes("revenue") || (body.toLowerCase().includes("how much") && body.toLowerCase().includes("make") && body.toLowerCase().includes("on"))) && /\d+\s+[a-zA-Z]+/.test(body)) {
         const jobName = body.match(/(?:job|on)\s+([\w\s]+)/i)?.[1]?.trim() || activeJob;
-        const jobRevenues = revenues.filter(row => row[1] === jobName);
+        const jobRevenues = revenues.filter(row => row[1] === jobName || row[3] === jobName); // Check Source or Category
         const totalRevenue = jobRevenues.reduce((sum, row) => sum + parseAmount(row[2]), 0);
         await setLastQuery(from, { intent: "revenue", timestamp: new Date().toISOString() });
         return res.send(`<Response><Message>You made $${totalRevenue.toFixed(2)} in revenue on Job ${jobName}.</Message></Response>`);
@@ -703,7 +703,7 @@ else if (body && (body.toLowerCase().includes("how much") ||
         return res.send(`<Response><Message>You made $${totalRevenue.toFixed(2)} in revenue on Job ${jobName}.</Message></Response>`);
     }
 
-    // AI Fallback for imprecise queries or help requests
+    // AI Fallback
     console.log("[DEBUG] No exact match found, falling back to AI interpretation...");
     try {
         const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -728,22 +728,22 @@ else if (body && (body.toLowerCase().includes("how much") ||
         console.log("[DEBUG] AI Interpretation Result:", aiResult);
 
         if (aiResult.intent === "help") {
-            return res.send(`<Response><Message>${aiResult.response || "I’m here to help you manage your construction business finances! You can:\n- Log expenses (e.g., '$50 for nails from Home Depot')\n- Track revenue (e.g., 'Received $500 from client')\n- Check profits (e.g., 'How much profit have I made year to date?')\n- Monitor spending (e.g., 'How much did I spend on Job 74 Hampton?')\nWhat would you like to try?"}</Message></Response>`);
+            return res.send(`<Response><Message>${aiResult.response || "I’m here to help..."}</Message></Response>`);
         } else if (aiResult.intent === "profit" && aiResult.job) {
             const jobName = aiResult.job;
             const jobExpenses = expenses.filter(row => row[4] === jobName);
-            const jobRevenues = revenues.filter(row => row[1] === jobName);
+            const jobRevenues = revenues.filter(row => row[1] === jobName || row[3] === jobName);
             const totalExpenses = jobExpenses.reduce((sum, row) => sum + parseAmount(row[2]), 0);
             const totalRevenue = jobRevenues.reduce((sum, row) => sum + parseAmount(row[2]), 0);
             const profit = totalRevenue - totalExpenses;
             await setLastQuery(from, { intent: "profit", timestamp: new Date().toISOString() });
-            return res.send(`<Response><Message>${aiResult.response || `Profit for Job ${jobName} is $${profit.toFixed(2)} (Revenue: $${totalRevenue.toFixed(2)}, Expenses: $${Math.abs(totalExpenses).toFixed(2)}).`}</Message></Response>`);
-        } else if (aiResult.intent === "revenue" && aiResult.job) { // New condition
+            return res.send(`<Response><Message>Profit for Job ${jobName} is $${profit.toFixed(2)} (Revenue: $${totalRevenue.toFixed(2)}, Expenses: $${Math.abs(totalExpenses).toFixed(2)}).</Message></Response>`);
+        } else if (aiResult.intent === "revenue" && aiResult.job) {
             const jobName = aiResult.job;
-            const jobRevenues = revenues.filter(row => row[1] === jobName);
+            const jobRevenues = revenues.filter(row => row[1] === jobName || row[3] === jobName);
             const totalRevenue = jobRevenues.reduce((sum, row) => sum + parseAmount(row[2]), 0);
-            await setLastQuery(from, { intent: "revenue", timestamp: new Date().toISOString() }); // Set context
-            return res.send(`<Response><Message>${aiResult.response || `You made $${totalRevenue.toFixed(2)} in revenue on Job ${jobName}.`}</Message></Response>`);
+            await setLastQuery(from, { intent: "revenue", timestamp: new Date().toISOString() });
+            return res.send(`<Response><Message>You made $${totalRevenue.toFixed(2)} in revenue on Job ${jobName}.</Message></Response>`);
         } else if (aiResult.intent === "unknown") {
             console.log("[DEBUG] AI fallback deemed query unknown, proceeding to next branch...");
         } else {
