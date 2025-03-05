@@ -34,6 +34,8 @@ const {
 const { extractTextFromImage } = require('./utils/visionService');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
 const { sendSpreadsheetEmail } = require('./utils/sendGridService');
+const { fetchMaterialPrices} = require('./utils/googleSheets');
+const { generateQuotePDF } = require('./utils/pdfService');
 const storeList = require('./utils/storeList');
 const constructionStores = storeList.map(store => store.toLowerCase());
 
@@ -234,7 +236,7 @@ app.post('/webhook', async (req, res) => {
     const body = req.body.Body?.trim();
     const mediaUrl = req.body.MediaUrl0;
     const mediaType = req.body.MediaContentType0;
-
+    const contractorName = userProfile.name || 'Your Company Name';
     if (!from) {
         return res.status(400).send("Bad Request: Missing 'From'.");
     }
@@ -1200,7 +1202,130 @@ else if (body) {
         return res.send(`<Response><Message>⚠️ Could not understand your expense message. Please try again.</Message></Response>`);
     }
 }
-           
+// Quote Handling with Enhancements
+else if (body && body.toLowerCase().startsWith('quote for')) {
+    console.log('[DEBUG] Detected quote request:', body);
+    const activeJob = (await getActiveJob(from)) || 'Uncategorized';
+
+    // Check if we're waiting for customer details
+    if (pendingState && pendingState.pendingQuote) {
+        const { jobName, items, total } = pendingState.pendingQuote;
+        const customerInput = body.trim();
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const customerName = emailRegex.test(customerInput) ? 'Email Provided' : customerInput;
+        const customerEmail = emailRegex.test(customerInput) ? customerInput : null;
+
+        // Tax and Markup Configuration
+        const taxRate = userProfile.taxRate || 0.13; // 13% default
+        const markup = 1.20; // 20% profit margin
+        const subtotal = total;
+        const tax = subtotal * taxRate;
+        const totalWithTaxAndMarkup = (subtotal + tax) * markup;
+
+        // Generate PDF
+        const outputPath = `/tmp/quote_${from}_${Date.now()}.pdf`;
+        const quoteData = {
+            jobName,
+            items,
+            subtotal,
+            tax,
+            total: totalWithTaxAndMarkup,
+            customerName,
+            contractorName,
+        };
+        await generateQuotePDF(quoteData, outputPath);
+
+        // Upload to Google Drive
+        const auth = await getAuthorizedClient();
+        const drive = google.drive({ version: 'v3', auth });
+        const fileName = `Quote_${jobName}_${Date.now()}.pdf`;
+        const fileMetadata = { name: fileName };
+        const media = {
+            mimeType: 'application/pdf',
+            body: fs.createReadStream(outputPath),
+        };
+        const driveResponse = await drive.files.create({
+            resource: fileMetadata,
+            media,
+            fields: 'id, webViewLink',
+        });
+        await drive.permissions.create({
+            fileId: driveResponse.data.id,
+            requestBody: { role: 'reader', type: 'anyone' },
+        });
+        const pdfUrl = driveResponse.data.webViewLink;
+
+        // Clear pending state
+        await deletePendingTransactionState(from);
+
+        // Send response
+        let reply = `✅ Quote for ${jobName} generated.\nSubtotal: $${subtotal.toFixed(2)}\nTax (${(taxRate * 100)}%): $${tax.toFixed(2)}\nTotal (with 20% markup): $${totalWithTaxAndMarkup.toFixed(2)}\nCustomer: ${customerName}\nDownload here: ${pdfUrl}`;
+        if (customerEmail) {
+            await sendSpreadsheetEmail(customerEmail, driveResponse.data.id, 'Your Quote');
+            reply += `\nAlso sent to ${customerEmail}`;
+        }
+        return res.send(`<Response><Message>${reply}</Message></Response>`);
+    }
+
+    // Initial quote request parsing
+    const quoteMatch = body.match(/quote for\s+(.+?)(?::\s*(.+))?/i);
+    if (!quoteMatch) {
+        return res.send(`<Response><Message>⚠️ Please provide a job name and items, e.g., 'quote for Job 75: 10 nails, 5 lumber'</Message></Response>`);
+    }
+    const jobName = quoteMatch[1].trim();
+    const itemsText = quoteMatch[2] ? quoteMatch[2].trim() : null;
+
+    if (!itemsText) {
+        return res.send(`<Response><Message>⚠️ Please list items for the quote, e.g., '10 nails, 5 lumber'</Message></Response>`);
+    }
+
+    // Parse items and quantities
+    const itemList = itemsText.split(',').map(item => item.trim());
+    const items = [];
+    for (const itemEntry of itemList) {
+        const match = itemEntry.match(/(\d+)\s+(.+)/i);
+        if (match) {
+            items.push({ quantity: parseInt(match[1], 10), item: match[2].trim() });
+        }
+    }
+    if (!items.length) {
+        return res.send(`<Response><Message>⚠️ Couldn’t parse items. Use format: '10 nails, 5 lumber'</Message></Response>`);
+    }
+
+    // Fetch material prices
+    const pricingSpreadsheetId = process.env.PRICING_SPREADSHEET_ID;
+    if (!pricingSpreadsheetId) {
+        return res.send(`<Response><Message>⚠️ Pricing spreadsheet not configured. Contact support.</Message></Response>`);
+    }
+    const priceMap = await fetchMaterialPrices(pricingSpreadsheetId);
+
+    // Calculate quote
+    let total = 0;
+    const quoteItems = [];
+    const missingItems = [];
+    items.forEach(({ item, quantity }) => {
+        const price = priceMap[item.toLowerCase()];
+        if (price !== undefined && price > 0) {
+            const lineTotal = price * quantity;
+            total += lineTotal;
+            quoteItems.push({ item, quantity, price });
+        } else {
+            missingItems.push(item);
+        }
+    });
+
+    if (!quoteItems.length) {
+        return res.send(`<Response><Message>⚠️ No valid prices found for items: ${itemsText}. Check your pricing sheet: https://docs.google.com/spreadsheets/d/${pricingSpreadsheetId}</Message></Response>`);
+    }
+
+    // Store pending quote and prompt for customer details
+    await setPendingTransactionState(from, { pendingQuote: { jobName, items: quoteItems, total } });
+    let reply = `✅ Quote calculated: $${total.toFixed(2)} (subtotal). Please provide the customer’s name or email to finalize.`;
+    if (missingItems.length) {
+        reply += `\n⚠️ Missing prices for: ${missingItems.join(', ')}.`;
+    }
+    return res.send(`<Response><Message>${reply}</Message></Response>`);
+}
         }
     } catch (error) {
         console.error("[ERROR] Processing webhook request failed:", error);

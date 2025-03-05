@@ -1,4 +1,4 @@
-const { getMaterialPrices } = require('./googleSheetsIntegration'); // Adjust path if needed
+const { getMaterialPrices } = require('../googleSheetsIntegration'); 
 
 async function test() {
     const materials = [
@@ -6,8 +6,13 @@ async function test() {
         { name: 'Underlayment', quantity: 5 }
     ];
 
-    const result = await getMaterialPrices(materials);
-    console.log(result);
+    console.log("🔹 Testing Default Spreadsheet:");
+    const result1 = await getMaterialPrices(materials, 'default');
+    console.log(result1);
+
+    console.log("🔹 Testing Quoting Spreadsheet:");
+    const result2 = await getMaterialPrices(materials, 'quotes');
+    console.log(result2);
 }
 
 test();
