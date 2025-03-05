@@ -1,3 +1,4 @@
+require('dotenv').config();
 // Core Node.js utilities
 const { URLSearchParams } = require('url');
 const fs = require('fs');
@@ -1297,9 +1298,11 @@ else if (body && body.toLowerCase().startsWith('quote for')) {
     // Fetch material prices
     const pricingSpreadsheetId = process.env.PRICING_SPREADSHEET_ID;
     if (!pricingSpreadsheetId) {
+        console.error('[ERROR] PRICING_SPREADSHEET_ID not set in environment variables.');
         return res.send(`<Response><Message>⚠️ Pricing spreadsheet not configured. Contact support.</Message></Response>`);
     }
     const priceMap = await fetchMaterialPrices(pricingSpreadsheetId);
+    console.log('[DEBUG] Price map fetched:', priceMap);
 
     // Calculate quote
     let total = 0;
@@ -1315,6 +1318,8 @@ else if (body && body.toLowerCase().startsWith('quote for')) {
             missingItems.push(item);
         }
     });
+
+    console.log('[DEBUG] Quote items:', quoteItems, 'Total:', total, 'Missing items:', missingItems);
 
     if (!quoteItems.length) {
         return res.send(`<Response><Message>⚠️ No valid prices found for items: ${itemsText}. Check your pricing sheet: https://docs.google.com/spreadsheets/d/${pricingSpreadsheetId}</Message></Response>`);
