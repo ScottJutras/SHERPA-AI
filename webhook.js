@@ -1,5 +1,3 @@
-require('dotenv').config();
-
 // Core Node.js utilities
 const { URLSearchParams } = require('url');
 const fs = require('fs');
@@ -29,12 +27,12 @@ const {
     setActiveJob,
     getActiveJob,
     createSpreadsheetForUser,
-    calculateIncomeGoal
+    calculateIncomeGoal,
+    fetchMaterialPrices,
 } = require("./utils/googleSheets");
 const { extractTextFromImage } = require('./utils/visionService');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
 const { sendSpreadsheetEmail } = require('./utils/sendGridService');
-const { fetchMaterialPrices} = require('./utils/googleSheets');
 const { generateQuotePDF } = require('./utils/pdfService');
 const storeList = require('./utils/storeList');
 const constructionStores = storeList.map(store => store.toLowerCase());
@@ -75,7 +73,6 @@ const deleteOnboardingState = async (from) => {
     await db.collection('onboardingStates').doc(from).delete();
 };
 
-// Helper functions for pending transactions
 const getPendingTransactionState = async (from) => {
     const pendingDoc = await db.collection('pendingTransactions').doc(from).get();
     return pendingDoc.exists ? pendingDoc.data() : null;
@@ -89,7 +86,6 @@ const deletePendingTransactionState = async (from) => {
     await db.collection('pendingTransactions').doc(from).delete();
 };
 
-// Helper functions for query context and job management
 const setLastQuery = async (from, queryData) => {
     await db.collection('lastQueries').doc(from).set(queryData, { merge: true });
 };
@@ -123,26 +119,27 @@ function normalizePhoneNumber(phone) {
 
 function detectCountryAndRegion(phoneNumber) {
     if (!phoneNumber.startsWith("+")) {
-        phoneNumber = `+${phoneNumber}`; // Ensure +19053279955
+        phoneNumber = `+${phoneNumber}`;
     }
     const phoneInfo = parsePhoneNumberFromString(phoneNumber);
     if (!phoneInfo || !phoneInfo.isValid()) {
         return { country: "Unknown", region: "Unknown" };
     }
-    const nationalNumber = phoneInfo.nationalNumber; // "9053279955"
-    const areaCode = nationalNumber.substring(0, 3); // "905"
+    const nationalNumber = phoneInfo.nationalNumber;
+    const areaCode = nationalNumber.substring(0, 3);
     const location = areaCodeMap[areaCode];
     if (location) {
         return {
-            country: location.country, // "Canada"
-            region: location.province || location.state || "Unknown" // "Ontario"
+            country: location.country,
+            region: location.province || location.state || "Unknown"
         };
     }
     return {
-        country: phoneInfo.country || "Unknown", // "CA" as fallback
+        country: phoneInfo.country || "Unknown",
         region: "Unknown"
     };
 }
+
 // Express App Setup
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -162,9 +159,9 @@ const onboardingSteps = [
     "What is your primary financial goal? (Save to pay off debts, Save to invest, Spend to lower tax bracket, Spend to invest)",
     "Would you like to add your yearly, monthly, weekly, or bi-weekly bills to track? (Yes/No)",
     "Can I get your email address?"
-  ];
-  
-  const onboardingTemplates = {
+];
+
+const onboardingTemplates = {
     1: "HX4cf7529ecaf5a488fdfa96b931025023",
     3: "HX066a88aad4089ba4336a21116e923557",
     4: "HX1d4c5b90e5f5d7417283f3ee522436f4",
@@ -173,16 +170,18 @@ const onboardingSteps = [
     7: "HX3e231458c97ba2ca1c5588b54e87c081",
     8: "HX20b1be5490ea39f3730fb9e70d5275df",
     9: "HX99fd5cad1d49ab68e9afc6a70fe4d24a"
-  };
-  const confirmationTemplates = {
+};
+
+const confirmationTemplates = {
     revenue: "HXb3086ca639cb4882fb2c68f2cd569cb4",
     expense: "HX9f6b7188f055fa25f8170f915e53cbd0",
     bill: "HX6de403c09a8ec90183fbb3fe05413252",
     startJob: "HXa4f19d568b70b3493e64933ce5e6a040",
     locationConfirmation: "HX0280df498999848aaff04cc079e16c31",
     spreadsheetLink: "HXf5964d5ffeecc5e7f4e94d7b3379e084"
-  };
-// ─── SEND TEMPLATE MESSAGE FUNCTION ─────────────────────
+};
+
+// Send Template Message Function
 const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
     try {
         if (!contentSid) {
@@ -193,7 +192,7 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
         const formattedVariables = JSON.stringify(
             Array.isArray(contentVariables)
                 ? contentVariables.reduce((acc, item, index) => {
-                      acc[index + 1] = item.text; // Map "1": country, "2": region, etc.
+                      acc[index + 1] = item.text;
                       return acc;
                   }, {})
                 : contentVariables
@@ -227,8 +226,7 @@ const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
         return false;
     }
 };
-
-// ─── WEBHOOK HANDLER ─────────────────────────────
+// Webhook Handler
 app.post('/webhook', async (req, res) => {
     const rawPhone = req.body.From;
     const from = normalizePhoneNumber(rawPhone);
@@ -236,45 +234,49 @@ app.post('/webhook', async (req, res) => {
     const body = req.body.Body?.trim();
     const mediaUrl = req.body.MediaUrl0;
     const mediaType = req.body.MediaContentType0;
-    const contractorName = userProfile.name || 'Your Company Name';
+
     if (!from) {
         return res.status(400).send("Bad Request: Missing 'From'.");
     }
 
-    // Check if user exists, create minimal profile if not
+    // Initialize userProfile outside try block
     let userProfile = await getUserProfile(from);
     if (!userProfile) {
-        await db.collection('users').doc(from).set(
-            {
-                user_id: from,
-                created_at: new Date().toISOString(),
-                onboarding_in_progress: true
-            },
-            { merge: true }
-        );
-        console.log(`[✅] Initial user profile created for ${from}`);
-        userProfile = await getUserProfile(from); // Reload to confirm
+        try {
+            await db.collection('users').doc(from).set(
+                {
+                    user_id: from,
+                    created_at: new Date().toISOString(),
+                    onboarding_in_progress: true
+                },
+                { merge: true }
+            );
+            console.log(`[✅] Initial user profile created for ${from}`);
+            userProfile = await getUserProfile(from);
+        } catch (error) {
+            console.error("[ERROR] Failed to create user profile:", error.message);
+            return res.send(`<Response><Message>⚠️ Failed to initialize user profile. Please try again.</Message></Response>`);
+        }
     }
 
+    const contractorName = userProfile.name || 'Your Company Name';
+
     try {
-    // ─── ONBOARDING FLOW ─────────────────────────
-if (userProfile.onboarding_in_progress) {
-    let state = await getOnboardingState(from);
-    if (!state) {
-        // Initialize state with detected location and default flags
-        state = { 
-            step: 0, 
-            responses: {}, 
-            detectedLocation: detectCountryAndRegion(from), 
-            locationConfirmed: false,
-            awaitingLocationResponse: false,
-            editMode: false
-        };
-        await setOnboardingState(from, state);
-        console.log(`[DEBUG] Initialized state for ${from}:`, state);
-        // Step 0: Ask for user's name first
-        return res.send(`<Response><Message>Welcome! What's your name?</Message></Response>`);
-    }
+        // ONBOARDING FLOW
+        if (userProfile.onboarding_in_progress) {
+            let state = await getOnboardingState(from);
+            if (!state) {
+                state = { 
+                    step: 0, 
+                    responses: {}, 
+                    detectedLocation: detectCountryAndRegion(from), 
+                    locationConfirmed: false,
+                    awaitingLocationResponse: false,
+                    editMode: false
+                };
+                await setOnboardingState(from, state);
+                return res.send(`<Response><Message>Welcome! What's your name?</Message></Response>`);
+            }
 
     // Step 0: Collect user's name
     if (state.step === 0) {
@@ -1202,7 +1204,7 @@ else if (body) {
         return res.send(`<Response><Message>⚠️ Could not understand your expense message. Please try again.</Message></Response>`);
     }
 }
-// Quote Handling with Enhancements
+// 7. Quote Handling with Enhancements
 else if (body && body.toLowerCase().startsWith('quote for')) {
     console.log('[DEBUG] Detected quote request:', body);
     const activeJob = (await getActiveJob(from)) || 'Uncategorized';
@@ -1408,19 +1410,19 @@ async function getChatGPTResponse(prompt) {
     }
 }
 
-// ─── GET Route for Server Verification ─────────────────────────────
+// GET Route for Server Verification
 app.get('/', (req, res) => {
     console.log("[DEBUG] GET request received at root URL.");
     res.send("Webhook server is up and running!");
 });
 
-// ─── Start Express Server ────────────────────────────────────────────
+// Start Express Server
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
     console.log(`[DEBUG] Webhook server running at http://localhost:${PORT}`);
 });
 
-// Debugging environment variables and initializing Google Vision credentials (unchanged)
+// Debugging environment variables and initializing Google Vision credentials
 console.log("[DEBUG] Checking environment variables...");
 console.log("[DEBUG] GOOGLE_CREDENTIALS_BASE64:", process.env.GOOGLE_CREDENTIALS_BASE64 ? "Loaded" : "Missing");
 console.log("[DEBUG] FIREBASE_CREDENTIALS_BASE64:", process.env.FIREBASE_CREDENTIALS_BASE64 ? "Loaded" : "Missing");
