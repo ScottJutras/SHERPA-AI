@@ -620,31 +620,30 @@ async function calculateIncomeGoal(userId) {
 async function fetchMaterialPrices(pricingSpreadsheetId) {
   const auth = await getAuthorizedClient();
   const sheets = google.sheets({ version: 'v4', auth });
-  const range = 'Sheet1!A:B'; // Adjust if your sheet name differs
+  const range = 'Sheet1!A:B';
 
   try {
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: pricingSpreadsheetId,
-      range,
-    });
-    const rows = response.data.values || [];
-    if (!rows.length) {
-      console.log('[DEBUG] No pricing data found in spreadsheet.');
-      return {};
-    }
-    // Skip header row and create a price map
-    const priceMap = {};
-    rows.slice(1).forEach(([itemName, price]) => {
-      if (itemName) {
-        const cleanedPrice = price ? parseFloat(price.replace(/[^0-9.]/g, '')) || 0 : 0;
-        priceMap[itemName.toLowerCase()] = cleanedPrice;
+      const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: pricingSpreadsheetId,
+          range,
+      });
+      const rows = response.data.values || [];
+      if (!rows.length) {
+          console.log('[DEBUG] No pricing data found in spreadsheet.');
+          return {};
       }
-    });
-    console.log('[✅] Fetched material prices:', priceMap);
-    return priceMap;
+      const priceMap = {};
+      rows.slice(1).forEach(([itemName, price]) => {
+          if (itemName) {
+              const cleanedPrice = price ? parseFloat(price.replace(/[^0-9.]/g, '')) || 0 : 0;
+              priceMap[itemName.toLowerCase()] = cleanedPrice;
+          }
+      });
+      console.log('[✅] Fetched material prices:', priceMap);
+      return priceMap;
   } catch (error) {
-    console.error('[❌ ERROR] Failed to fetch material prices:', error.message);
-    throw error;
+      console.error('[❌ ERROR] Failed to fetch material prices:', error.message);
+      throw error;
   }
 }
 // ─── MODULE EXPORTS ───────────────────────────────────────────────────────────
