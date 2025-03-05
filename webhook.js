@@ -1192,7 +1192,6 @@ else if (body.toLowerCase().startsWith("quote")) {
 
         await deletePendingTransactionState(from);
 
-        // Response without markup mention
         let reply = `✅ Quote for ${jobName} generated.\nSubtotal: $${subtotal.toFixed(2)}\nTax (${(taxRate * 100).toFixed(2)}%): $${tax.toFixed(2)}\nTotal: $${totalWithTaxAndMarkup.toFixed(2)}\nCustomer: ${customerName}\nDownload here: ${pdfUrl}`;
         if (customerEmail) {
             await sendSpreadsheetEmail(customerEmail, driveResponse.data.id, 'Your Quote');
@@ -1218,12 +1217,12 @@ else if (body.toLowerCase().startsWith("quote")) {
         return res.send(`<Response><Message>✅ Quote calculated: $${subtotal.toFixed(2)} (subtotal) + ${(taxRate * 100).toFixed(2)}% tax ($${tax.toFixed(2)}) for ${description}. Please provide the customer’s name or email to finalize.</Message></Response>`);
     }
 
-    // Existing itemized quote parsing
+    // Itemized quote parsing with custom items
     const quoteMatch = body.match(/quote for\s+([^:]+)(?::\s*(.+))?/i);
     console.log('[DEBUG] Quote match result:', quoteMatch);
 
     if (!quoteMatch) {
-        return res.send(`<Response><Message>⚠️ Please provide a job name and items, e.g., 'Quote for Job 75: 10 nails, 5 lumber' or 'Quote for 123 Happy St: 675 for siding'</Message></Response>`);
+        return res.send(`<Response><Message>⚠️ Please provide a job name and items, e.g., 'Quote for Job 75: 10 nails, $50 for paint' or 'Quote for 123 Happy St: 675 for siding'</Message></Response>`);
     }
 
     const jobName = quoteMatch[1].trim();
@@ -1231,21 +1230,32 @@ else if (body.toLowerCase().startsWith("quote")) {
     console.log('[DEBUG] Parsed jobName:', jobName, 'itemsText:', itemsText);
 
     if (!itemsText) {
-        return res.send(`<Response><Message>⚠️ Please list items or a total amount for the quote after a colon, e.g., '10 nails, 5 lumber' or '675 for siding'</Message></Response>`);
+        return res.send(`<Response><Message>⚠️ Please list items or a total amount for the quote after a colon, e.g., '10 nails, $50 for paint' or '675 for siding'</Message></Response>`);
     }
 
     const itemList = itemsText.split(',').map(item => item.trim());
     const items = [];
     for (const itemEntry of itemList) {
-        const match = itemEntry.match(/(\d+)\s+(.+)/i);
-        if (match) {
-            items.push({ quantity: parseInt(match[1], 10), item: match[2].trim() });
+        // Check for custom item with price (e.g., "$50 for custom paint")
+        const customMatch = itemEntry.match(/\$(\d+(?:\.\d{1,2})?)\s+for\s+(.+)/i);
+        if (customMatch) {
+            const price = parseFloat(customMatch[1]);
+            const item = customMatch[2].trim();
+            items.push({ quantity: 1, item, price }); // Quantity 1 for custom items
+            console.log('[DEBUG] Parsed custom item:', { quantity: 1, item, price });
+        } else {
+            // Standard item from spreadsheet (e.g., "10 windows")
+            const match = itemEntry.match(/(\d+)\s+(.+)/i);
+            if (match) {
+                items.push({ quantity: parseInt(match[1], 10), item: match[2].trim() });
+                console.log('[DEBUG] Parsed spreadsheet item:', { quantity: parseInt(match[1], 10), item: match[2].trim() });
+            }
         }
     }
     console.log('[DEBUG] Parsed items:', items);
 
     if (!items.length) {
-        return res.send(`<Response><Message>⚠️ Couldn’t parse items. Use format: '10 nails, 5 lumber' or '675 for siding'</Message></Response>`);
+        return res.send(`<Response><Message>⚠️ Couldn’t parse items. Use format: '10 nails, $50 for paint' or '675 for siding'</Message></Response>`);
     }
 
     const pricingSpreadsheetId = process.env.PRICING_SPREADSHEET_ID;
@@ -1259,19 +1269,27 @@ else if (body.toLowerCase().startsWith("quote")) {
     let total = 0;
     const quoteItems = [];
     const missingItems = [];
-    items.forEach(({ item, quantity }) => {
-        let normalizedItem = item.toLowerCase().replace(/\s+/g, ' ').trim();
-        if (normalizedItem === "windows labour hours" || normalizedItem === "window labour hours") {
-            normalizedItem = "window labour";
-        }
-        const price = priceMap[normalizedItem];
-        console.log('[DEBUG] Checking price for:', normalizedItem, 'Found:', price);
-        if (price !== undefined && price > 0) {
+    items.forEach(({ item, quantity, price }) => {
+        if (price !== undefined) {
+            // Custom item with user-specified price
             const lineTotal = price * quantity;
             total += lineTotal;
             quoteItems.push({ item, quantity, price });
         } else {
-            missingItems.push(item);
+            // Lookup price from spreadsheet
+            let normalizedItem = item.toLowerCase().replace(/\s+/g, ' ').trim();
+            if (normalizedItem === "windows labour hours" || normalizedItem === "window labour hours") {
+                normalizedItem = "window labour";
+            }
+            const spreadsheetPrice = priceMap[normalizedItem];
+            console.log('[DEBUG] Checking price for:', normalizedItem, 'Found:', spreadsheetPrice);
+            if (spreadsheetPrice !== undefined && spreadsheetPrice > 0) {
+                const lineTotal = spreadsheetPrice * quantity;
+                total += lineTotal;
+                quoteItems.push({ item, quantity, price: spreadsheetPrice });
+            } else {
+                missingItems.push(item);
+            }
         }
     });
 
