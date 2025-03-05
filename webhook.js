@@ -1153,7 +1153,7 @@ else if (body.toLowerCase().startsWith("quote")) {
         const customerEmail = emailRegex.test(customerInput) ? customerInput : null;
 
         const taxRate = userProfile.taxRate || getTaxRate(userProfile.country, userProfile.province);
-        const markup = userProfile.markup || 1.20;
+        const markup = 1.40; // 40% markup for itemized quotes only
         const subtotal = total;
         const tax = subtotal * taxRate;
         const totalWithTaxAndMarkup = isFixedPrice ? subtotal + tax : (subtotal + tax) * markup;
@@ -1192,7 +1192,7 @@ else if (body.toLowerCase().startsWith("quote")) {
 
         await deletePendingTransactionState(from);
 
-        let reply = `✅ Quote for ${jobName} generated.\nSubtotal: $${subtotal.toFixed(2)}\nTax (${(taxRate * 100).toFixed(2)}%): $${tax.toFixed(2)}\nTotal${isFixedPrice ? '' : ' (with 20% markup)'}: $${totalWithTaxAndMarkup.toFixed(2)}\nCustomer: ${customerName}\nDownload here: ${pdfUrl}`;
+        let reply = `✅ Quote for ${jobName} generated.\nSubtotal: $${subtotal.toFixed(2)}\nTax (${(taxRate * 100).toFixed(2)}%): $${tax.toFixed(2)}\nTotal: $${totalWithTaxAndMarkup.toFixed(2)}\nCustomer: ${customerName}\nDownload here: ${pdfUrl}`;
         if (customerEmail) {
             await sendSpreadsheetEmail(customerEmail, driveResponse.data.id, 'Your Quote');
             reply += `\nAlso sent to ${customerEmail}`;
