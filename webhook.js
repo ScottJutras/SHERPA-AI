@@ -38,6 +38,10 @@ const { generateQuotePDF } = require('./utils/pdfService');
 const { parseQuoteMessage, buildQuoteDetails } = require('./utils/quoteUtils');
 const storeList = require('./utils/storeList');
 const constructionStores = storeList.map(store => store.toLowerCase());
+const { getTaxRate } = require('./utils/taxRate');
+
+
+
 // Near the top of webhook.js, after imports
 const googleCredentials = JSON.parse(Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8'));
 console.log('[DEBUG] Service account email from GOOGLE_CREDENTIALS_BASE64:', googleCredentials.client_email);
@@ -1148,8 +1152,8 @@ else if (body.toLowerCase().startsWith("quote")) {
         const customerName = emailRegex.test(customerInput) ? 'Email Provided' : customerInput;
         const customerEmail = emailRegex.test(customerInput) ? customerInput : null;
 
-        const taxRate = userProfile.taxRate || 0.13; // Default 13% HST
-        const markup = userProfile.markup || 1.20;   // Default 20% markup (optional)
+        const taxRate = userProfile.taxRate || getTaxRate(userProfile.country, userProfile.province);
+        const markup = userProfile.markup || 1.20;
         const subtotal = total;
         const tax = subtotal * taxRate;
         const totalWithTaxAndMarkup = isFixedPrice ? subtotal + tax : (subtotal + tax) * markup;
@@ -1188,7 +1192,7 @@ else if (body.toLowerCase().startsWith("quote")) {
 
         await deletePendingTransactionState(from);
 
-        let reply = `✅ Quote for ${jobName} generated.\nSubtotal: $${subtotal.toFixed(2)}\nTax (${(taxRate * 100)}%): $${tax.toFixed(2)}\nTotal${isFixedPrice ? '' : ' (with 20% markup)'}: $${totalWithTaxAndMarkup.toFixed(2)}\nCustomer: ${customerName}\nDownload here: ${pdfUrl}`;
+        let reply = `✅ Quote for ${jobName} generated.\nSubtotal: $${subtotal.toFixed(2)}\nTax (${(taxRate * 100).toFixed(2)}%): $${tax.toFixed(2)}\nTotal${isFixedPrice ? '' : ' (with 20% markup)'}: $${totalWithTaxAndMarkup.toFixed(2)}\nCustomer: ${customerName}\nDownload here: ${pdfUrl}`;
         if (customerEmail) {
             await sendSpreadsheetEmail(customerEmail, driveResponse.data.id, 'Your Quote');
             reply += `\nAlso sent to ${customerEmail}`;
@@ -1196,19 +1200,21 @@ else if (body.toLowerCase().startsWith("quote")) {
         return res.send(`<Response><Message>${reply}</Message></Response>`);
     }
 
-    // Parse fixed-price quote (e.g., "Quote for 34 Happy St: $675 + HST for Siding removal")
-    const fixedPriceMatch = body.match(/quote for\s+([^:]+):\s*\$(\d+(?:\.\d{1,2})?)\s*\+?\s*hst\s+for\s+(.+)/i);
+    // Parse fixed-price quote (e.g., "Quote for 123 Happy St: 675 for siding")
+    const fixedPriceMatch = body.match(/quote for\s+([^:]+):\s*(\d+(?:\.\d{1,2})?)\s+for\s+(.+)/i);
     if (fixedPriceMatch) {
         const jobName = fixedPriceMatch[1].trim();
         const subtotal = parseFloat(fixedPriceMatch[2]);
         const description = fixedPriceMatch[3].trim();
         console.log('[DEBUG] Detected fixed-price quote:', { jobName, subtotal, description });
 
-        // Store as pending quote
+        const taxRate = userProfile.taxRate || getTaxRate(userProfile.country, userProfile.province);
+        const tax = subtotal * taxRate;
+
         await setPendingTransactionState(from, {
             pendingQuote: { jobName, items: [], total: subtotal, isFixedPrice: true, description }
         });
-        return res.send(`<Response><Message>✅ Quote calculated: $${subtotal.toFixed(2)} (subtotal) + HST for ${description}. Please provide the customer’s name or email to finalize.</Message></Response>`);
+        return res.send(`<Response><Message>✅ Quote calculated: $${subtotal.toFixed(2)} (subtotal) + ${(taxRate * 100).toFixed(2)}% tax ($${tax.toFixed(2)}) for ${description}. Please provide the customer’s name or email to finalize.</Message></Response>`);
     }
 
     // Existing itemized quote parsing
@@ -1216,7 +1222,7 @@ else if (body.toLowerCase().startsWith("quote")) {
     console.log('[DEBUG] Quote match result:', quoteMatch);
 
     if (!quoteMatch) {
-        return res.send(`<Response><Message>⚠️ Please provide a job name and items, e.g., 'Quote for Job 75: 10 nails, 5 lumber' or 'Quote for 34 Happy St: $675 + HST for Siding removal'</Message></Response>`);
+        return res.send(`<Response><Message>⚠️ Please provide a job name and items, e.g., 'Quote for Job 75: 10 nails, 5 lumber' or 'Quote for 123 Happy St: 675 for siding'</Message></Response>`);
     }
 
     const jobName = quoteMatch[1].trim();
@@ -1224,7 +1230,7 @@ else if (body.toLowerCase().startsWith("quote")) {
     console.log('[DEBUG] Parsed jobName:', jobName, 'itemsText:', itemsText);
 
     if (!itemsText) {
-        return res.send(`<Response><Message>⚠️ Please list items or a total amount for the quote after a colon, e.g., '10 nails, 5 lumber' or '$675 + HST for Siding removal'</Message></Response>`);
+        return res.send(`<Response><Message>⚠️ Please list items or a total amount for the quote after a colon, e.g., '10 nails, 5 lumber' or '675 for siding'</Message></Response>`);
     }
 
     const itemList = itemsText.split(',').map(item => item.trim());
@@ -1238,7 +1244,7 @@ else if (body.toLowerCase().startsWith("quote")) {
     console.log('[DEBUG] Parsed items:', items);
 
     if (!items.length) {
-        return res.send(`<Response><Message>⚠️ Couldn’t parse items. Use format: '10 nails, 5 lumber' or '$675 + HST for Siding removal'</Message></Response>`);
+        return res.send(`<Response><Message>⚠️ Couldn’t parse items. Use format: '10 nails, 5 lumber' or '675 for siding'</Message></Response>`);
     }
 
     const pricingSpreadsheetId = process.env.PRICING_SPREADSHEET_ID;
