@@ -121,19 +121,28 @@ const SCOPES = [
  */
 async function getAuthorizedClient() {
   try {
-    const credentials = JSON.parse(Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8'));
-    const auth = new google.auth.GoogleAuth({
-      credentials,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
-    console.log('[DEBUG] Google API client authorized successfully.');
-    return await auth.getClient();
+      const encodedCredentials = process.env.FIREBASE_CREDENTIALS_BASE64;
+      if (!encodedCredentials) {
+          throw new Error("FIREBASE_CREDENTIALS_BASE64 environment variable not specified.");
+      }
+      const decodedCredentials = Buffer.from(encodedCredentials, "base64").toString("utf-8");
+      const credentials = JSON.parse(decodedCredentials);
+
+      const auth = new google.auth.GoogleAuth({
+          credentials,
+          scopes: [
+              'https://www.googleapis.com/auth/spreadsheets', // For creating spreadsheets
+              'https://www.googleapis.com/auth/drive.file'      // For sharing specific files
+          ]
+      });
+      const authClient = await auth.getClient();
+      console.log(`[DEBUG] Google API client authorized successfully.`);
+      return authClient;
   } catch (error) {
-    console.error('[ERROR] Failed to authorize Google API client:', error.message);
-    throw error;
+      console.error(`[❌ ERROR] Failed to authorize Google API client: ${error}`);
+      throw error;
   }
 }
-
 // ─── REVENUE LOGGING ─────────────────────────────────────────────────────────
 async function logRevenueEntry(userEmail, date, amount, source, category, paymentMethod, notes, spreadsheetId) {
   const auth = await getAuthorizedClient();
