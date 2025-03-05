@@ -1153,10 +1153,9 @@ else if (body.toLowerCase().startsWith("quote")) {
         const customerEmail = emailRegex.test(customerInput) ? customerInput : null;
 
         const taxRate = userProfile.taxRate || getTaxRate(userProfile.country, userProfile.province);
-        const markup = 1.40; // 40% markup for itemized quotes only, hidden from customer
         const subtotal = total;
         const tax = subtotal * taxRate;
-        const totalWithTaxAndMarkup = isFixedPrice ? subtotal + tax : (subtotal + tax) * markup;
+        const totalWithTax = isFixedPrice ? subtotal + tax : subtotal + tax; // No additional markup here; already in unit prices
 
         const outputPath = `/tmp/quote_${from}_${Date.now()}.pdf`;
         const quoteData = {
@@ -1164,7 +1163,7 @@ else if (body.toLowerCase().startsWith("quote")) {
             items: isFixedPrice ? [{ item: description, quantity: 1, price: subtotal }] : items,
             subtotal,
             tax,
-            total: totalWithTaxAndMarkup,
+            total: totalWithTax,
             customerName,
             contractorName: userProfile.name || 'Your Company Name',
             companyName: userProfile.companyName,
@@ -1192,7 +1191,7 @@ else if (body.toLowerCase().startsWith("quote")) {
 
         await deletePendingTransactionState(from);
 
-        let reply = `✅ Quote for ${jobName} generated.\nSubtotal: $${subtotal.toFixed(2)}\nTax (${(taxRate * 100).toFixed(2)}%): $${tax.toFixed(2)}\nTotal: $${totalWithTaxAndMarkup.toFixed(2)}\nCustomer: ${customerName}\nDownload here: ${pdfUrl}`;
+        let reply = `✅ Quote for ${jobName} generated.\nSubtotal: $${subtotal.toFixed(2)}\nTax (${(taxRate * 100).toFixed(2)}%): $${tax.toFixed(2)}\nTotal: $${totalWithTax.toFixed(2)}\nCustomer: ${customerName}\nDownload here: ${pdfUrl}`;
         if (customerEmail) {
             await sendSpreadsheetEmail(customerEmail, driveResponse.data.id, 'Your Quote');
             reply += `\nAlso sent to ${customerEmail}`;
@@ -1217,7 +1216,7 @@ else if (body.toLowerCase().startsWith("quote")) {
         return res.send(`<Response><Message>✅ Quote calculated: $${subtotal.toFixed(2)} (subtotal) + ${(taxRate * 100).toFixed(2)}% tax ($${tax.toFixed(2)}) for ${description}. Please provide the customer’s name or email to finalize.</Message></Response>`);
     }
 
-    // Itemized quote parsing with custom items
+    // Itemized quote parsing with custom items and markup
     const quoteMatch = body.match(/quote for\s+([^:]+)(?::\s*(.+))?/i);
     console.log('[DEBUG] Quote match result:', quoteMatch);
 
@@ -1230,32 +1229,40 @@ else if (body.toLowerCase().startsWith("quote")) {
     console.log('[DEBUG] Parsed jobName:', jobName, 'itemsText:', itemsText);
 
     if (!itemsText) {
-        return res.send(`<Response><Message>⚠️ Please list items or a total amount for the quote after a colon, e.g., '10 nails, $50 for paint' or '675 for siding'</Message></Response>`);
+        return res.send(`<Response><Message>⚠️ Please list items or a total amount for the quote after a colon, e.g., '10 nails plus 40%, $50 for paint' or '675 for siding'</Message></Response>`);
     }
 
-    const itemList = itemsText.split(',').map(item => item.trim());
+    // Check for overall markup (e.g., "plus 40%" at the end)
+    const overallMarkupMatch = itemsText.match(/plus\s+(\d+)%$/i);
+    const overallMarkup = overallMarkupMatch ? (1 + parseInt(overallMarkupMatch[1]) / 100) : 1.40; // Default 40% if not specified
+    const itemsTextWithoutMarkup = overallMarkupMatch ? itemsText.replace(overallMarkupMatch[0], '').trim() : itemsText;
+
+    const itemList = itemsTextWithoutMarkup.split(',').map(item => item.trim());
     const items = [];
     for (const itemEntry of itemList) {
-        // Check for custom item with price (e.g., "$50 for custom paint")
+        // Custom item with price (e.g., "$50 for custom paint")
         const customMatch = itemEntry.match(/\$(\d+(?:\.\d{1,2})?)\s+for\s+(.+)/i);
         if (customMatch) {
             const price = parseFloat(customMatch[1]);
             const item = customMatch[2].trim();
-            items.push({ quantity: 1, item, price }); // Quantity 1 for custom items
+            items.push({ quantity: 1, item, price });
             console.log('[DEBUG] Parsed custom item:', { quantity: 1, item, price });
         } else {
-            // Standard item from spreadsheet (e.g., "10 windows")
-            const match = itemEntry.match(/(\d+)\s+(.+)/i);
+            // Spreadsheet item with optional per-item markup (e.g., "10 windows plus 40%")
+            const match = itemEntry.match(/(\d+)\s+(.+?)(?:\s+plus\s+(\d+)%|$)/i);
             if (match) {
-                items.push({ quantity: parseInt(match[1], 10), item: match[2].trim() });
-                console.log('[DEBUG] Parsed spreadsheet item:', { quantity: parseInt(match[1], 10), item: match[2].trim() });
+                const quantity = parseInt(match[1], 10);
+                const item = match[2].trim();
+                const itemMarkup = match[3] ? (1 + parseInt(match[3]) / 100) : overallMarkup; // Use item-specific or overall markup
+                items.push({ quantity, item, markup: itemMarkup });
+                console.log('[DEBUG] Parsed spreadsheet item:', { quantity, item, markup: itemMarkup });
             }
         }
     }
     console.log('[DEBUG] Parsed items:', items);
 
     if (!items.length) {
-        return res.send(`<Response><Message>⚠️ Couldn’t parse items. Use format: '10 nails, $50 for paint' or '675 for siding'</Message></Response>`);
+        return res.send(`<Response><Message>⚠️ Couldn’t parse items. Use format: '10 nails plus 40%, $50 for paint' or '675 for siding'</Message></Response>`);
     }
 
     const pricingSpreadsheetId = process.env.PRICING_SPREADSHEET_ID;
@@ -1269,24 +1276,26 @@ else if (body.toLowerCase().startsWith("quote")) {
     let total = 0;
     const quoteItems = [];
     const missingItems = [];
-    items.forEach(({ item, quantity, price }) => {
+    items.forEach(({ item, quantity, price, markup }) => {
         if (price !== undefined) {
-            // Custom item with user-specified price
+            // Custom item with user-specified price (no markup applied here)
             const lineTotal = price * quantity;
             total += lineTotal;
             quoteItems.push({ item, quantity, price });
         } else {
-            // Lookup price from spreadsheet
+            // Spreadsheet item with markup integrated into unit price
             let normalizedItem = item.toLowerCase().replace(/\s+/g, ' ').trim();
             if (normalizedItem === "windows labour hours" || normalizedItem === "window labour hours") {
                 normalizedItem = "window labour";
             }
-            const spreadsheetPrice = priceMap[normalizedItem];
-            console.log('[DEBUG] Checking price for:', normalizedItem, 'Found:', spreadsheetPrice);
-            if (spreadsheetPrice !== undefined && spreadsheetPrice > 0) {
-                const lineTotal = spreadsheetPrice * quantity;
+            const basePrice = priceMap[normalizedItem];
+            console.log('[DEBUG] Checking price for:', normalizedItem, 'Base price:', basePrice);
+            if (basePrice !== undefined && basePrice > 0) {
+                const markedUpPrice = basePrice * (markup || 1.40); // Apply markup (default 40% if not specified)
+                const lineTotal = markedUpPrice * quantity;
                 total += lineTotal;
-                quoteItems.push({ item, quantity, price: spreadsheetPrice });
+                quoteItems.push({ item, quantity, price: markedUpPrice });
+                console.log('[DEBUG] Applied markup:', { item, basePrice, markedUpPrice, markup });
             } else {
                 missingItems.push(item);
             }
