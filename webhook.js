@@ -38,7 +38,9 @@ const { generateQuotePDF } = require('./utils/pdfService');
 const { parseQuoteMessage, buildQuoteDetails } = require('./utils/quoteUtils');
 const storeList = require('./utils/storeList');
 const constructionStores = storeList.map(store => store.toLowerCase());
-
+// Near the top of webhook.js, after imports
+const googleCredentials = JSON.parse(Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8'));
+console.log('[DEBUG] Service account email from GOOGLE_CREDENTIALS_BASE64:', googleCredentials.client_email);
 // Firebase Admin Setup
 if (!admin.apps.length) {
     const firebaseCredentialsBase64 = process.env.FIREBASE_CREDENTIALS_BASE64;
@@ -1230,6 +1232,7 @@ else if (body.toLowerCase().startsWith("quote")) {
         console.error('[ERROR] PRICING_SPREADSHEET_ID not set in environment variables.');
         return res.send(`<Response><Message>⚠️ Pricing spreadsheet not configured. Contact support.</Message></Response>`);
     }
+    console.log('[DEBUG] Using service account:', googleCredentials.client_email);
     const priceMap = await fetchMaterialPrices(pricingSpreadsheetId);
     console.log('[DEBUG] Price map fetched:', priceMap);
 
