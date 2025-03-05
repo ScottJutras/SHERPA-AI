@@ -1193,8 +1193,8 @@ else if (body.toLowerCase().startsWith("quote")) {
         return res.send(`<Response><Message>${reply}</Message></Response>`);
     }
 
-    // Parse the quote message
-    const quoteMatch = body.match(/quote for\s+(.+?)(?::\s*(.+))?/i);
+    // Parse the quote message with corrected regex
+    const quoteMatch = body.match(/quote for\s+([^:]+)(?::\s*(.+))?/i);
     console.log('[DEBUG] Quote match result:', quoteMatch);
 
     if (!quoteMatch) {
@@ -1240,7 +1240,7 @@ else if (body.toLowerCase().startsWith("quote")) {
     items.forEach(({ item, quantity }) => {
         let normalizedItem = item.toLowerCase().replace(/\s+/g, ' ').trim();
         // Map common variations to spreadsheet names
-        if (normalizedItem === "windows labour hours") {
+        if (normalizedItem === "windows labour hours" || normalizedItem === "window labour hours") {
             normalizedItem = "window labour"; // Match "Window Labour" in spreadsheet
         }
         const price = priceMap[normalizedItem];
