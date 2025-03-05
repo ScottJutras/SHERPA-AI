@@ -1,59 +1,64 @@
+// utils/pdfService.js
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
+const axios = require('axios');
 
-function generateQuotePDF(quoteData, outputPath) {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument();
+async function generateQuotePDF(quoteData, outputPath) {
+    const { jobName, items, subtotal, tax, total, customerName, contractorName, companyName, companyAddress, companyPhone, logoUrl } = quoteData;
+    
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
     const stream = fs.createWriteStream(outputPath);
     doc.pipe(stream);
 
-    // Header
-    doc.fontSize(20).text('Quote', { align: 'center' });
-    doc.fontSize(12).text(`Job: ${quoteData.jobName}`, { align: 'left' });
-    doc.text(`Date: ${new Date().toLocaleDateString()}`, { align: 'left' });
-    doc.text(`Contractor: ${quoteData.contractorName}`, { align: 'left' });
-    doc.text(`Customer: ${quoteData.customerName || 'N/A'}`, { align: 'left' });
-    doc.moveDown();
+    // Header with Logo and Company Info
+    if (logoUrl) {
+        const logoResponse = await axios.get(logoUrl, { responseType: 'arraybuffer' });
+        doc.image(Buffer.from(logoResponse.data), 50, 50, { width: 100 });
+    }
+    doc.fontSize(12)
+       .text(companyName || contractorName, 160, 50, { align: 'left' })
+       .text(companyAddress || '', 160, 70)
+       .text(companyPhone || '', 160, 90)
+       .moveDown(2);
 
-    // Itemized List
-    doc.fontSize(14).text('Itemized Breakdown', { underline: true });
-    doc.moveDown(0.5);
+    // Quote Title
+    doc.fontSize(20).text(`Quote for ${jobName}`, { align: 'center' })
+       .moveDown();
+
+    // Customer Info
+    doc.fontSize(12).text(`Customer: ${customerName}`, { align: 'left' })
+       .moveDown();
+
+    // Items Table
     doc.fontSize(10);
     const tableTop = doc.y;
-    const itemWidth = 200;
-    const qtyWidth = 50;
-    const priceWidth = 100;
-    const totalWidth = 100;
+    doc.text('Item', 50, tableTop)
+       .text('Quantity', 200, tableTop)
+       .text('Unit Price', 300, tableTop)
+       .text('Total', 400, tableTop);
+    doc.moveTo(50, tableTop + 15).lineTo(550, tableTop + 15).stroke();
 
-    // Table Headers
-    doc.text('Item', 50, tableTop);
-    doc.text('Qty', 50 + itemWidth, tableTop, { width: qtyWidth, align: 'right' });
-    doc.text('Unit Price', 50 + itemWidth + qtyWidth, tableTop, { width: priceWidth, align: 'right' });
-    doc.text('Total', 50 + itemWidth + qtyWidth + priceWidth, tableTop, { width: totalWidth, align: 'right' });
-    doc.moveDown(0.5);
-
-    // Table Rows
-    let yPos = doc.y;
-    quoteData.items.forEach(({ item, quantity, price }) => {
-      const lineTotal = quantity * price;
-      doc.text(item, 50, yPos);
-      doc.text(quantity.toString(), 50 + itemWidth, yPos, { width: qtyWidth, align: 'right' });
-      doc.text(`$${price.toFixed(2)}`, 50 + itemWidth + qtyWidth, yPos, { width: priceWidth, align: 'right' });
-      doc.text(`$${lineTotal.toFixed(2)}`, 50 + itemWidth + qtyWidth + priceWidth, yPos, { width: totalWidth, align: 'right' });
-      yPos += 20;
+    let y = tableTop + 25;
+    items.forEach(({ item, quantity, price }) => {
+        const lineTotal = price * quantity;
+        doc.text(item, 50, y)
+           .text(quantity, 200, y)
+           .text(`$${price.toFixed(2)}`, 300, y)
+           .text(`$${lineTotal.toFixed(2)}`, 400, y);
+        y += 20;
     });
 
-    // Financial Summary
-    doc.moveDown(1);
-    doc.fontSize(12);
-    doc.text(`Subtotal: $${quoteData.subtotal.toFixed(2)}`, { align: 'right' });
-    doc.text(`Tax (13%): $${quoteData.tax.toFixed(2)}`, { align: 'right' });
-    doc.text(`Total (with 20% markup): $${quoteData.total.toFixed(2)}`, { align: 'right' });
+    // Summary (no markup mention)
+    doc.moveTo(50, y).lineTo(550, y).stroke();
+    y += 10;
+    doc.text(`Subtotal: $${subtotal.toFixed(2)}`, 400, y, { align: 'right' });
+    y += 20;
+    doc.text(`Tax: $${tax.toFixed(2)}`, 400, y, { align: 'right' });
+    y += 20;
+    doc.text(`Total: $${total.toFixed(2)}`, 400, y, { align: 'right' });
 
     doc.end();
-    stream.on('finish', () => resolve(outputPath));
-    stream.on('error', reject);
-  });
+    return new Promise((resolve) => stream.on('finish', resolve));
 }
 
 module.exports = { generateQuotePDF };
