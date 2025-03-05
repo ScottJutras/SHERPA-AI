@@ -1140,40 +1140,41 @@ else if (body.toLowerCase().startsWith("quote")) {
     console.log('[DEBUG] Detected quote request:', body);
     const pendingState = await getPendingTransactionState(from);
 
-    // If a pending quote exists, we expect customer details now
+    // Handle pending quote (customer details submission)
     if (pendingState && pendingState.pendingQuote) {
-        const { jobName, items, total } = pendingState.pendingQuote;
+        const { jobName, items, total, isFixedPrice, description } = pendingState.pendingQuote;
         const customerInput = body.trim();
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         const customerName = emailRegex.test(customerInput) ? 'Email Provided' : customerInput;
         const customerEmail = emailRegex.test(customerInput) ? customerInput : null;
 
-        const taxRate = userProfile.taxRate || 0.13;
-        const markup = 1.20;
+        const taxRate = userProfile.taxRate || 0.13; // Default 13% HST
+        const markup = userProfile.markup || 1.20;   // Default 20% markup (optional)
         const subtotal = total;
         const tax = subtotal * taxRate;
-        const totalWithTaxAndMarkup = (subtotal + tax) * markup;
+        const totalWithTaxAndMarkup = isFixedPrice ? subtotal + tax : (subtotal + tax) * markup;
 
         const outputPath = `/tmp/quote_${from}_${Date.now()}.pdf`;
-        const quoteInfo = {
+        const quoteData = {
             jobName,
-            items,
+            items: isFixedPrice ? [{ item: description, quantity: 1, price: subtotal }] : items,
             subtotal,
             tax,
             total: totalWithTaxAndMarkup,
             customerName,
-            contractorName,
+            contractorName: userProfile.name || 'Your Company Name',
+            companyName: userProfile.companyName,
+            companyAddress: userProfile.companyAddress,
+            companyPhone: userProfile.companyPhone,
+            logoUrl: userProfile.logoUrl
         };
-        await generateQuotePDF(quoteInfo, outputPath);
+        await generateQuotePDF(quoteData, outputPath);
 
         const auth = await getAuthorizedClient();
         const drive = google.drive({ version: 'v3', auth });
         const fileName = `Quote_${jobName}_${Date.now()}.pdf`;
         const fileMetadata = { name: fileName };
-        const media = {
-            mimeType: 'application/pdf',
-            body: fs.createReadStream(outputPath),
-        };
+        const media = { mimeType: 'application/pdf', body: fs.createReadStream(outputPath) };
         const driveResponse = await drive.files.create({
             resource: fileMetadata,
             media,
@@ -1187,7 +1188,7 @@ else if (body.toLowerCase().startsWith("quote")) {
 
         await deletePendingTransactionState(from);
 
-        let reply = `✅ Quote for ${jobName} generated.\nSubtotal: $${subtotal.toFixed(2)}\nTax (${(taxRate * 100)}%): $${tax.toFixed(2)}\nTotal (with 20% markup): $${totalWithTaxAndMarkup.toFixed(2)}\nCustomer: ${customerName}\nDownload here: ${pdfUrl}`;
+        let reply = `✅ Quote for ${jobName} generated.\nSubtotal: $${subtotal.toFixed(2)}\nTax (${(taxRate * 100)}%): $${tax.toFixed(2)}\nTotal${isFixedPrice ? '' : ' (with 20% markup)'}: $${totalWithTaxAndMarkup.toFixed(2)}\nCustomer: ${customerName}\nDownload here: ${pdfUrl}`;
         if (customerEmail) {
             await sendSpreadsheetEmail(customerEmail, driveResponse.data.id, 'Your Quote');
             reply += `\nAlso sent to ${customerEmail}`;
@@ -1195,12 +1196,27 @@ else if (body.toLowerCase().startsWith("quote")) {
         return res.send(`<Response><Message>${reply}</Message></Response>`);
     }
 
-    // Parse the quote message with corrected regex
+    // Parse fixed-price quote (e.g., "Quote for 34 Happy St: $675 + HST for Siding removal")
+    const fixedPriceMatch = body.match(/quote for\s+([^:]+):\s*\$(\d+(?:\.\d{1,2})?)\s*\+?\s*hst\s+for\s+(.+)/i);
+    if (fixedPriceMatch) {
+        const jobName = fixedPriceMatch[1].trim();
+        const subtotal = parseFloat(fixedPriceMatch[2]);
+        const description = fixedPriceMatch[3].trim();
+        console.log('[DEBUG] Detected fixed-price quote:', { jobName, subtotal, description });
+
+        // Store as pending quote
+        await setPendingTransactionState(from, {
+            pendingQuote: { jobName, items: [], total: subtotal, isFixedPrice: true, description }
+        });
+        return res.send(`<Response><Message>✅ Quote calculated: $${subtotal.toFixed(2)} (subtotal) + HST for ${description}. Please provide the customer’s name or email to finalize.</Message></Response>`);
+    }
+
+    // Existing itemized quote parsing
     const quoteMatch = body.match(/quote for\s+([^:]+)(?::\s*(.+))?/i);
     console.log('[DEBUG] Quote match result:', quoteMatch);
 
     if (!quoteMatch) {
-        return res.send(`<Response><Message>⚠️ Please provide a job name and items, e.g., 'Quote for Job 75: 10 nails, 5 lumber'</Message></Response>`);
+        return res.send(`<Response><Message>⚠️ Please provide a job name and items, e.g., 'Quote for Job 75: 10 nails, 5 lumber' or 'Quote for 34 Happy St: $675 + HST for Siding removal'</Message></Response>`);
     }
 
     const jobName = quoteMatch[1].trim();
@@ -1208,10 +1224,9 @@ else if (body.toLowerCase().startsWith("quote")) {
     console.log('[DEBUG] Parsed jobName:', jobName, 'itemsText:', itemsText);
 
     if (!itemsText) {
-        return res.send(`<Response><Message>⚠️ Please list items for the quote after a colon, e.g., 'Quote for Job 75: 10 nails, 5 lumber'</Message></Response>`);
+        return res.send(`<Response><Message>⚠️ Please list items or a total amount for the quote after a colon, e.g., '10 nails, 5 lumber' or '$675 + HST for Siding removal'</Message></Response>`);
     }
 
-    // Parse items and quantities from the items text
     const itemList = itemsText.split(',').map(item => item.trim());
     const items = [];
     for (const itemEntry of itemList) {
@@ -1223,28 +1238,24 @@ else if (body.toLowerCase().startsWith("quote")) {
     console.log('[DEBUG] Parsed items:', items);
 
     if (!items.length) {
-        return res.send(`<Response><Message>⚠️ Couldn’t parse items. Use format: '10 nails, 5 lumber'</Message></Response>`);
+        return res.send(`<Response><Message>⚠️ Couldn’t parse items. Use format: '10 nails, 5 lumber' or '$675 + HST for Siding removal'</Message></Response>`);
     }
 
-    // Fetch material prices from the pricing spreadsheet
     const pricingSpreadsheetId = process.env.PRICING_SPREADSHEET_ID;
     if (!pricingSpreadsheetId) {
         console.error('[ERROR] PRICING_SPREADSHEET_ID not set in environment variables.');
         return res.send(`<Response><Message>⚠️ Pricing spreadsheet not configured. Contact support.</Message></Response>`);
     }
-    console.log('[DEBUG] Using service account:', googleCredentials.client_email);
     const priceMap = await fetchMaterialPrices(pricingSpreadsheetId);
     console.log('[DEBUG] Price map fetched:', priceMap);
 
-    // Calculate quote total and compile quote items with flexible matching
     let total = 0;
     const quoteItems = [];
     const missingItems = [];
     items.forEach(({ item, quantity }) => {
         let normalizedItem = item.toLowerCase().replace(/\s+/g, ' ').trim();
-        // Map common variations to spreadsheet names
         if (normalizedItem === "windows labour hours" || normalizedItem === "window labour hours") {
-            normalizedItem = "window labour"; // Match "Window Labour" in spreadsheet
+            normalizedItem = "window labour";
         }
         const price = priceMap[normalizedItem];
         console.log('[DEBUG] Checking price for:', normalizedItem, 'Found:', price);
@@ -1263,8 +1274,7 @@ else if (body.toLowerCase().startsWith("quote")) {
         return res.send(`<Response><Message>⚠️ No valid prices found for items: ${itemsText}. Check your pricing sheet: https://docs.google.com/spreadsheets/d/${pricingSpreadsheetId}</Message></Response>`);
     }
 
-    // Store the pending quote details and prompt for customer details
-    await setPendingTransactionState(from, { pendingQuote: { jobName, items: quoteItems, total } });
+    await setPendingTransactionState(from, { pendingQuote: { jobName, items: quoteItems, total, isFixedPrice: false } });
     let reply = `✅ Quote calculated: $${total.toFixed(2)} (subtotal). Please provide the customer’s name or email to finalize.`;
     if (missingItems.length) {
         reply += `\n⚠️ Missing prices for: ${missingItems.join(', ')}.`;
