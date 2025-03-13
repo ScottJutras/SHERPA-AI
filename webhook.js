@@ -176,14 +176,14 @@ const onboardingSteps = [
 ];
 
 const onboardingTemplates = {
-    1: "HX4cf7529ecaf5a488fdfa96b931025023",
-    3: "HX066a88aad4089ba4336a21116e923557",
-    4: "HX1d4c5b90e5f5d7417283f3ee522436f4",
-    5: "HX5c80469d7ba195623a4a3654a27c19d7",
-    6: "HXd1fcd47418eaeac8a94c57b930f86674",
-    7: "HX3e231458c97ba2ca1c5588b54e87c081",
-    8: "HX20b1be5490ea39f3730fb9e70d5275df",
-    9: "HX99fd5cad1d49ab68e9afc6a70fe4d24a"
+    1: "HX4cf7529ecaf5a488fdfa96b931025023", // Location confirmation
+    4: "HX066a88aad4089ba4336a21116e923557", // Business type (previously misnumbered as 3)
+    5: "HX1d4c5b90e5f5d7417283f3ee522436f4", // Industry
+    6: "HX5c80469d7ba195623a4a3654a27c19d7", // Personal expenses
+    7: "HXd1fcd47418eaeac8a94c57b930f86674", // Mileage tracking
+    8: "HX3e231458c97ba2ca1c5588b54e87c081", // Home office deductions
+    9: "HX20b1be5490ea39f3730fb9e70d5275df", // Financial goal
+    10: "HX99fd5cad1d49ab68e9afc6a70fe4d24a" // Bills tracking
 };
 
 const confirmationTemplates = {
@@ -331,7 +331,7 @@ if (userProfile.onboarding_in_progress) {
 
     // Handle response to location confirmation (Step 1) when awaiting a reply
     if (state.step === 1 && state.awaitingLocationResponse) {
-        const buttonResponse = req.body.Interactive?.button_reply?.id || req.body.ButtonText || response;
+        const buttonResponse = req.body.ButtonText || response; // Use ButtonText for quick replies
         const buttonResponseLower = buttonResponse.toLowerCase();
         if (buttonResponseLower === "yes") {
             state.responses.step_1 = state.detectedLocation.country;
@@ -385,18 +385,29 @@ if (userProfile.onboarding_in_progress) {
 
     // Continue with regular onboarding steps (steps 4 and onward)
     if (state.step >= 4) {
-        // Store the response for the current step
-        state.responses[`step_${state.step}`] = response;
-        console.log(`[DEBUG] Recorded response for step ${state.step}:`, response);
+        const buttonResponse = req.body.ButtonText || response; // Handle quick reply buttons
+        const buttonResponseLower = buttonResponse.toLowerCase();
 
-        // Define step-specific logic
-        if (state.step === 12) { // "Do you need to send quotes?"
-            state.step = responseLower === 'yes' ? 13 : 18; // Skip to end if "No"
+        // Store the response for the current step and increment step
+        state.responses[`step_${state.step}`] = buttonResponse;
+        console.log(`[DEBUG] Recorded response for step ${state.step}:`, buttonResponse);
+
+        // Define step-specific logic before incrementing
+        if (state.step === 9 && buttonResponseLower === "yes") {
+            state.step = 10; // Move to bills question
+        } else if (state.step === 9) {
+            state.step = 11; // Skip bills if "No"
+        } else if (state.step === 10 && buttonResponseLower === "yes") {
+            state.step = 11; // Move to email after "Yes"
+        } else if (state.step === 10 && buttonResponseLower === "no") {
+            state.step = 11; // Move to email after "No"
+        } else if (state.step === 12) { // "Do you need to send quotes?"
+            state.step = buttonResponseLower === 'yes' ? 13 : 18; // Skip to end if "No"
         } else if (state.step === 14) { // Sales Tax Registration Number (optional)
-            state.responses.step_14 = responseLower === 'skip' ? '' : response;
+            state.responses.step_14 = buttonResponseLower === 'skip' ? '' : buttonResponse;
             state.step = 15;
         } else if (state.step === 17) { // Logo upload
-            if (responseLower === 'yes') {
+            if (buttonResponseLower === 'yes') {
                 if (mediaUrl && mediaType.includes('image')) {
                     const logoResponse = await axios.get(mediaUrl, {
                         responseType: 'arraybuffer',
@@ -417,7 +428,7 @@ if (userProfile.onboarding_in_progress) {
                 state.step = 18; // Move to completion
             }
         } else {
-            state.step++; // Increment step for all other cases
+            state.step++; // Default increment for other steps
         }
 
         await setOnboardingState(from, state);
@@ -485,20 +496,17 @@ if (userProfile.onboarding_in_progress) {
                     companyAddress: needsQuotes ? (state.responses.step_15 || '') : '',
                     companyPhone: needsQuotes ? (state.responses.step_16 || '') : '',
                     logoUrl: needsQuotes ? (state.responses.step_17 || '') : '',
-                    paymentTerms: needsQuotes ? 'Due upon receipt' : '', // Default
-                    specialMessage: needsQuotes ? 'Thank you for your business!' : '', // Default
+                    paymentTerms: needsQuotes ? 'Due upon receipt' : '',
+                    specialMessage: needsQuotes ? 'Thank you for your business!' : '',
                     created_at: userProfile.created_at,
-                    onboarding_in_progress: false // ✅ Explicitly marking onboarding as complete
+                    onboarding_in_progress: false
                 };
-            
                 console.log(`[DEBUG] Marking onboarding as complete for ${from}`);
-                await saveUserProfile(userProfileData); // Save profile first
-            
+                await saveUserProfile(userProfileData);
                 const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
                 await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
-            
                 console.log(`[DEBUG] Onboarding complete for ${from}:`, userProfileData);
-            
+
                 const sentLink = await sendTemplateMessage(
                     from,
                     confirmationTemplates.spreadsheetLink,
@@ -507,13 +515,11 @@ if (userProfile.onboarding_in_progress) {
                         { type: "text", text: spreadsheetId }
                     ]
                 );
-            
                 if (!sentLink) {
                     console.error("Failed to send spreadsheet link template, falling back to plain text.");
                     const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
                     return res.send(`<Response><Message>✅ Onboarding complete, ${userProfileData.name}! Your spreadsheet is available at ${spreadsheetUrl}</Message></Response>`);
                 }
-            
                 return res.send(`<Response></Response>`);
             } catch (error) {
                 console.error("[ERROR] Failed to complete onboarding:", error);
