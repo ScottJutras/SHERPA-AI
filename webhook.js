@@ -331,7 +331,7 @@ if (userProfile.onboarding_in_progress) {
 
     // Handle response to location confirmation (Step 1) when awaiting a reply
     if (state.step === 1 && state.awaitingLocationResponse) {
-        const buttonResponse = req.body.ButtonText || response; // Use ButtonText if available
+        const buttonResponse = req.body.Interactive?.button_reply?.id || req.body.ButtonText || response;
         const buttonResponseLower = buttonResponse.toLowerCase();
         if (buttonResponseLower === "yes") {
             state.responses.step_1 = state.detectedLocation.country;
@@ -468,35 +468,37 @@ if (userProfile.onboarding_in_progress) {
             try {
                 const userProfileData = {
                     user_id: from,
-                    name: state.responses.step_0,
-                    country: state.responses.step_1,
-                    province: state.responses.step_2,
+                    name: state.responses.step_0 || 'Unknown User',
+                    country: state.responses.step_1 || 'Unknown Country',
+                    province: state.responses.step_2 || 'Unknown Province',
                     business_type: business_type || 'Sole Proprietorship',
                     industry: industry || 'Other',
-                    personal_expenses_enabled,
-                    track_mileage,
-                    track_home_office,
+                    personal_expenses_enabled: personal_expenses_enabled || false,
+                    track_mileage: track_mileage || false,
+                    track_home_office: track_home_office || false,
                     financial_goals: financial_goals || 'Save to invest',
-                    add_bills,
-                    email,
-                    needsQuotes,
-                    companyName: needsQuotes ? state.responses.step_13 : '',
-                    hstNumber: needsQuotes ? state.responses.step_14 : '',
-                    companyAddress: needsQuotes ? state.responses.step_15 : '',
-                    companyPhone: needsQuotes ? state.responses.step_16 : '',
-                    logoUrl: needsQuotes ? state.responses.step_17 : '',
+                    add_bills: add_bills || false,
+                    email: email || 'unknown@email.com',
+                    needsQuotes: needsQuotes || false,
+                    companyName: needsQuotes ? (state.responses.step_13 || '') : '',
+                    hstNumber: needsQuotes ? (state.responses.step_14 || '') : '',
+                    companyAddress: needsQuotes ? (state.responses.step_15 || '') : '',
+                    companyPhone: needsQuotes ? (state.responses.step_16 || '') : '',
+                    logoUrl: needsQuotes ? (state.responses.step_17 || '') : '',
                     paymentTerms: needsQuotes ? 'Due upon receipt' : '', // Default
                     specialMessage: needsQuotes ? 'Thank you for your business!' : '', // Default
                     created_at: userProfile.created_at,
-                    onboarding_in_progress: false
+                    onboarding_in_progress: false // ✅ Explicitly marking onboarding as complete
                 };
-                await saveUserProfile(userProfileData);
+            
+                console.log(`[DEBUG] Marking onboarding as complete for ${from}`);
+                await saveUserProfile(userProfileData); // Save profile first
+            
                 const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
                 await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
-
-                await deleteOnboardingState(from);
+            
                 console.log(`[DEBUG] Onboarding complete for ${from}:`, userProfileData);
-
+            
                 const sentLink = await sendTemplateMessage(
                     from,
                     confirmationTemplates.spreadsheetLink,
@@ -505,11 +507,13 @@ if (userProfile.onboarding_in_progress) {
                         { type: "text", text: spreadsheetId }
                     ]
                 );
+            
                 if (!sentLink) {
                     console.error("Failed to send spreadsheet link template, falling back to plain text.");
                     const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
                     return res.send(`<Response><Message>✅ Onboarding complete, ${userProfileData.name}! Your spreadsheet is available at ${spreadsheetUrl}</Message></Response>`);
                 }
+            
                 return res.send(`<Response></Response>`);
             } catch (error) {
                 console.error("[ERROR] Failed to complete onboarding:", error);

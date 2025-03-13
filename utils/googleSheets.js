@@ -48,21 +48,25 @@ async function getUserProfile(phoneNumber) {
       if (doc.exists) {
         userProfile = doc.data();
         console.log(`[✅] Retrieved user profile for ${format}:`, userProfile);
-        break;
+
+        // If onboarding is still in progress, return the profile
+        if (userProfile.onboarding_in_progress !== false) {
+          return userProfile;
+        } else {
+          console.log(`[ℹ️] User ${phoneNumber} has already completed onboarding.`);
+          return userProfile; // Ensure it still returns the profile
+        }
       }
     }
 
-    if (!userProfile) {
-      console.log(`[ℹ️] No user profile found for ${phoneNumber}`);
-      return null;
-    }
-
-    return userProfile;
+    console.log(`[ℹ️] No user profile found for ${phoneNumber}`);
+    return null;
   } catch (error) {
     console.error("[❌] Error fetching user profile:", error);
     return null;
   }
 }
+
 
 /**
  * Converts an amount string (e.g. "$1456.00") to a numeric value.
@@ -94,6 +98,10 @@ async function saveUserProfile(userProfile) {
     console.log(`[DEBUG] Checking user profile for: ${formattedNumber}`);
 
     const userRef = db.collection("users").doc(formattedNumber);
+
+    // Ensure onboarding is marked as complete
+    userProfile.onboarding_in_progress = false;
+
     await userRef.set(userProfile, { merge: true });
 
     console.log(`[✅ SUCCESS] User profile saved for ${formattedNumber}`);
@@ -102,6 +110,7 @@ async function saveUserProfile(userProfile) {
     throw error;
   }
 }
+
 
 // ─── GOOGLE CREDENTIALS & AUTH SETUP ───────────────────────────────────────────
 if (!process.env.GOOGLE_CREDENTIALS_BASE64) {

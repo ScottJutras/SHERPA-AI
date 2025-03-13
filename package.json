@@ -7,6 +7,7 @@
     "@sendgrid/mail": "^8.1.4",
     "body-parser": "^1.20.3",
     "chrono-node": "^2.7.8",
+    "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "firebase-admin": "^13.0.2",
@@ -15,7 +16,7 @@
     "google-spreadsheet": "^4.1.4",
     "googleapis": "^144.0.0",
     "libphonenumber-js": "^1.11.19",
-    "openai": "^4.77.3",
+    "openai": "^4.86.2",
     "pdfkit": "^0.16.0",
     "twilio": "^5.4.0"
   },
@@ -23,5 +24,12 @@
     "start": "node server.js",
     "dev": "node webhook.js",
     "test": "echo \"No tests configured yet\" && exit 0"
-  }
+  },
+  "name": "sherpa-ai",
+  "version": "1.0.0",
+  "main": "bulkShareSpreadsheets.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": ""
 }
