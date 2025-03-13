@@ -45,10 +45,10 @@ const storeList = require('./utils/storeList');
 const constructionStores = storeList.map(store => store.toLowerCase());
 const { getTaxRate } = require('./utils/taxRate');
 
-
 // Near the top of webhook.js, after imports
 const googleCredentials = JSON.parse(Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8'));
 console.log('[DEBUG] Service account email from GOOGLE_CREDENTIALS_BASE64:', googleCredentials.client_email);
+
 // Firebase Admin Setup
 if (!admin.apps.length) {
     const firebaseCredentialsBase64 = process.env.FIREBASE_CREDENTIALS_BASE64;
@@ -71,7 +71,7 @@ if (!admin.apps.length) {
 }
 const db = admin.firestore();
 
-// Helper functions for state persistence in Firestore
+// Helper functions for state persistence in Firestore (only non-transaction state functions remain)
 const getOnboardingState = async (from) => {
     const stateDoc = await db.collection('onboardingStates').doc(from).get();
     return stateDoc.exists ? stateDoc.data() : null;
@@ -83,19 +83,6 @@ const setOnboardingState = async (from, state) => {
 
 const deleteOnboardingState = async (from) => {
     await db.collection('onboardingStates').doc(from).delete();
-};
-
-const getPendingTransactionState = async (from) => {
-    const pendingDoc = await db.collection('pendingTransactions').doc(from).get();
-    return pendingDoc.exists ? pendingDoc.data() : null;
-};
-
-const setPendingTransactionState = async (from, state) => {
-    await db.collection('pendingTransactions').doc(from).set(state);
-};
-
-const deletePendingTransactionState = async (from) => {
-    await db.collection('pendingTransactions').doc(from).delete();
 };
 
 const setLastQuery = async (from, queryData) => {
