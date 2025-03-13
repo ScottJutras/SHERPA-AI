@@ -18,7 +18,7 @@ const { parseExpenseMessage, parseRevenueMessage } = require('./utils/expensePar
 const { detectErrors } = require('./utils/errorDetector');
 const { suggestCorrections } = require('./utils/aiCorrection');
 const { getPendingTransactionState, setPendingTransactionState, deletePendingTransactionState } = require('./utils/stateManager');
-const { sendTemplateMessage } = require('./utils/twilioHelper');
+const { sendTemplateMessage } = require('./utils/twilioHelper'); // Already imported, keep this
 const { updateUserTokenUsage, checkTokenLimit, getSubscriptionTier } = require('./utils/tokenManager');
 const { transcribeAudio, inferMissingData } = require('./utils/transcriptionService');
 const {
@@ -71,7 +71,7 @@ if (!admin.apps.length) {
 }
 const db = admin.firestore();
 
-// Helper functions for state persistence in Firestore (only non-transaction state functions remain)
+// Helper functions for state persistence in Firestore
 const getOnboardingState = async (from) => {
     const stateDoc = await db.collection('onboardingStates').doc(from).get();
     return stateDoc.exists ? stateDoc.data() : null;
@@ -186,51 +186,6 @@ const confirmationTemplates = {
     spreadsheetLink: "HXf5964d5ffeecc5e7f4e94d7b3379e084"
 };
 
-// Send Template Message Function
-const sendTemplateMessage = async (to, contentSid, contentVariables = {}) => {
-    try {
-        if (!contentSid) {
-            console.error("[ERROR] Missing ContentSid for Twilio template message.");
-            return false;
-        }
-        const toNumber = to.startsWith("whatsapp:") ? to : `whatsapp:${to}`;
-        const formattedVariables = JSON.stringify(
-            Array.isArray(contentVariables)
-                ? contentVariables.reduce((acc, item, index) => {
-                      acc[index + 1] = item.text;
-                      return acc;
-                  }, {})
-                : contentVariables
-        );
-        console.log("[DEBUG] Sending Twilio template message with:", {
-            To: toNumber,
-            ContentSid: contentSid,
-            ContentVariables: formattedVariables
-        });
-        const response = await axios.post(
-            `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
-            new URLSearchParams({
-                From: process.env.TWILIO_WHATSAPP_NUMBER,
-                To: toNumber,
-                MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-                ContentSid: contentSid,
-                ContentVariables: formattedVariables
-            }).toString(),
-            {
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                auth: {
-                    username: process.env.TWILIO_ACCOUNT_SID,
-                    password: process.env.TWILIO_AUTH_TOKEN
-                }
-            }
-        );
-        console.log(`[✅] Twilio template message sent successfully to ${toNumber} with ContentSid "${contentSid}"`);
-        return true;
-    } catch (error) {
-        console.error("[ERROR] Twilio template message failed:", error.response?.data || error.message);
-        return false;
-    }
-};
 // Webhook Handler
 app.post('/webhook', async (req, res) => {
     const rawPhone = req.body.From;
