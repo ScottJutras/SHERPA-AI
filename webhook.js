@@ -1386,156 +1386,156 @@ else if (body.toLowerCase().startsWith("quote")) {
     return res.send(`<Response><Message>${reply}</Message></Response>`);
 }
       // 8. Text Expense Logging (Updated to Handle Edit Directly)
-else if (body) {
-    try {
-      console.log("[DEBUG] Attempting to parse message:", body);
-      const activeJob = (await getActiveJob(from)) || "Uncategorized";
-      const pendingState = await getPendingTransactionState(from);
-      const subscriptionTier = await getSubscriptionTier(from);
-      let data, type;
-  
-      // Determine if expense or revenue
-      if (body.toLowerCase().includes('revenue') || body.toLowerCase().includes('earned')) {
-        type = 'revenue';
-        data = parseRevenueMessage(body);
-      } else {
-        type = 'expense';
-        data = parseExpenseMessage(body);
-      }
-  
-      // Skip if too vague
-      if (body.length < 3 || (!body.includes("$") && !body.match(/\d+/))) {
-        return res.send(`<Response><Message>⚠️ I didn’t understand '${body}'. Try '$50 for nails from Home Depot' or 'Revenue $1000 from John Doe'.</Message></Response>`);
-      }
-  
-      // Handle pending corrections or edits
-      if (pendingState && (pendingState.isEditing || pendingState.pendingCorrection)) {
-        if (pendingState.pendingCorrection && body.toLowerCase() === 'yes') {
-          data = { ...pendingState.pendingData, ...pendingState.suggestedCorrections };
-          await deletePendingTransactionState(from);
-          await appendToUserSpreadsheet(from, type === 'expense' ? [
-            data.date, data.item, data.amount, data.store, activeJob, 'expense', data.suggestedCategory || "General"
-          ] : [
-            data.date, data.description, data.amount, data.client, activeJob, 'revenue', "Income"
-          ]);
-          return res.send(`<Response><Message>✅ Corrected ${type} logged: ${data.amount} ${type === 'expense' ? `for ${data.item} from ${data.store}` : `from ${data.client}`}</Message></Response>`);
-        } else if (body.toLowerCase() === 'no') {
-          await deletePendingTransactionState(from); // Clear old state first
-          await setPendingTransactionState(from, { isEditing: true, type });
-          return res.send(`<Response><Message>✏️ Okay, please provide the correct ${type} details.</Message></Response>`);
-        } else {
-          data = type === 'expense' ? parseExpenseMessage(body) : parseRevenueMessage(body);
-          if (data && Object.keys(data).length > 0) {
-            await deletePendingTransactionState(from);
-          } else {
-            return res.send(`<Response><Message>⚠️ Could not understand your edited ${type}. Try again.</Message></Response>`);
-          }
-        }
-      }
-  
-      // Initial parsing with AI fallback for paid tiers
-      if (!data || Object.keys(data).length === 0) {
-        data = type === 'expense' ? parseExpenseMessage(body) : parseRevenueMessage(body);
-        if ((!data || Object.keys(data).length === 0) && subscriptionTier !== 'free') {
-          const hasTokens = await checkTokenLimit(from, subscriptionTier);
-          if (!hasTokens && subscriptionTier !== 'pro') {
-            return res.send(`<Response><Message>⚠️ You've exceeded your AI token limit. Purchase more tokens for $0.01/1000 or upgrade your plan!</Message></Response>`);
-          }
-          try {
-            const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-            const gptResponse = await openaiClient.chat.completions.create({
-              model: "gpt-3.5-turbo",
-              messages: [
-                { role: "system", content: `Extract structured ${type} data from the following text. Return JSON with keys: ${type === 'expense' ? 'date, item, amount, store' : 'date, description, amount, client'}. If no data, return '{}'.` },
-                { role: "user", content: `Text: "${body.trim()}"` }
-              ],
-              max_tokens: 60,
-              temperature: 0.3
-            });
-            data = JSON.parse(gptResponse.choices[0].message.content);
-            await updateUserTokenUsage(from, gptResponse.usage.total_tokens);
-            if (Object.keys(data).length === 0) {
-              return res.send(`<Response><Message>⚠️ Could not parse '${body}' as ${type}. Try again.</Message></Response>`);
+      else if (body) {
+        try {
+            console.log("[DEBUG] Attempting to parse message:", body);
+            const activeJob = (await getActiveJob(from)) || "Uncategorized";
+            const pendingState = await getPendingTransactionState(from);
+            const subscriptionTier = await getSubscriptionTier(from);
+            let data, type;
+    
+            // Determine if expense or revenue
+            if (body.toLowerCase().includes('revenue') || body.toLowerCase().includes('earned')) {
+                type = 'revenue';
+                data = parseRevenueMessage(body);
+            } else {
+                type = 'expense';
+                data = parseExpenseMessage(body);
             }
-          } catch (error) {
-            console.error(`[ERROR] GPT-3.5 ${type} parsing failed:`, error.message);
-          }
+    
+            // Skip if too vague
+            if (body.length < 3 || (!body.includes("$") && !body.match(/\d+/))) {
+                return res.send(`<Response><Message>⚠️ I didn’t understand '${body}'. Try '$50 for nails from Home Depot' or 'Revenue $1000 from John Doe'.</Message></Response>`);
+            }
+    
+            // Handle pending corrections or edits
+            if (pendingState && (pendingState.isEditing || pendingState.pendingCorrection)) {
+                if (pendingState.pendingCorrection && body.toLowerCase() === 'yes') {
+                    data = { ...pendingState.pendingData, ...pendingState.suggestedCorrections };
+                    await deletePendingTransactionState(from);
+                    await appendToUserSpreadsheet(from, type === 'expense' ? [
+                        data.date, data.item, data.amount, data.store, activeJob, 'expense', data.suggestedCategory || "General"
+                    ] : [
+                        data.date, data.description, data.amount, data.client, activeJob, 'revenue', "Income"
+                    ]);
+                    return res.send(`<Response><Message>✅ Corrected ${type} logged: ${data.amount} ${type === 'expense' ? `for ${data.item} from ${data.store}` : `from ${data.client}`}</Message></Response>`);
+                } else if (body.toLowerCase() === 'no') {
+                    await deletePendingTransactionState(from); // Clear old state first
+                    await setPendingTransactionState(from, { isEditing: true, type });
+                    return res.send(`<Response><Message>✏️ Okay, please provide the correct ${type} details.</Message></Response>`);
+                } else {
+                    data = type === 'expense' ? parseExpenseMessage(body) : parseRevenueMessage(body);
+                    if (data && Object.keys(data).length > 0) {
+                        await deletePendingTransactionState(from);
+                    } else {
+                        return res.send(`<Response><Message>⚠️ Could not understand your edited ${type}. Try again.</Message></Response>`);
+                    }
+                }
+            }
+    
+            // Initial parsing with AI fallback for paid tiers
+            if (!data || Object.keys(data).length === 0) {
+                data = type === 'expense' ? parseExpenseMessage(body) : parseRevenueMessage(body);
+                if ((!data || Object.keys(data).length === 0) && subscriptionTier !== 'free') {
+                    const hasTokens = await checkTokenLimit(from, subscriptionTier);
+                    if (!hasTokens && subscriptionTier !== 'pro') {
+                        return res.send(`<Response><Message>⚠️ You've exceeded your AI token limit. Purchase more tokens for $0.01/1000 or upgrade your plan!</Message></Response>`);
+                    }
+                    try {
+                        const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+                        const gptResponse = await openaiClient.chat.completions.create({
+                            model: "gpt-3.5-turbo",
+                            messages: [
+                                { role: "system", content: `Extract structured ${type} data from the following text. Return JSON with keys: ${type === 'expense' ? 'date, item, amount, store' : 'date, description, amount, client'}. If no data, return '{}'.` },
+                                { role: "user", content: `Text: "${body.trim()}"` }
+                            ],
+                            max_tokens: 60,
+                            temperature: 0.3
+                        });
+                        data = JSON.parse(gptResponse.choices[0].message.content);
+                        await updateUserTokenUsage(from, gptResponse.usage.total_tokens);
+                        if (Object.keys(data).length === 0) {
+                            return res.send(`<Response><Message>⚠️ Could not parse '${body}' as ${type}. Try again.</Message></Response>`);
+                        }
+                    } catch (error) {
+                        console.error(`[ERROR] GPT-3.5 ${type} parsing failed:`, error.message);
+                    }
+                }
+                if (!data || Object.keys(data).length === 0) {
+                    return res.send(`<Response><Message>⚠️ Could not parse '${body}' as ${type}. Try again.</Message></Response>`);
+                }
+            }
+    
+            if (data && data.amount && data.amount !== "$0.00") {
+                if (!data.date) data.date = new Date().toISOString().split('T')[0];
+                data.amount = `$${parseFloat(data.amount.replace(/[^0-9.]/g, '')).toFixed(2)}`;
+    
+                // Normalize data
+                if (type === 'expense') {
+                    const storeLower = data.store?.toLowerCase().replace(/\s+/g, '');
+                    data.store = storeList.find(s => s.toLowerCase().replace(/\s+/g, '') === storeLower) || data.store;
+                    data.suggestedCategory = storeList.includes(data.store) ? "Construction Materials" : "General";
+                } else if (type === 'revenue') {
+                    data.description = data.description || "Payment";
+                    data.client = data.client || "Unknown Client";
+                }
+    
+                // Error Detection & Correction
+                const errors = detectErrors(data, type);
+                if (errors && subscriptionTier !== 'free') {
+                    const hasTokens = await checkTokenLimit(from, subscriptionTier);
+                    if (!hasTokens && subscriptionTier !== 'pro') {
+                        return res.send(`<Response><Message>⚠️ You've exceeded your AI token limit. Purchase more tokens for $0.01/1000 or upgrade your plan!</Message></Response>`);
+                    }
+                    const { corrections, tokensUsed } = await suggestCorrections(data, errors, body, type);
+                    if (corrections) {
+                        await updateUserTokenUsage(from, tokensUsed);
+                        await setPendingTransactionState(from, {
+                            pendingData: data,
+                            pendingCorrection: true,
+                            suggestedCorrections: corrections,
+                            type
+                        });
+                        const correctionText = Object.entries(corrections)
+                            .map(([key, value]) => `${key}: ${data[key]} → ${value}`)
+                            .join('\n');
+                        return res.send(`<Response><Message>🤔 Detected issues in ${type}:\n${correctionText}\nReply 'yes' to accept or 'no' to edit manually.</Message></Response>`);
+                    }
+                } else if (errors) {
+                    const errorText = errors.map(e => `${e.field}: ${e.message}`).join('\n');
+                    await setPendingTransactionState(from, { pendingData: data, isEditing: true, type });
+                    return res.send(`<Response><Message>⚠️ Issues detected in ${type}:\n${errorText}\nPlease resend with corrections.</Message></Response>`);
+                }
+    
+                // No errors: Confirm and log
+                await setPendingTransactionState(from, { pendingData: data, type });
+                const template = type === 'expense' ? confirmationTemplates.expense : confirmationTemplates.revenue;
+                const sent = await sendTemplateMessage(
+                    from,
+                    template,
+                    { "1": `${type === 'expense' ? `Expense of ${data.amount} for ${data.item} from ${data.store}` : `Revenue of ${data.amount} from ${data.client}`} on ${data.date}` }
+                );
+                if (sent) {
+                    return res.send(`<Response></Response>`);
+                } else {
+                    return res.send(`<Response><Message>⚠️ Failed to send ${type} confirmation. Try again.</Message></Response>`);
+                }
+            } else {
+                return res.send(`<Response><Message>⚠️ Could not understand your ${type} message. Try again.</Message></Response>`);
+            }
+        } catch (error) {
+            console.error("[ERROR] Processing webhook request failed:", error);
+            return res.send(`<Response><Message>⚠️ Internal Server Error. Please try again.</Message></Response>`);
         }
-        if (!data || Object.keys(data).length === 0) {
-          return res.send(`<Response><Message>⚠️ Could not parse '${body}' as ${type}. Try again.</Message></Response>`);
-        }
-      }
-  
-      if (data && data.amount && data.amount !== "$0.00") {
-        if (!data.date) data.date = new Date().toISOString().split('T')[0];
-        data.amount = `$${parseFloat(data.amount.replace(/[^0-9.]/g, '')).toFixed(2)}`;
-  
-        // Normalize data
-        if (type === 'expense') {
-          const storeLower = data.store?.toLowerCase().replace(/\s+/g, '');
-          data.store = storeList.find(s => s.toLowerCase().replace(/\s+/g, '') === storeLower) || data.store;
-          data.suggestedCategory = storeList.includes(data.store) ? "Construction Materials" : "General";
-        } else if (type === 'revenue') {
-          data.description = data.description || "Payment";
-          data.client = data.client || "Unknown Client";
-        }
-  
-        // Error Detection & Correction
-        const errors = detectErrors(data, type);
-        if (errors && subscriptionTier !== 'free') {
-          const hasTokens = await checkTokenLimit(from, subscriptionTier);
-          if (!hasTokens && subscriptionTier !== 'pro') {
-            return res.send(`<Response><Message>⚠️ You've exceeded your AI token limit. Purchase more tokens for $0.01/1000 or upgrade your plan!</Message></Response>`);
-          }
-          const { corrections, tokensUsed } = await suggestCorrections(data, errors, body, type);
-          if (corrections) {
-            await updateUserTokenUsage(from, tokensUsed);
-            await setPendingTransactionState(from, {
-              pendingData: data,
-              pendingCorrection: true,
-              suggestedCorrections: corrections,
-              type
-            });
-            const correctionText = Object.entries(corrections)
-              .map(([key, value]) => `${key}: ${data[key]} → ${value}`)
-              .join('\n');
-            return res.send(`<Response><Message>🤔 Detected issues in ${type}:\n${correctionText}\nReply 'yes' to accept or 'no' to edit manually.</Message></Response>`);
-          }
-        } else if (errors) {
-          const errorText = errors.map(e => `${e.field}: ${e.message}`).join('\n');
-          await setPendingTransactionState(from, { pendingData: data, isEditing: true, type });
-          return res.send(`<Response><Message>⚠️ Issues detected in ${type}:\n${errorText}\nPlease resend with corrections.</Message></Response>`);
-        }
-  
-        // No errors: Confirm and log
-        await setPendingTransactionState(from, { pendingData: data, type });
-        const template = type === 'expense' ? confirmationTemplates.expense : confirmationTemplates.revenue;
-        const sent = await sendTemplateMessage(
-          from,
-          template,
-          { "1": `${type === 'expense' ? `Expense of ${data.amount} for ${data.item} from ${data.store}` : `Revenue of ${data.amount} from ${data.client}`} on ${data.date}` }
-        );
-        if (sent) {
-          return res.send(`<Response></Response>`);
-        } else {
-          return res.send(`<Response><Message>⚠️ Failed to send ${type} confirmation. Try again.</Message></Response>`);
-        }
-      } else {
-        return res.send(`<Response><Message>⚠️ Could not understand your ${type} message. Try again.</Message></Response>`);
-      }
-    } catch (error) {
-      console.error("[ERROR] Processing webhook request failed:", error);
-      return res.send(`<Response><Message>⚠️ Internal Server Error. Please try again.</Message></Response>`);
     }
-    }
-        }
-    } catch (error) {
-        console.error("[ERROR] Processing webhook request failed:", error);
-        return res.send(`<Response><Message>⚠️ Internal Server Error. Please try again.</Message></Response>`);
-    }
+}
     // Default response for unhandled messages
 reply = "⚠️ Sorry, I didn't understand that. Please provide an expense, revenue, or job command.";
 return res.send(`<Response><Message>${reply}</Message></Response>`);
+} catch (error) {
+    console.error("[ERROR] Webhook processing failed:", error);
+    return res.send(`<Response><Message>⚠️ Internal Server Error. Please try again.</Message></Response>`);
+}
 });
 
 
