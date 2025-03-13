@@ -1,5 +1,7 @@
 const admin = require('firebase-admin');
 const db = admin.firestore();
+const { getUserProfile } = require("./googleSheets");
+
 
 async function getUserTokenUsage(from, resetIfNewMonth = true) {
     const userRef = db.collection('users').doc(from);
@@ -34,7 +36,7 @@ async function checkTokenLimit(from, subscriptionTier) {
 }
 
 async function getSubscriptionTier(from) {
-    const userProfile = await require('../googleSheets').getUserProfile(from);
+    const userProfile = await require('./googleSheets').getUserProfile(from);
     return userProfile?.subscription_tier || 'free';
 }
 
