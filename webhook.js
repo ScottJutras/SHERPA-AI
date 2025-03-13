@@ -36,7 +36,7 @@ const {
     createSpreadsheetForUser,
     calculateIncomeGoal,
     fetchMaterialPrices,
-} = require("./utils/googleSheets");
+} = require("./googleSheets");
 const { extractTextFromImage } = require('./utils/visionService');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
 const { sendSpreadsheetEmail } = require('./utils/sendGridService');
