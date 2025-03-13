@@ -3,6 +3,7 @@ require('dotenv').config();
 const { URLSearchParams } = require('url');
 const fs = require('fs');
 const path = require('path');
+const { db } = require('./firebase');
 
 // Third-party libraries
 const admin = require("firebase-admin");
