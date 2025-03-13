@@ -153,7 +153,8 @@ const onboardingTemplates = {
     7: "HXd1fcd47418eaeac8a94c57b930f86674", // Mileage tracking
     8: "HX3e231458c97ba2ca1c5588b54e87c081", // Home office deductions
     9: "HX20b1be5490ea39f3730fb9e70d5275df", // Financial goal
-    10: "HX99fd5cad1d49ab68e9afc6a70fe4d24a" // Bills tracking
+    10:"HX99fd5cad1d49ab68e9afc6a70fe4d24a", // Bills tracking
+    12: "HXf6e1f67ace192ccd21d6e187ea7d6c34" // Quote Confirmation
 };
 
 const confirmationTemplates = {
