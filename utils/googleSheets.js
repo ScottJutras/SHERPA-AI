@@ -102,14 +102,20 @@ async function saveUserProfile(userProfile) {
     // Ensure onboarding is marked as complete
     userProfile.onboarding_in_progress = false;
 
+    // ✅ Add subscription_tier if it doesn't exist (default to "basic")
+    if (!userProfile.subscription_tier) {
+      userProfile.subscription_tier = "basic";  // Default tier
+    }
+
     await userRef.set(userProfile, { merge: true });
 
-    console.log(`[✅ SUCCESS] User profile saved for ${formattedNumber}`);
+    console.log(`[✅ SUCCESS] User profile saved for ${formattedNumber} with subscription tier: ${userProfile.subscription_tier}`);
   } catch (error) {
     console.error("[❌ ERROR] Failed to save user profile:", error);
     throw error;
   }
 }
+
 
 
 // ─── GOOGLE CREDENTIALS & AUTH SETUP ───────────────────────────────────────────
