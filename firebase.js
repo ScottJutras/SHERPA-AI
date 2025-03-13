@@ -1,34 +1,29 @@
+// firebase.js
 const admin = require('firebase-admin');
-const fs = require('fs');
 
-// Load Firebase credentials from JSON file
-const firebaseCredentialsPath = process.env.FIREBASE_CREDENTIALS;
+// Load Firebase credentials from base64 environment variable
+const firebaseCredentialsBase64 = process.env.FIREBASE_CREDENTIALS_BASE64;
 
-if (!firebaseCredentialsPath || !fs.existsSync(firebaseCredentialsPath)) {
-    console.error("❌ FIREBASE_CREDENTIALS file is missing or incorrect. Check the path in your .env file.");
+if (!firebaseCredentialsBase64) {
+    console.error("[ERROR] FIREBASE_CREDENTIALS_BASE64 is not set in environment variables.");
     process.exit(1);
 }
 
-const firebaseCredentials = JSON.parse(fs.readFileSync(firebaseCredentialsPath, 'utf8'));
-
 if (!admin.apps.length) {
-    admin.initializeApp({
-        credential: admin.credential.cert(firebaseCredentials),
-    });
+    try {
+        const firebaseCredentials = JSON.parse(
+            Buffer.from(firebaseCredentialsBase64, 'base64').toString('utf-8')
+        );
+        admin.initializeApp({
+            credential: admin.credential.cert(firebaseCredentials),
+        });
+        console.log("[✅] Firebase Admin initialized successfully.");
+    } catch (error) {
+        console.error("[ERROR] Failed to initialize Firebase Admin:", error.message);
+        process.exit(1);
+    }
 }
 
 const db = admin.firestore();
 
-async function updateUserSpreadsheet() {
-    const phoneNumber = "YOUR_PHONE_NUMBER"; // Replace with your actual phone number
-    const spreadsheetId = "1mb83t9mvuJJ68XsHd6nw1nrm4SmgrNkDrgAnizi4iWU"; // ✅ New Spreadsheet ID
-
-    try {
-        await db.collection('users').doc(phoneNumber).set({ spreadsheetId }, { merge: true });
-        console.log(`✅ Successfully updated Firebase with new Spreadsheet ID: ${spreadsheetId}`);
-    } catch (error) {
-        console.error(`❌ Failed to update Firebase: ${error.message}`);
-    }
-}
-
-updateUserSpreadsheet();
+module.exports = { db, admin }; // Export db and admin for flexibility

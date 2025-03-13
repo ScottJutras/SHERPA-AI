@@ -49,28 +49,6 @@ const { getTaxRate } = require('./utils/taxRate');
 const googleCredentials = JSON.parse(Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8'));
 console.log('[DEBUG] Service account email from GOOGLE_CREDENTIALS_BASE64:', googleCredentials.client_email);
 
-// Firebase Admin Setup
-if (!admin.apps.length) {
-    const firebaseCredentialsBase64 = process.env.FIREBASE_CREDENTIALS_BASE64;
-    if (!firebaseCredentialsBase64) {
-        console.error("[ERROR] FIREBASE_CREDENTIALS_BASE64 is not set in environment variables.");
-        process.exit(1);
-    }
-    try {
-        const firebaseCredentials = JSON.parse(
-            Buffer.from(firebaseCredentialsBase64, 'base64').toString('utf-8')
-        );
-        admin.initializeApp({
-            credential: admin.credential.cert(firebaseCredentials),
-        });
-        console.log("[✅] Firebase Admin initialized successfully.");
-    } catch (error) {
-        console.error("[ERROR] Failed to initialize Firebase Admin:", error.message);
-        process.exit(1);
-    }
-}
-const db = admin.firestore();
-
 // Helper functions for state persistence in Firestore
 const getOnboardingState = async (from) => {
     const stateDoc = await db.collection('onboardingStates').doc(from).get();

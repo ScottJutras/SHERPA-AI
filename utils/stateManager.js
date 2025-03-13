@@ -1,5 +1,4 @@
-const admin = require('firebase-admin');
-const db = admin.firestore();
+const { db } = require('../firebase'); // Adjust path based on directory structure
 
 const getPendingTransactionState = async (from) => {
     const pendingDoc = await db.collection('pendingTransactions').doc(from).get();
