@@ -1,4 +1,3 @@
-// utils/errorDetector.js
 const storeList = require('./storeList'); // Assuming this exists from your setup
 
 function detectErrors(data, type = 'expense') {
