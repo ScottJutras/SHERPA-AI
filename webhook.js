@@ -1006,25 +1006,6 @@ return res.send(`<Response><Message>⚠️ An error occurred. Please try again l
 }
 }); // Close the app.post callback
 // ─── Helper Functions for Bill Management ─────────────────────────────
-async function handleInputWithAI(from, input, type, parseFn, defaultData = {}) {
-    const subscriptionTier = await getSubscriptionTier(from);
-    const pendingState = await getPendingTransactionState(from);
-    let data = parseFn(input) || defaultData;
-
-    // Handle pending corrections
-    if (pendingState && pendingState.pendingCorrection) {
-        if (input.toLowerCase() === 'yes') {
-            data = { ...pendingState.pendingData, ...pendingState.suggestedCorrections };
-            await deletePendingTransactionState(from);
-            return { data, confirmed: true };
-        } else if (input.toLowerCase() === 'no') {
-            await deletePendingTransactionState(from);
-            await setPendingTransactionState(from, { isEditing: true, type });
-            return { data: null, reply: `✏️ Please provide the correct ${type} details.` };
-        }
-    }
-}
-    
 
 async function updateBillInFirebase(userId, billData) {
     try {
