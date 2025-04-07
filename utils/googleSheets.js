@@ -2,6 +2,7 @@
 const { google } = require('googleapis');
 const admin = require('firebase-admin');
 const { sendSpreadsheetEmail } = require("./sendGridService"); // Import SendGrid function
+const { getAuthorizedClient } = require('./auth');
 
 // ─── FIREBASE ADMIN / FIRESTORE SETUP ─────────────────────────────────────────
 // Initialize Firebase Admin if not already initialized.
@@ -131,39 +132,19 @@ const SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
   'https://www.googleapis.com/auth/drive'        // Ensure full sharing permissions
 ];
-/**
- * Initialize and return an authorized Google API client.
- */
-async function getAuthorizedClient() {
-  try {
-      const encodedCredentials = process.env.FIREBASE_CREDENTIALS_BASE64;
-      if (!encodedCredentials) {
-          throw new Error("FIREBASE_CREDENTIALS_BASE64 environment variable not specified.");
-      }
-      const decodedCredentials = Buffer.from(encodedCredentials, "base64").toString("utf-8");
-      const credentials = JSON.parse(decodedCredentials);
 
-      const auth = new google.auth.GoogleAuth({
-          credentials,
-          scopes: [
-              'https://www.googleapis.com/auth/spreadsheets', // For creating spreadsheets
-              'https://www.googleapis.com/auth/drive.file'      // For sharing specific files
-          ]
-      });
-      const authClient = await auth.getClient();
-      console.log(`[DEBUG] Google API client authorized successfully.`);
-      return authClient;
-  } catch (error) {
-      console.error(`[❌ ERROR] Failed to authorize Google API client: ${error}`);
-      throw error;
-  }
-}
 // ─── REVENUE LOGGING ─────────────────────────────────────────────────────────
-async function logRevenueEntry(userEmail, date, amount, source, category, paymentMethod, notes, spreadsheetId) {
+async function logRevenueEntry(ownerId, revenueData) {
+  const { date, description, amount, source, job, category } = revenueData;
   const auth = await getAuthorizedClient();
   const sheets = google.sheets({ version: 'v4', auth });
-  const sheetName = 'Revenue';
-
+  const userProfile = await getUserProfile(ownerId);
+  await sheets.spreadsheets.values.append({
+      spreadsheetId: userProfile.spreadsheetId,
+      range: 'Revenue!A:I',
+      valueInputOption: 'USER_ENTERED',
+      resource: { values: [[date, description, amount, source, job, 'revenue', category, '', userProfile.name]] }
+    });
   try {
       // Ensure the sheet exists, create if necessary
       await ensureSheetExists(sheets, spreadsheetId, sheetName);
@@ -334,44 +315,77 @@ async function getOrCreateUserSpreadsheet(phoneNumber) {
   }
 }
 /**
- * Append an expense entry to the user's spreadsheet.
+ * Append an entry to the user's spreadsheet and handle budgeting/goals/alerts.
  *
  * @param {string} phoneNumber - The user's phone number.
- * @param {Array} rowData - An array: [Date, Item, Amount, Store, Job, Type, Category]
+ * @param {Array} rowData - [Date, Item, Amount, Store/Recurrence/Source, Job, Type, Category, MediaUrl?, UserName?]
+ * @returns {string} - Reply message for WhatsApp
  */
 async function appendToUserSpreadsheet(phoneNumber, rowData) {
   try {
       const { spreadsheetId, userEmail } = await getOrCreateUserSpreadsheet(phoneNumber);
-
-      if (!spreadsheetId) {
-          throw new Error(`[ERROR] No spreadsheet ID found for ${phoneNumber}`);
-      }
-      if (!userEmail) {
-          console.warn(`[⚠️ WARNING] No email found for ${phoneNumber}, spreadsheet will not be shared.`);
-      }
-
-      console.log(`[DEBUG] Using Spreadsheet ID: ${spreadsheetId}`);
+      if (!spreadsheetId) throw new Error(`[ERROR] No spreadsheet ID for ${phoneNumber}`);
 
       const auth = await getAuthorizedClient();
       const sheets = google.sheets({ version: 'v4', auth });
-      
-      const RANGE = 'Sheet1!A:G'; // Columns: Date, Item, Amount, Store, Job, Type, Category
+      const userProfile = await getUserProfile(phoneNumber);
+      const currency = userProfile.country === 'United States' ? 'USD' : 'CAD';
 
-      // Destructure rowData and format amount
-      const [date, item, amount, store, job, type, category] = rowData;
-      const formattedAmount = formatAmount(amount, type); // Ensure string output
-      const values = [[date, item, formattedAmount, store, job, type, category || ""]];
+      // Handle variable rowData length (some calls pass 9, some 7)
+      const [date, item, amount, source, job, type, category, mediaUrl = '', userName = ''] = rowData;
+      const amountNum = parseFloat(amount.replace(/[^0-9.]/g, ''));
+      const formattedAmount = `${currency} ${amountNum.toFixed(2)}`;
+      const values = [[date, item, formattedAmount, source, job, type, category || ""]];
 
+      // Append to Sheet1
       await sheets.spreadsheets.values.append({
           spreadsheetId,
-          range: RANGE,
+          range: 'Sheet1!A:G',
           valueInputOption: 'USER_ENTERED',
           resource: { values }
       });
+      console.log(`[✅ SUCCESS] Sheet1 appended: ${JSON.stringify(values[0])}`);
 
-      console.log(`[✅ SUCCESS] Data successfully appended: ${JSON.stringify(values[0])}`);
+      let reply = `✅ ${type} logged: ${formattedAmount} ${type === 'expense' ? `for ${item}` : type === 'revenue' ? `from ${source}` : `for ${item}`}`;
+
+      // Bill Forecasting
+      if (type === 'bill') {
+          const recurrenceMap = { 'yearly': 1, 'monthly': 12, 'weekly': 52, 'bi-weekly': 26, 'one-time': 0 };
+          const annualCost = amountNum * (recurrenceMap[source] || 1); // source is recurrence for bills
+          await sheets.spreadsheets.values.append({
+              spreadsheetId,
+              range: 'Budget!A:D',
+              valueInputOption: 'RAW',
+              resource: { values: [[date, item, formattedAmount, `${source} - ${currency} ${annualCost.toFixed(2)}/yr`]] }
+          });
+          reply += `. Added to budget: ${currency} ${annualCost.toFixed(2)}/yr`;
+          console.log(`[✅ SUCCESS] Budget appended: ${item}, ${annualCost}/yr`);
+      }
+
+      // Goal Tracking
+      const profitImpact = type === 'revenue' ? amountNum : (type === 'expense' || type === 'bill') ? -amountNum : 0;
+      userProfile.goalProgress = userProfile.goalProgress || { target: 10000, current: 0 };
+      userProfile.goalProgress.current += profitImpact;
+      await setUserProfile(phoneNumber, userProfile);
+      console.log(`[✅ SUCCESS] Goal updated: ${userProfile.goalProgress.current}/${userProfile.goalProgress.target}`);
+
+      // Alerts (simplified for now—full expenses fetch could be optimized)
+      if (type === 'expense' || type === 'bill') {
+          const budgetRows = (await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Budget!A:D' })).data.values?.slice(1) || [];
+          const monthlyBudget = budgetRows.reduce((sum, [, , amt]) => sum + parseFloat(amt.replace(/[^0-9.]/g, '')) / 12, 0);
+          const expenses = (await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Sheet1!A:G' })).data.values?.slice(1) || [];
+          const spentThisMonth = expenses
+              .filter(e => e[5] === 'expense' || e[5] === 'bill')
+              .filter(e => e[0].startsWith(new Date().toISOString().slice(0, 7)))
+              .reduce((sum, e) => sum + parseFloat(e[2].replace(/[^0-9.]/g, '')), 0);
+          if (spentThisMonth > monthlyBudget * 0.8) {
+              reply += `\n⚠️ Alert: 80% of ${currency} ${monthlyBudget.toFixed(2)} spent this month (${currency} ${spentThisMonth.toFixed(2)})!`;
+          }
+      }
+
+      return reply;
   } catch (error) {
-      console.error('[❌ ERROR] Failed to append data to spreadsheet:', error.message);
+      console.error('[❌ ERROR] Failed to append to spreadsheet:', error.message);
       throw error;
   }
 }

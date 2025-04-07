@@ -1,7 +1,4 @@
-const admin = require('firebase-admin');
-const db = admin.firestore();
-const { getUserProfile } = require("./googleSheets");
-
+const { db } = require('../firebase');
 
 async function getUserTokenUsage(from, resetIfNewMonth = true) {
     const userRef = db.collection('users').doc(from);
@@ -11,38 +8,45 @@ async function getUserTokenUsage(from, resetIfNewMonth = true) {
 
     let usageData = userDoc.exists ? userDoc.data().tokenUsage || {} : {};
     if (resetIfNewMonth && (!usageData.lastReset || usageData.lastReset !== currentMonth)) {
-        usageData = { tokensUsed: 0, lastReset: currentMonth };
+        usageData = { messages: 0, aiCalls: 0, lastReset: currentMonth };
     }
     return usageData;
 }
 
-async function updateUserTokenUsage(from, tokensUsed) {
+async function updateUserTokenUsage(from, usage) {
     const userRef = db.collection('users').doc(from);
     const usageData = await getUserTokenUsage(from);
-    usageData.tokensUsed = (usageData.tokensUsed || 0) + tokensUsed;
+    usageData.messages = (usageData.messages || 0) + (usage.messages || 0);
+    usageData.aiCalls = (usageData.aiCalls || 0) + (usage.aiCalls || 0);
     await userRef.set({ tokenUsage: usageData }, { merge: true });
 }
 
 async function checkTokenLimit(from, subscriptionTier) {
     const usageData = await getUserTokenUsage(from);
     const limits = {
-        'free': 0,
-        'ai-assisted': 10000,
-        'advanced': 20000,
-        'pro': Infinity
+        'free': { messages: 0, aiCalls: 0 },
+        'ai-assisted': { messages: 10000, aiCalls: 5000 },
+        'advanced': { messages: 20000, aiCalls: 10000 },
+        'pro': { messages: Infinity, aiCalls: Infinity }
     };
-    const limit = limits[subscriptionTier] || 0;
-    return usageData.tokensUsed < limit;
+    const limit = limits[subscriptionTier.toLowerCase()] || limits['free'];
+    return usageData.messages < limit.messages && usageData.aiCalls < limit.aiCalls;
 }
 
-async function getSubscriptionTier(from) {
-    const userProfile = await require('./googleSheets').getUserProfile(from);
-    return userProfile?.subscription_tier || 'free';
+async function getSubscriptionTier(userId) {
+    const userRef = db.collection('users').doc(userId);
+    const doc = await userRef.get();
+    return doc.data()?.subscriptionTier || 'free';
 }
 
 async function addPurchasedTokens(from, tokenCount) {
     const usageData = await getUserTokenUsage(from, false);
-    usageData.tokensUsed = Math.max(0, usageData.tokensUsed - tokenCount);
+    const totalUsed = (usageData.messages || 0) + (usageData.aiCalls || 0);
+    if (totalUsed === 0) return;
+    const messageRatio = (usageData.messages || 0) / totalUsed;
+    const aiCallRatio = (usageData.aiCalls || 0) / totalUsed;
+    usageData.messages = Math.max(0, (usageData.messages || 0) - Math.round(tokenCount * messageRatio));
+    usageData.aiCalls = Math.max(0, (usageData.aiCalls || 0) - Math.round(tokenCount * aiCallRatio));
     await db.collection('users').doc(from).set({ tokenUsage: usageData }, { merge: true });
 }
 

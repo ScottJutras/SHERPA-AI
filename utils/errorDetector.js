@@ -1,4 +1,4 @@
-const storeList = require('./storeList'); // Assuming this exists from your setup
+//onst storeList = require('./storeList'); // Assuming this exists from your setup
 
 function detectErrors(data, type = 'expense') {
     const errors = [];
