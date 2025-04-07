@@ -26,7 +26,7 @@ const { transcribeAudio } = require('./utils/transcriptionService');
 const { detectErrors, correctErrorsWithAI } = require('./utils/errorDetector');
 const { getPendingTransactionState, setPendingTransactionState, deletePendingTransactionState } = require('./utils/stateManager');
 const { sendTemplateMessage } = require('./utils/twilioHelper');
-const { updateUserTokenUsage, checkTokenLimit, getSubscriptionTier } = require('./utils/tokenManager');
+const {  getSubscriptionTier } = require('./utils/tokenManager');
 const {
     getUserProfile,
     saveUserProfile,
@@ -337,16 +337,6 @@ async function updateUserTokenUsage(userId, usage) {
     });
 }
 
-async function checkTokenLimit(userId) {
-    const userRef = db.collection('users').doc(userId);
-    const doc = await userRef.get();
-    const { tokenUsage, trialEnd } = doc.data();
-    const isTrialActive = trialEnd && new Date(trialEnd) > new Date();
-    const limit = isTrialActive ? { messages: 1000, aiCalls: 500 } : { messages: Infinity, aiCalls: Infinity }; // Example limits
-    return {
-        exceeded: tokenUsage?.messages >= limit.messages || tokenUsage?.aiCalls >= limit.aiCalls
-    };
-}
 // Deep Dive File Parsing
 const parseFinancialFile = (fileBuffer, fileType) => {
     let data = [];

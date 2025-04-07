@@ -1,0 +1,8 @@
+
+# Ignore Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+venv311/
