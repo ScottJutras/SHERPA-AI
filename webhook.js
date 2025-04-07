@@ -26,7 +26,7 @@ const { transcribeAudio } = require('./utils/transcriptionService');
 const { detectErrors, correctErrorsWithAI } = require('./utils/errorDetector');
 const { getPendingTransactionState, setPendingTransactionState, deletePendingTransactionState } = require('./utils/stateManager');
 const { sendTemplateMessage } = require('./utils/twilioHelper');
-const {  getSubscriptionTier } = require('./utils/tokenManager');
+const { updateUserTokenUsage, checkTokenLimit, getSubscriptionTier } = require('./utils/tokenManager');
 const {
     getUserProfile,
     saveUserProfile,
@@ -324,18 +324,6 @@ const categorizeEntry = async (type, data, userProfile) => {
     const result = JSON.parse(gptResponse.choices[0].message.content);
     return result.category || (type === 'expense' ? "Other Expenses" : "Revenue - Other");
 };
-// Token Usage Helpers
-async function updateUserTokenUsage(userId, usage) {
-    const userRef = db.collection('users').doc(userId);
-    const doc = await userRef.get();
-    const currentUsage = doc.data().tokenUsage || { messages: 0, aiCalls: 0 };
-    await userRef.update({
-        tokenUsage: {
-            messages: currentUsage.messages + (usage.messages || 0),
-            aiCalls: currentUsage.aiCalls + (usage.aiCalls || 0)
-        }
-    });
-}
 
 // Deep Dive File Parsing
 const parseFinancialFile = (fileBuffer, fileType) => {
