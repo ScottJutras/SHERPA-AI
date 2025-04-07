@@ -30,10 +30,10 @@ onboarding_agent = Agent(
 )
 
 # === QUOTE GENERATION AGENT ===
-quote_agent = Agent(
+quote_generator_agent = Agent(
     role="Quote Generator",
-    goal="Receive material quantity inputs and calculate total project quotes.",
-    backstory="An estimating AI that formats pricing into professional PDF quotes.",
+    goal="Generate a PDF quote with correct material pricing and totals",
+    backstory="Expert in renovation quoting and formatting clean, professional documents.",
     verbose=True
 )
 
@@ -45,11 +45,28 @@ task_manager = Agent(
     verbose=True
 )
 
+# === CHART CREATION AGENT ===
+chart_creator_agent = Agent(
+    role="Chart Creator",
+    goal="Generate visual charts from spreadsheet data such as expense trends or revenue over time.",
+    backstory="An AI analyst with a knack for turning numbers into visual stories.",
+    verbose=True
+)
+
+email_dispatch_agent = Agent(
+    role="Email Dispatcher",
+    goal="Send a spreadsheet via email to the user using SendGrid.",
+    backstory="An email-savvy assistant responsible for cleanly packaging spreadsheets and sending them with a professional touch.",
+    verbose=True
+)
+
 # === COLLECTIVE EXPORT ===
 test_agents = {
     "expense_logger_agent": expense_logger_agent,
     "voice_parser_agent": voice_parser_agent,
     "onboarding_agent": onboarding_agent,
-    "quote_agent": quote_agent,
-    "task_manager": task_manager
+    "quote_generator_agent": quote_generator_agent,
+    "task_manager": task_manager,
+    "chart_creator_agent": chart_creator_agent,
+    "email_dispatch_agent": email_dispatch_agent
 }

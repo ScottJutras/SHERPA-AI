@@ -58,10 +58,14 @@ spreadsheet_email_test = Task(
     agent=test_agents["email_dispatch_agent"]
 )
 
-if __name__ == "__main__":
-    results = test_suite.kickoff()
-    print("\n✅ Test Results:")
-    print(results)
+spreadsheet_email_test = Task(
+    description="Simulate a user asking the assistant to send them their spreadsheet by email. Check if the system generates and sends the sheet as an attachment.",
+    expected_output="An email is sent to the user’s address with the most recent spreadsheet attached as a PDF or .xlsx file.",
+    tools=[],
+    agent=test_agents["onboarding_agent"]  # Or create a new agent if needed
+)
+
+
 
 # Combine tasks into a single test crew
 test_suite = Crew(
@@ -73,7 +77,13 @@ test_suite = Crew(
         onboarding_test,
         quote_test,
         chart_test,
-        spreadsheet_email_test
+        spreadsheet_email_test,
+        
     ],
     verbose=True
 )
+
+if __name__ == "__main__":
+    results = test_suite.kickoff()
+    print("\n✅ Test Results:")
+    print(results)
