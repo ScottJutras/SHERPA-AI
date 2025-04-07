@@ -21,7 +21,8 @@
     "openai": "^4.86.2",
     "papaparse": "^5.5.2",
     "pdfkit": "^0.16.0",
-    "twilio": "^5.4.0"
+    "twilio": "^5.4.0",
+    "xlsx": "^0.18.5"
   },
   "scripts": {
     "start": "node server.js",

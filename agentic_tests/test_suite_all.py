@@ -37,6 +37,32 @@ onboarding_test = Task(
     agent=test_agents["onboarding_agent"]
 )
 
+quote_test = Task(
+    description="Simulate a user requesting a quote for 500 sq ft of siding and 100 ft of eavestrough. Verify correct calculation and PDF quote generation.",
+    expected_output="Quote should include accurate pricing pulled from Google Sheets or static data, PDF should be generated and ready to send.",
+    tools=[],
+    agent=test_agents["quote_generator_agent"]
+)
+
+chart_test = Task(
+    description="Simulate a user asking 'show me a chart of last month's expenses by vendor'. Check if chart is generated using chartjs-node-canvas and returned properly.",
+    expected_output="Chart image should display vendors on X-axis, expense totals on Y-axis, and reflect correct data from spreadsheet.",
+    tools=[],
+    agent=test_agents["chart_creator_agent"]
+)
+
+spreadsheet_email_test = Task(
+    description="Simulate user command 'email me my spreadsheet for March'. Validate the file is attached and email is sent using SendGrid.",
+    expected_output="Email is successfully sent to the user’s address with the correct spreadsheet attached as a .xlsx file.",
+    tools=[],
+    agent=test_agents["email_dispatch_agent"]
+)
+
+if __name__ == "__main__":
+    results = test_suite.kickoff()
+    print("\n✅ Test Results:")
+    print(results)
+
 # Combine tasks into a single test crew
 test_suite = Crew(
     agents=list(test_agents.values()),
@@ -44,12 +70,10 @@ test_suite = Crew(
         text_expense_test,
         image_expense_test,
         voice_expense_test,
-        onboarding_test
+        onboarding_test,
+        quote_test,
+        chart_test,
+        spreadsheet_email_test
     ],
     verbose=True
 )
-
-if __name__ == "__main__":
-    results = test_suite.kickoff()
-    print("\n✅ Test Results:")
-    print(results)
