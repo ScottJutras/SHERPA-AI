@@ -47,7 +47,6 @@ const { parsePhoneNumberFromString } = require('libphonenumber-js');
 const { sendSpreadsheetEmail, sendEmail } = require('./utils/sendGridService');
 const { generateQuotePDF } = require('./utils/pdfService');
 const { parseQuoteMessage, buildQuoteDetails } = require('./utils/quoteUtils');
-const { getTaxRate } = require('./utils/taxRate');
 const { getAuthorizedClient } = require('./lib/googleSheets');
 const { getTaxRate } = require('./utils/taxRate.js');
 
