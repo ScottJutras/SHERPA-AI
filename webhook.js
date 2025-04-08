@@ -545,21 +545,24 @@ app.post('/webhook', async (req, res) => {
                 } else {
                     // Owner onboarding (slimmed to Name, dynamic Industry/Goal)
                     if (state.step === 0) {
+                        console.log(`[DEBUG] Processing name response for ${from}: ${response}`);
                         state.responses.step_0 = response;
                         state.step = 1;
+                        console.log(`[DEBUG] Setting state: ${JSON.stringify(state)}`);
                         await setOnboardingState(from, state);
+                        console.log(`[DEBUG] Updating user profile with name: ${response}`);
                         userProfileData.name = response;
-                        userProfileData.onboarding_in_progress = false; // Core onboarding done
-                        const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
-                        const taxRate = getTaxRate(userProfileData.country, userProfileData.province);
+                        userProfileData.onboarding_in_progress = false;
                         await saveUserProfile(userProfileData);
+                        console.log(`[DEBUG] Creating spreadsheet for ${from}`);
                         const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email || 'unknown@email.com');
+                        console.log(`[DEBUG] Sending email with spreadsheet ID: ${spreadsheetId}`);
                         await sendSpreadsheetEmail(userProfileData.email || 'unknown@email.com', spreadsheetId);
-                        reply = `🎉 Hey ${response}, I’m Chief, your pocket CFO! Congrats on joining—you’re now the boss of your books. I’ve auto-set your location to ${userProfileData.province}, ${userProfileData.country} (${currency}, ${(taxRate * 100).toFixed(2)}% tax). Here’s your dashboard:\nRevenue: ${currency} 0.00\nProfit: ${currency} 0.00\nHourly: ${currency} 0.00\nText me "expense $100 tools" or "revenue $200 client" to start rocking your finances. Pro tip: "Stats" shows your Shark Tank-ready numbers anytime!`;
+                        reply = `🎉 Hey ${response}, I’m Chief...`;
+                        console.log(`[DEBUG] Onboarding complete for ${from}`);
                         await deleteOnboardingState(from);
                         return res.send(`<Response><Message>${reply}</Message></Response>`);
                     }
-
                     // Dynamic Industry prompt (on first expense)
                     if (!userProfileData.industry && input && input.includes('$') && type === 'expense' && !state.dynamicStep) {
                         await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'industry' });
