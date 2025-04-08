@@ -496,116 +496,105 @@ app.post('/webhook', async (req, res) => {
             }
 
           // ONBOARDING FLOW
-          if (userProfile.onboarding_in_progress) {
-            let state = await getOnboardingState(from);
-            const isTeamMember = userProfile.isTeamMember;
-
-            if (!state) {
-                state = { step: 0, responses: {}, dynamicStep: null };
-                await setOnboardingState(from, state);
-                return res.send(`<Response><Message>Welcome! What's your name?</Message></Response>`);
-            }
-
-            const response = body.trim();
-            const responseLower = response.toLowerCase();
-
-            if (isTeamMember) {
-                const steps = teamMemberOnboardingSteps;
-                if (state.step === 0) {
-                    state.responses.step_0 = response;
-                    state.step = 1;
-                    await setOnboardingState(from, state);
-                    await saveUserProfile({ ...userProfile, name: response, onboarding_in_progress: false });
-                    await deleteOnboardingState(from);
-                    const ownerProfile = await getUserProfile(ownerId);
-                    const teamMembers = ownerProfile.teamMembers.map(member =>
-                        member.phone === from ? { ...member, name: response } : member
-                    );
-                    await db.collection('users').doc(ownerId).update({ teamMembers });
-                    reply = `✅ Welcome, ${response}! You can now log expenses, revenue, and bills for ${ownerProfile.name}'s team.`;
-                    return res.send(`<Response><Message>${reply}</Message></Response>`);
-                }
-            } else {
-                // Owner onboarding (slimmed to Name, dynamic Industry/Goal)
-                if (state.step === 0) {
-                    // Step 0: Collect user's name
-                    state.responses.step_0 = response;
-                    state.step = 1; // Move to email collection
-                    await setOnboardingState(from, state);
-                    userProfileData.name = response;
-                    await saveUserProfile(userProfileData); // Save name immediately
-                    const reply = `Hi ${response}, can you please provide your email address? I’ll send your financial dashboard link there!`;
-                    return res.send(`<Response><Message>${reply}</Message></Response>`);
-                } else if (state.step === 1) {
-                    // Step 1: Collect user's email
-                    state.responses.step_1 = response;
-                    // Basic email validation
-                    const email = response.trim();
-                    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-                    if (!emailRegex.test(email)) {
-                        const reply = "That doesn't seem like a valid email. Please provide a proper email address (e.g., you@example.com).";
-                        return res.send(`<Response><Message>${reply}</Message></Response>`);
-                    }
-                    userProfileData.email = email.toLowerCase();
-                    state.step = 2; // Mark onboarding as ready to complete
-                    await setOnboardingState(from, state);
-                
-                    // Complete onboarding now that we have the email
-                    userProfileData.onboarding_in_progress = false;
-                    const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
-                    const taxRate = getTaxRate(userProfileData.country, userProfileData.province);
-                    await saveUserProfile(userProfileData);
-                
-                    // Pass the valid email to create and share the spreadsheet
-                    try {
-                        const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
-                        await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
-                    } catch (error) {
-                        console.error(`[ERROR] Failed to create/send spreadsheet for ${from}: ${error.message}`);
-                        const reply = `🎉 Hey ${userProfileData.name}, I’m Chief, your pocket CFO! Welcome aboard! I’ve set your location to ${userProfileData.province}, ${userProfileData.country} (${currency}, ${(taxRate * 100).toFixed(2)}% tax). I ran into a hiccup sending your dashboard—please text "support" for help!`;
-                        await deleteOnboardingState(from);
-                        return res.send(`<Response><Message>${reply}</Message></Response>`);
-                    }
-                
-                    const reply = `🎉 Hey ${userProfileData.name}, I’m Chief, your pocket CFO! Congrats on joining—you’re now the boss of your books. I’ve auto-set your location to ${userProfileData.province}, ${userProfileData.country} (${currency}, ${(taxRate * 100).toFixed(2)}% tax). Here’s your dashboard:\nRevenue: ${currency} 0.00\nProfit: ${currency} 0.00\nHourly: ${currency} 0.00\nCheck your email (${userProfileData.email}) for your spreadsheet link! Text me "expense $100 tools" or "revenue $200 client" to start rocking your finances. Pro tip: "Stats" shows your Shark Tank-ready numbers anytime!`;
-                    await deleteOnboardingState(from);
-                    return res.send(`<Response><Message>${reply}</Message></Response>`);
-                }
-
-                // Dynamic Industry prompt (on first expense)
-                if (!userProfileData.industry && input && input.includes('$') && type === 'expense' && !state.dynamicStep) {
-                    await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'industry' });
-                    reply = "Hey, what industry are you in? (e.g., Construction, Freelancer)";
-                    return res.send(`<Response><Message>${reply}</Message></Response>`);
-                }
-                if (state.dynamicStep === 'industry') {
-                    userProfileData.industry = response;
-                    await saveUserProfile(userProfileData);
-                    reply = `Got it, ${userProfileData.name}! Industry set to ${response}. Keep logging—next up, I’ll ask your financial goal when you add a bill or revenue.`;
-                    await deleteOnboardingState(from);
-                    return res.send(`<Response><Message>${reply}</Message></Response>`);
-                }
-
-                // Dynamic Goal prompt (on first bill or revenue)
-                if (!userProfileData.goal && input && (input.toLowerCase().includes('bill') || type === 'revenue') && !state.dynamicStep) {
-                    await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'goal' });
-                    reply = "What’s your financial goal, boss? (e.g., Grow profit by $10,000, Pay off $5,000 debt)";
-                    return res.send(`<Response><Message>${reply}</Message></Response>`);
-                }
-                if (state.dynamicStep === 'goal') {
-                    userProfileData.goal = response;
-                    userProfileData.goalProgress = { 
-                        target: response.includes('debt') ? -parseFloat(response.match(/\d+/)?.[0] || 5000) * 1000 : parseFloat(response.match(/\d+/)?.[0] || 10000) * 1000, 
-                        current: 0 
-                    };
-                    await saveUserProfile(userProfileData);
-                    const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
-                    reply = `Goal locked in: "${response}" (${currency} ${userProfileData.goalProgress.target.toFixed(2)}). You’re unstoppable, ${userProfileData.name}! Check "Goal" anytime to track it.`;
-                    await deleteOnboardingState(from);
-                    return res.send(`<Response><Message>${reply}</Message></Response>`);
-                }
-            }
+if (userProfile.onboarding_in_progress) {
+    let state = await getOnboardingState(from);
+    const isTeamMember = userProfile.isTeamMember;
+    const response = body.trim();
+    
+    if (!state) {
+      state = { step: 0, responses: {}, dynamicStep: null };
+      await setOnboardingState(from, state);
+      return res.send(`<Response><Message>Welcome! What's your name?</Message></Response>`);
+    }
+  
+    // Team Member Flow
+    if (isTeamMember) {
+      if (state.step === 0) {
+        state.responses.step_0 = response;
+        state.step = 1;
+        await setOnboardingState(from, state);
+        await saveUserProfile({ ...userProfile, name: response, onboarding_in_progress: false });
+        await deleteOnboardingState(from);
+        const ownerProfile = await getUserProfile(ownerId);
+        const teamMembers = ownerProfile.teamMembers.map(member =>
+          member.phone === from ? { ...member, name: response } : member
+        );
+        await db.collection('users').doc(ownerId).update({ teamMembers });
+        const reply = `✅ Welcome, ${response}! You can now log expenses, revenue, and bills for ${ownerProfile.name}'s team.`;
+        return res.send(`<Response><Message>${reply}</Message></Response>`);
+      }
+    } else {
+      // Owner Onboarding Flow (Name then Email)
+      if (state.step === 0) {
+        // Step 0: Collect user's name.
+        state.responses.step_0 = response;
+        state.step = 1; // Move to email collection
+        await setOnboardingState(from, state);
+        userProfileData.name = response;
+        // Do not mark onboarding as complete yet – we still need the email.
+        const reply = `Hi ${response}, can you please provide your email address?`;
+        return res.send(`<Response><Message>${reply}</Message></Response>`);
+      } else if (state.step === 1) {
+        // Step 1: Collect user's email.
+        state.responses.step_1 = response;
+        const email = response.trim();
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+          const reply = "That doesn't seem like a valid email. Please provide a valid email address.";
+          return res.send(`<Response><Message>${reply}</Message></Response>`);
         }
+        userProfileData.email = email;
+        // Now that we have a valid email, mark onboarding as complete.
+        userProfileData.onboarding_in_progress = false;
+        await saveUserProfile(userProfileData);
+        // Create and share the spreadsheet using the provided email.
+        const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
+        await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
+        const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
+        const taxRate = getTaxRate(userProfileData.country, userProfileData.province);
+        const reply = `🎉 Hey ${userProfileData.name}, I’m Chief, your pocket CFO! Congrats on joining—you’re now the boss of your books. I’ve auto-set your location to ${userProfileData.province}, ${userProfileData.country} (${currency}, ${(taxRate * 100).toFixed(2)}% tax). Here’s your dashboard:
+  Revenue: ${currency} 0.00
+  Profit: ${currency} 0.00
+  Hourly: ${currency} 0.00
+  Text me "expense $100 tools" or "revenue $200 client" to start rocking your finances. Pro tip: "Stats" shows your Shark Tank-ready numbers anytime!`;
+        await deleteOnboardingState(from);
+        return res.send(`<Response><Message>${reply}</Message></Response>`);
+      }
+  
+      // Dynamic prompts (industry and goal) can be handled here if desired.
+      // NOTE: Ensure variable consistency (use response instead of input) and proper state management.
+      if (!userProfileData.industry && response && response.includes('$') && type === 'expense' && !state.dynamicStep) {
+        await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'industry' });
+        const reply = "Hey, what industry are you in? (e.g., Construction, Freelancer)";
+        return res.send(`<Response><Message>${reply}</Message></Response>`);
+      }
+      if (state.dynamicStep === 'industry') {
+        userProfileData.industry = response;
+        await saveUserProfile(userProfileData);
+        const reply = `Got it, ${userProfileData.name}! Industry set to ${response}. Keep logging—next up, I’ll ask your financial goal when you add a bill or revenue.`;
+        await deleteOnboardingState(from);
+        return res.send(`<Response><Message>${reply}</Message></Response>`);
+      }
+      if (!userProfileData.goal && response && (response.toLowerCase().includes('bill') || type === 'revenue') && !state.dynamicStep) {
+        await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'goal' });
+        const reply = "What’s your financial goal, boss? (e.g., Grow profit by $10,000, Pay off $5,000 debt)";
+        return res.send(`<Response><Message>${reply}</Message></Response>`);
+      }
+      if (state.dynamicStep === 'goal') {
+        userProfileData.goal = response;
+        userProfileData.goalProgress = { 
+          target: response.includes('debt') ? -parseFloat(response.match(/\d+/)?.[0] || 5000) * 1000 : parseFloat(response.match(/\d+/)?.[0] || 10000) * 1000, 
+          current: 0 
+        };
+        await saveUserProfile(userProfileData);
+        const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
+        const reply = `Goal locked in: "${response}" (${currency} ${userProfileData.goalProgress.target.toFixed(2)}). You’re unstoppable, ${userProfileData.name}! Check "Goal" anytime to track it.`;
+        await deleteOnboardingState(from);
+        return res.send(`<Response><Message>${reply}</Message></Response>`);
+      }
+    }
+  }
+  
         // NON-ONBOARDING FLOW
         else {
             let reply;
