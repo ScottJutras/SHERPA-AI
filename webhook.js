@@ -528,50 +528,105 @@ app.post('/webhook', async (req, res) => {
                     }
                 } else {
                    // Owner onboarding
-    if (state.step === 0) {
-        console.log(`[DEBUG] Processing name response for ${from}: ${response}`);
-        state.responses.name = response;
-        state.step = 1;
-        const { country, region } = detectCountryAndRegion(from);
-        state.responses.detectedCountry = country;
-        state.responses.detectedRegion = region;
-        await setOnboardingState(from, state);
-        userProfileData.name = response;
-        await saveUserProfile(userProfileData);
-        console.log(`[DEBUG] Detected location for ${from}: ${country}, ${region}`);
-        return res.send(`<Response><Message>{{>locationConfirmation}}Is this correct? Country: ${country}, State/Province: ${region}</Message></Response>`);
-      } else if (state.step === 1) {
-        console.log(`[DEBUG] Processing location confirmation for ${from}: ${response}`);
-        if (responseLower === 'yes' || responseLower === 'y') {
-          userProfileData.country = state.responses.detectedCountry;
-          userProfileData.province = state.responses.detectedRegion;
-        } else {
-          const [correctedCountry, correctedRegion] = response.split(',').map(s => s.trim());
-          userProfileData.country = correctedCountry || state.responses.detectedCountry;
-          userProfileData.province = correctedRegion || state.responses.detectedRegion;
-        }
-        state.step = 2;
-        await setOnboardingState(from, state);
-        await saveUserProfile(userProfileData);
-        console.log(`[DEBUG] Asking for email for ${from}`);
-        return res.send(`<Response><Message>What’s your email address?</Message></Response>`);
-      } else if (state.step === 2) {
-        console.log(`[DEBUG] Processing email response for ${from}: ${response}`);
-        state.responses.email = response;
-        state.step = 3;
-        await setOnboardingState(from, state);
-        userProfileData.email = response;
-        userProfileData.onboarding_in_progress = false;
-        const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
-        const taxRate = getTaxRate(userProfileData.country, userProfileData.province);
-        await saveUserProfile(userProfileData);
-        const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
-        console.log(`[DEBUG] Onboarding complete for ${from}, spreadsheet ID: ${spreadsheetId}`);
-        await deleteOnboardingState(from);
-        const spreadsheetLink = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
-        console.log(`[DEBUG] Sending spreadsheet link for ${from}: ${spreadsheetLink}`);
-        return res.send(`<Response><Message>{{>spreadsheetLink}}Here’s your spreadsheet: ${spreadsheetLink}</Message></Response>`);
+if (state.step === 0) {
+  console.log(`[DEBUG] Processing name response for ${from}: ${response}`);
+  state.responses.name = response;
+  state.step = 1;
+  const { country, region } = detectCountryAndRegion(from);
+  state.responses.detectedCountry = country;
+  state.responses.detectedRegion = region;
+  await setOnboardingState(from, state);
+  userProfileData.name = response;
+  await saveUserProfile(userProfileData);
+  console.log(`[DEBUG] Detected location for ${from}: ${country}, ${region}`);
+  // Send Twilio template with quick reply buttons
+  const messageBody = {
+    "MessagingServiceSid": process.env.TWILIO_MESSAGING_SERVICE_SID, // Add to .env if not already
+    "To": `whatsapp:${from}`,
+    "From": `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`, // Your WhatsApp-enabled Twilio number
+    "ContentSid": "HX0280df498999848aaff04cc079e16c31", // locationConfirmation template ID
+    "ContentVariables": JSON.stringify({
+      "1": country,
+      "2": region
+    })
+  };
+  console.log(`[DEBUG] Sending location confirmation template to ${from}`);
+  await axios.post('https://api.twilio.com/2010-04-01/Accounts/' + process.env.TWILIO_ACCOUNT_SID + '/Messages.json', 
+    new URLSearchParams(messageBody), {
+      auth: {
+        username: process.env.TWILIO_ACCOUNT_SID,
+        password: process.env.TWILIO_AUTH_TOKEN
       }
+    });
+  return res.send(`<Response></Response>`); // Empty response since we sent via API
+} else if (state.step === 1) {
+  console.log(`[DEBUG] Processing location confirmation for ${from}: ${response}`);
+  if (responseLower === 'yes') {
+    userProfileData.country = state.responses.detectedCountry;
+    userProfileData.province = state.responses.detectedRegion;
+    state.step = 2;
+    await setOnboardingState(from, state);
+    await saveUserProfile(userProfileData);
+    console.log(`[DEBUG] Asking for email for ${from}`);
+    return res.send(`<Response><Message>What’s your email address?</Message></Response>`);
+  } else if (responseLower === 'edit') {
+    console.log(`[DEBUG] User chose to edit location for ${from}`);
+    return res.send(`<Response><Message>Please provide your country and state/province (e.g., "Canada, Ontario"):</Message></Response>`);
+  } else if (responseLower === 'cancel') {
+    console.log(`[DEBUG] User cancelled onboarding for ${from}`);
+    userProfileData.onboarding_in_progress = false;
+    await saveUserProfile(userProfileData);
+    await deleteOnboardingState(from);
+    return res.send(`<Response><Message>Onboarding cancelled. Send "Hi" to start again!</Message></Response>`);
+  } else {
+    // Handle manual correction (e.g., "Canada, Ontario")
+    const [correctedCountry, correctedRegion] = response.split(',').map(s => s.trim());
+    if (correctedCountry && correctedRegion) {
+      userProfileData.country = correctedCountry;
+      userProfileData.province = correctedRegion;
+      state.step = 2;
+      await setOnboardingState(from, state);
+      await saveUserProfile(userProfileData);
+      console.log(`[DEBUG] Asking for email for ${from}`);
+      return res.send(`<Response><Message>What’s your email address?</Message></Response>`);
+    } else {
+      return res.send(`<Response><Message>Invalid format. Use "Country, State/Province" or press a button.</Message></Response>`);
+    }
+  }
+} else if (state.step === 2) {
+  console.log(`[DEBUG] Processing email response for ${from}: ${response}`);
+  state.responses.email = response;
+  state.step = 3;
+  await setOnboardingState(from, state);
+  userProfileData.email = response;
+  userProfileData.onboarding_in_progress = false;
+  const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
+  const taxRate = getTaxRate(userProfileData.country, userProfileData.province);
+  await saveUserProfile(userProfileData);
+  const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
+  console.log(`[DEBUG] Onboarding complete for ${from}, spreadsheet ID: ${spreadsheetId}`);
+  await deleteOnboardingState(from);
+  const spreadsheetLink = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
+  // Send Twilio template for spreadsheet link
+  const messageBody = {
+    "MessagingServiceSid": process.env.TWILIO_MESSAGING_SERVICE_SID,
+    "To": `whatsapp:${from}`,
+    "From": `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
+    "ContentSid": "HXf5964d5ffeecc5e7f4e94d7b3379e084", // spreadsheetLink template ID
+    "ContentVariables": JSON.stringify({
+      "1": spreadsheetLink // Assuming template expects {{1}} as the link
+    })
+  };
+  console.log(`[DEBUG] Sending spreadsheet link template to ${from}: ${spreadsheetLink}`);
+  await axios.post('https://api.twilio.com/2010-04-01/Accounts/' + process.env.TWILIO_ACCOUNT_SID + '/Messages.json', 
+    new URLSearchParams(messageBody), {
+      auth: {
+        username: process.env.TWILIO_ACCOUNT_SID,
+        password: process.env.TWILIO_AUTH_TOKEN
+      }
+    });
+  return res.send(`<Response></Response>`);
+}
                     // Dynamic Industry prompt (on first expense)
                     if (!userProfileData.industry && input && input.includes('$') && type === 'expense' && !state.dynamicStep) {
                         await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'industry' });
