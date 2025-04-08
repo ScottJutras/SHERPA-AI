@@ -541,24 +541,34 @@ if (state.step === 0) {
   console.log(`[DEBUG] Detected location for ${from}: ${country}, ${region}`);
   // Send Twilio template with quick reply buttons
   const messageBody = {
-    "MessagingServiceSid": process.env.TWILIO_MESSAGING_SERVICE_SID, // Add to .env if not already
-    "To": `whatsapp:${from}`,
-    "From": `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`, // Your WhatsApp-enabled Twilio number
-    "ContentSid": "HX0280df498999848aaff04cc079e16c31", // locationConfirmation template ID
-    "ContentVariables": JSON.stringify({
-      "1": country,
-      "2": region
+    MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+    To: `whatsapp:${from}`,
+    From: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
+    ContentSid: "HX0280df498999848aaff04cc079e16c31",
+    ContentVariables: JSON.stringify({
+      1: country,
+      2: region
     })
   };
-  console.log(`[DEBUG] Sending location confirmation template to ${from}`);
-  await axios.post('https://api.twilio.com/2010-04-01/Accounts/' + process.env.TWILIO_ACCOUNT_SID + '/Messages.json', 
-    new URLSearchParams(messageBody), {
-      auth: {
-        username: process.env.TWILIO_ACCOUNT_SID,
-        password: process.env.TWILIO_AUTH_TOKEN
+  console.log(`[DEBUG] Sending location confirmation template to ${from} with payload:`, messageBody);
+  try {
+    const twilioResponse = await axios.post(
+      `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
+      new URLSearchParams(messageBody),
+      {
+        auth: {
+          username: process.env.TWILIO_ACCOUNT_SID,
+          password: process.env.TWILIO_AUTH_TOKEN
+        }
       }
-    });
-  return res.send(`<Response></Response>`); // Empty response since we sent via API
+    );
+    console.log(`[DEBUG] Twilio API response:`, twilioResponse.data);
+  } catch (error) {
+    console.error(`[ERROR] Twilio API request failed:`, error.response ? error.response.data : error.message);
+    throw new Error(`Twilio API request failed: ${error.message}`);
+  }
+  return res.send(`<Response></Response>`);
+
 } else if (state.step === 1) {
   console.log(`[DEBUG] Processing location confirmation for ${from}: ${response}`);
   if (responseLower === 'yes') {
