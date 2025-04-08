@@ -41,7 +41,7 @@ const {
     calculateIncomeGoal,
     fetchMaterialPrices,
 } = require("./utils/googleSheets");
-
+const { detectCountryAndRegion } = require('./utils/location');
 const { extractTextFromImage } = require('./utils/visionService');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
 const { sendSpreadsheetEmail, sendEmail } = require('./utils/sendGridService');
@@ -217,23 +217,6 @@ function normalizePhoneNumber(phone) {
         .replace(/^whatsapp:/i, '')
         .replace(/^\+/, '')
         .trim();
-}
-
-function detectCountryAndRegion(phoneNumber) {
-    if (!phoneNumber.startsWith("+")) {
-        phoneNumber = `+${phoneNumber}`;
-    }
-    const phoneInfo = parsePhoneNumberFromString(phoneNumber);
-    if (!phoneInfo || !phoneInfo.isValid()) {
-        return { country: "Unknown", region: "Unknown" };
-    }
-    const nationalNumber = phoneInfo.nationalNumber;
-    const areaCode = nationalNumber.substring(0, 3);
-    const location = areaCodeMap[areaCode];
-    if (location) {
-        return { country: location.country, region: location.province || location.state || "Unknown" };
-    }
-    return { country: phoneInfo.country || "Unknown", region: "Unknown" };
 }
 
 // Express App Setup
@@ -516,13 +499,14 @@ app.post('/webhook', async (req, res) => {
             if (userProfile.onboarding_in_progress) {
                 let state = await getOnboardingState(from);
                 const isTeamMember = userProfile.isTeamMember;
-
+              
                 if (!state) {
-                    state = { step: 0, responses: {}, dynamicStep: null };
-                    await setOnboardingState(from, state);
-                    return res.send(`<Response><Message>Welcome! What's your name?</Message></Response>`);
+                  state = { step: 0, responses: {}, dynamicStep: null };
+                  await setOnboardingState(from, state);
+                  console.log(`[DEBUG] Starting onboarding for ${from}`);
+                  return res.send(`<Response><Message>Welcome! What's your name?</Message></Response>`);
                 }
-
+              
                 const response = body.trim();
                 const responseLower = response.toLowerCase();
 
@@ -543,26 +527,51 @@ app.post('/webhook', async (req, res) => {
                         return res.send(`<Response><Message>${reply}</Message></Response>`);
                     }
                 } else {
-                    // Owner onboarding (slimmed to Name, dynamic Industry/Goal)
-                    if (state.step === 0) {
-                        console.log(`[DEBUG] Processing name response for ${from}: ${response}`);
-                        state.responses.step_0 = response;
-                        state.step = 1;
-                        console.log(`[DEBUG] Setting state: ${JSON.stringify(state)}`);
-                        await setOnboardingState(from, state);
-                        console.log(`[DEBUG] Updating user profile with name: ${response}`);
-                        userProfileData.name = response;
-                        userProfileData.onboarding_in_progress = false;
-                        await saveUserProfile(userProfileData);
-                        console.log(`[DEBUG] Creating spreadsheet for ${from}`);
-                        const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email || 'unknown@email.com');
-                        console.log(`[DEBUG] Sending email with spreadsheet ID: ${spreadsheetId}`);
-                        await sendSpreadsheetEmail(userProfileData.email || 'unknown@email.com', spreadsheetId);
-                        reply = `🎉 Hey ${response}, I’m Chief...`;
-                        console.log(`[DEBUG] Onboarding complete for ${from}`);
-                        await deleteOnboardingState(from);
-                        return res.send(`<Response><Message>${reply}</Message></Response>`);
-                    }
+                   // Owner onboarding
+    if (state.step === 0) {
+        console.log(`[DEBUG] Processing name response for ${from}: ${response}`);
+        state.responses.name = response;
+        state.step = 1;
+        const { country, region } = detectCountryAndRegion(from);
+        state.responses.detectedCountry = country;
+        state.responses.detectedRegion = region;
+        await setOnboardingState(from, state);
+        userProfileData.name = response;
+        await saveUserProfile(userProfileData);
+        console.log(`[DEBUG] Detected location for ${from}: ${country}, ${region}`);
+        return res.send(`<Response><Message>{{>locationConfirmation}}Is this correct? Country: ${country}, State/Province: ${region}</Message></Response>`);
+      } else if (state.step === 1) {
+        console.log(`[DEBUG] Processing location confirmation for ${from}: ${response}`);
+        if (responseLower === 'yes' || responseLower === 'y') {
+          userProfileData.country = state.responses.detectedCountry;
+          userProfileData.province = state.responses.detectedRegion;
+        } else {
+          const [correctedCountry, correctedRegion] = response.split(',').map(s => s.trim());
+          userProfileData.country = correctedCountry || state.responses.detectedCountry;
+          userProfileData.province = correctedRegion || state.responses.detectedRegion;
+        }
+        state.step = 2;
+        await setOnboardingState(from, state);
+        await saveUserProfile(userProfileData);
+        console.log(`[DEBUG] Asking for email for ${from}`);
+        return res.send(`<Response><Message>What’s your email address?</Message></Response>`);
+      } else if (state.step === 2) {
+        console.log(`[DEBUG] Processing email response for ${from}: ${response}`);
+        state.responses.email = response;
+        state.step = 3;
+        await setOnboardingState(from, state);
+        userProfileData.email = response;
+        userProfileData.onboarding_in_progress = false;
+        const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
+        const taxRate = getTaxRate(userProfileData.country, userProfileData.province);
+        await saveUserProfile(userProfileData);
+        const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
+        console.log(`[DEBUG] Onboarding complete for ${from}, spreadsheet ID: ${spreadsheetId}`);
+        await deleteOnboardingState(from);
+        const spreadsheetLink = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
+        console.log(`[DEBUG] Sending spreadsheet link for ${from}: ${spreadsheetLink}`);
+        return res.send(`<Response><Message>{{>spreadsheetLink}}Here’s your spreadsheet: ${spreadsheetLink}</Message></Response>`);
+      }
                     // Dynamic Industry prompt (on first expense)
                     if (!userProfileData.industry && input && input.includes('$') && type === 'expense' && !state.dynamicStep) {
                         await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'industry' });
