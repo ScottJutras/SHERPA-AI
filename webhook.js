@@ -606,6 +606,7 @@ if (userProfile.onboarding_in_progress) {
       }
     } else if (state.step === 2) {
         console.log(`[DEBUG] Processing email response for ${from}: ${response}`);
+        // Validate the email address format with a regex
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         const trimmedEmail = response.trim();
         if (!emailRegex.test(trimmedEmail)) {
@@ -619,11 +620,14 @@ if (userProfile.onboarding_in_progress) {
         userProfileData.onboarding_in_progress = false;
         console.log(`[DEBUG] Saving user profile with email for ${from}`);
         await saveUserProfile(userProfileData);
-        console.log(`[DEBUG] Getting or creating spreadsheet for ${from} with email: ${trimmedEmail}`);
+        // Refresh the user profile from Firestore
+        userProfileData = await getUserProfile(from);
+        console.log(`[DEBUG] Updated user profile after saving email:`, userProfileData);
+    
+        console.log(`[DEBUG] Getting or creating spreadsheet for ${from}`);
         let spreadsheetResult;
         try {
-          spreadsheetResult = await getOrCreateUserSpreadsheet(from, trimmedEmail);
-          console.log(`[DEBUG] Spreadsheet result for ${from}:`, spreadsheetResult);
+          spreadsheetResult = await getOrCreateUserSpreadsheet(from);
           if (!spreadsheetResult || !spreadsheetResult.spreadsheetId) {
             throw new Error('getOrCreateUserSpreadsheet returned no spreadsheetId');
           }
@@ -665,7 +669,8 @@ if (userProfile.onboarding_in_progress) {
         }
         console.log(`[DEBUG] Onboarding complete for ${from}, spreadsheet ID: ${spreadsheetId}`);
         return res.send(`<Response></Response>`);
-      }
+    }
+    
   
                     // Dynamic Industry prompt (on first expense)
                     if (!userProfileData.industry && input && input.includes('$') && type === 'expense' && !state.dynamicStep) {
