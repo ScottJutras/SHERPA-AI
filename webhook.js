@@ -528,17 +528,46 @@ app.post('/webhook', async (req, res) => {
             } else {
                 // Owner onboarding (slimmed to Name, dynamic Industry/Goal)
                 if (state.step === 0) {
+                    // Step 0: Collect user's name
                     state.responses.step_0 = response;
-                    state.step = 1;
+                    state.step = 1; // Move to email collection
                     await setOnboardingState(from, state);
                     userProfileData.name = response;
-                    userProfileData.onboarding_in_progress = false; // Core onboarding done
+                    await saveUserProfile(userProfileData); // Save name immediately
+                    const reply = `Hi ${response}, can you please provide your email address? I’ll send your financial dashboard link there!`;
+                    return res.send(`<Response><Message>${reply}</Message></Response>`);
+                } else if (state.step === 1) {
+                    // Step 1: Collect user's email
+                    state.responses.step_1 = response;
+                    // Basic email validation
+                    const email = response.trim();
+                    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                    if (!emailRegex.test(email)) {
+                        const reply = "That doesn't seem like a valid email. Please provide a proper email address (e.g., you@example.com).";
+                        return res.send(`<Response><Message>${reply}</Message></Response>`);
+                    }
+                    userProfileData.email = email.toLowerCase();
+                    state.step = 2; // Mark onboarding as ready to complete
+                    await setOnboardingState(from, state);
+                
+                    // Complete onboarding now that we have the email
+                    userProfileData.onboarding_in_progress = false;
                     const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
                     const taxRate = getTaxRate(userProfileData.country, userProfileData.province);
                     await saveUserProfile(userProfileData);
-                    const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email || 'unknown@email.com');
-                    await sendSpreadsheetEmail(userProfileData.email || 'unknown@email.com', spreadsheetId);
-                    reply = `🎉 Hey ${response}, I’m Chief, your pocket CFO! Congrats on joining—you’re now the boss of your books. I’ve auto-set your location to ${userProfileData.province}, ${userProfileData.country} (${currency}, ${(taxRate * 100).toFixed(2)}% tax). Here’s your dashboard:\nRevenue: ${currency} 0.00\nProfit: ${currency} 0.00\nHourly: ${currency} 0.00\nText me "expense $100 tools" or "revenue $200 client" to start rocking your finances. Pro tip: "Stats" shows your Shark Tank-ready numbers anytime!`;
+                
+                    // Pass the valid email to create and share the spreadsheet
+                    try {
+                        const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
+                        await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
+                    } catch (error) {
+                        console.error(`[ERROR] Failed to create/send spreadsheet for ${from}: ${error.message}`);
+                        const reply = `🎉 Hey ${userProfileData.name}, I’m Chief, your pocket CFO! Welcome aboard! I’ve set your location to ${userProfileData.province}, ${userProfileData.country} (${currency}, ${(taxRate * 100).toFixed(2)}% tax). I ran into a hiccup sending your dashboard—please text "support" for help!`;
+                        await deleteOnboardingState(from);
+                        return res.send(`<Response><Message>${reply}</Message></Response>`);
+                    }
+                
+                    const reply = `🎉 Hey ${userProfileData.name}, I’m Chief, your pocket CFO! Congrats on joining—you’re now the boss of your books. I’ve auto-set your location to ${userProfileData.province}, ${userProfileData.country} (${currency}, ${(taxRate * 100).toFixed(2)}% tax). Here’s your dashboard:\nRevenue: ${currency} 0.00\nProfit: ${currency} 0.00\nHourly: ${currency} 0.00\nCheck your email (${userProfileData.email}) for your spreadsheet link! Text me "expense $100 tools" or "revenue $200 client" to start rocking your finances. Pro tip: "Stats" shows your Shark Tank-ready numbers anytime!`;
                     await deleteOnboardingState(from);
                     return res.send(`<Response><Message>${reply}</Message></Response>`);
                 }
