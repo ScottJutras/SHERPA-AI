@@ -496,6 +496,9 @@ app.post('/webhook', async (req, res) => {
             }
 
           // ONBOARDING FLOW
+console.log(`[DEBUG] Entering onboarding flow for ${from}, profile:`, userProfile);
+
+// Force onboarding to continue if user email is missing
 if (!userProfile.email) {
   userProfile.onboarding_in_progress = true;
   console.log(`[DEBUG] Forcing onboarding for ${userProfile.user_id} due to missing email`);
@@ -518,39 +521,39 @@ if (userProfile.onboarding_in_progress) {
   const response = body.trim();
   const responseLower = response.toLowerCase();
 
-  if (isTeamMember) {
-    console.log(`[DEBUG] Team member onboarding not fully implemented for ${from}`);
-    return res.send(`<Response><Message>Team member onboarding TBD</Message></Response>`);
-  } else {
-    // Owner onboarding
-    if (state.step === 0) {
-      console.log(`[DEBUG] Processing name response for ${from}: ${response}`);
-      state.responses.name = response;
-      state.step = 1;
-      const { country, region } = detectCountryAndRegion(from);
-      state.responses.detectedCountry = country;
-      state.responses.detectedRegion = region;
-      console.log(`[DEBUG] Setting onboarding state for ${from} to step 1`);
-      await setOnboardingState(from, state);
-      userProfileData.name = response;
-      console.log(`[DEBUG] Saving user profile for ${from} with name`);
-      await saveUserProfile(userProfileData);
-      console.log(`[DEBUG] Detected location for ${from}: ${country}, ${region}`);
-      const normalizePhoneNumber = (phone) =>
-        phone.replace(/^whatsapp:/i, '').replace(/^\+/, '').trim();
-      const fromNumber = `whatsapp:+${normalizePhoneNumber(process.env.TWILIO_WHATSAPP_NUMBER)}`;
-      const messageBody = {
-        MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-        To: `whatsapp:${from}`,
-        From: fromNumber,
-        ContentSid: "HX0280df498999848aaff04cc079e16c31",
-        ContentVariables: JSON.stringify({
-          1: country,
-          2: region
-        })
-      };
-      console.log(`[DEBUG] Sending location confirmation template to ${from} with payload:`, messageBody);
-      try {
+  try {
+    if (isTeamMember) {
+      console.log(`[DEBUG] Team member onboarding not fully implemented for ${from}`);
+      return res.send(`<Response><Message>Team member onboarding TBD</Message></Response>`);
+    } else {
+      // Owner onboarding
+      if (state.step === 0) {
+        console.log(`[DEBUG] Processing name response for ${from}: ${response}`);
+        state.responses.name = response;
+        state.step = 1;
+        const { country, region } = detectCountryAndRegion(from);
+        state.responses.detectedCountry = country;
+        state.responses.detectedRegion = region;
+        console.log(`[DEBUG] Setting onboarding state for ${from} to step 1`);
+        await setOnboardingState(from, state);
+        userProfile.name = response; // Fixed: Use userProfile instead of userProfileData
+        console.log(`[DEBUG] Saving user profile for ${from} with name`);
+        await saveUserProfile(userProfile);
+        console.log(`[DEBUG] Detected location for ${from}: ${country}, ${region}`);
+        const normalizePhoneNumber = (phone) =>
+          phone.replace(/^whatsapp:/i, '').replace(/^\+/, '').trim();
+        const fromNumber = `whatsapp:+${normalizePhoneNumber(process.env.TWILIO_WHATSAPP_NUMBER)}`;
+        const messageBody = {
+          MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+          To: `whatsapp:${from}`,
+          From: fromNumber,
+          ContentSid: "HX0280df498999848aaff04cc079e16c31",
+          ContentVariables: JSON.stringify({
+            1: country,
+            2: region
+          })
+        };
+        console.log(`[DEBUG] Sending location confirmation template to ${from} with payload:`, messageBody);
         const twilioResponse = await axios.post(
           `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
           new URLSearchParams(messageBody),
@@ -563,50 +566,45 @@ if (userProfile.onboarding_in_progress) {
           }
         );
         console.log(`[DEBUG] Twilio API response:`, twilioResponse.data);
-      } catch (error) {
-        console.error(`[ERROR] Twilio API request failed:`, error.response ? error.response.data : error.message);
-        throw new Error(`Twilio API request failed: ${error.message}`);
-      }
-      return res.send(`<Response></Response>`);
-    } else if (state.step === 1) {
-      console.log(`[DEBUG] Processing location confirmation for ${from}: ${response}`);
-      if (responseLower === 'yes') {
-        userProfileData.country = state.responses.detectedCountry;
-        userProfileData.province = state.responses.detectedRegion;
-        state.step = 2;
-        console.log(`[DEBUG] Setting onboarding state for ${from} to step 2`);
-        await setOnboardingState(from, state);
-        console.log(`[DEBUG] Saving user profile with location for ${from}`);
-        await saveUserProfile(userProfileData);
-        console.log(`[DEBUG] Asking for email for ${from}`);
-        return res.send(`<Response><Message>What’s your email address?</Message></Response>`);
-      } else if (responseLower === 'edit') {
-        console.log(`[DEBUG] User chose to edit location for ${from}`);
-        return res.send(`<Response><Message>Please provide your country and state/province (e.g., "Canada, Ontario"):</Message></Response>`);
-      } else if (responseLower === 'cancel') {
-        console.log(`[DEBUG] User cancelled onboarding for ${from}`);
-        userProfileData.onboarding_in_progress = false;
-        await saveUserProfile(userProfileData);
-        await deleteOnboardingState(from);
-        return res.send(`<Response><Message>Onboarding cancelled. Send "Hi" to start again!</Message></Response>`);
-      } else {
-        const [correctedCountry, correctedRegion] = response.split(',').map(s => s.trim());
-        if (correctedCountry && correctedRegion) {
-          userProfileData.country = correctedCountry;
-          userProfileData.province = correctedRegion;
+        return res.send(`<Response></Response>`);
+      } else if (state.step === 1) {
+        console.log(`[DEBUG] Processing location confirmation for ${from}: ${response}`);
+        if (responseLower === 'yes') {
+          userProfile.country = state.responses.detectedCountry;
+          userProfile.province = state.responses.detectedRegion;
           state.step = 2;
-          console.log(`[DEBUG] Setting onboarding state for ${from} to step 2 with manual correction`);
+          console.log(`[DEBUG] Setting onboarding state for ${from} to step 2`);
           await setOnboardingState(from, state);
-          await saveUserProfile(userProfileData);
+          console.log(`[DEBUG] Saving user profile with location for ${from}`);
+          await saveUserProfile(userProfile);
           console.log(`[DEBUG] Asking for email for ${from}`);
           return res.send(`<Response><Message>What’s your email address?</Message></Response>`);
+        } else if (responseLower === 'edit') {
+          console.log(`[DEBUG] User chose to edit location for ${from}`);
+          return res.send(`<Response><Message>Please provide your country and state/province (e.g., "Canada, Ontario"):</Message></Response>`);
+        } else if (responseLower === 'cancel') {
+          console.log(`[DEBUG] User cancelled onboarding for ${from}`);
+          userProfile.onboarding_in_progress = false;
+          await saveUserProfile(userProfile);
+          await deleteOnboardingState(from);
+          return res.send(`<Response><Message>Onboarding cancelled. Send "Hi" to start again!</Message></Response>`);
         } else {
-          return res.send(`<Response><Message>Invalid format. Use "Country, State/Province" or press a button.</Message></Response>`);
+          const [correctedCountry, correctedRegion] = response.split(',').map(s => s.trim());
+          if (correctedCountry && correctedRegion) {
+            userProfile.country = correctedCountry;
+            userProfile.province = correctedRegion;
+            state.step = 2;
+            console.log(`[DEBUG] Setting onboarding state for ${from} to step 2 with manual correction`);
+            await setOnboardingState(from, state);
+            await saveUserProfile(userProfile);
+            console.log(`[DEBUG] Asking for email for ${from}`);
+            return res.send(`<Response><Message>What’s your email address?</Message></Response>`);
+          } else {
+            return res.send(`<Response><Message>Invalid format. Use "Country, State/Province" or press a button.</Message></Response>`);
+          }
         }
-      }
-    } else if (state.step === 2) {
+      } else if (state.step === 2) {
         console.log(`[DEBUG] Processing email response for ${from}: ${response}`);
-        // Validate the email address format with a regex
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         const trimmedEmail = response.trim();
         if (!emailRegex.test(trimmedEmail)) {
@@ -616,18 +614,15 @@ if (userProfile.onboarding_in_progress) {
         state.responses.email = trimmedEmail;
         state.step = 3;
         await setOnboardingState(from, state);
-        userProfileData.email = trimmedEmail;
-        userProfileData.onboarding_in_progress = false;
+        userProfile.email = trimmedEmail;
+        userProfile.onboarding_in_progress = false;
         console.log(`[DEBUG] Saving user profile with email for ${from}`);
-        await saveUserProfile(userProfileData);
-        // Refresh the user profile from Firestore
-        userProfileData = await getUserProfile(from);
-        console.log(`[DEBUG] Updated user profile after saving email:`, userProfileData);
-    
-        console.log(`[DEBUG] Getting or creating spreadsheet for ${from}`);
+        await saveUserProfile(userProfile);
+        console.log(`[DEBUG] Getting or creating spreadsheet for ${from} with email: ${trimmedEmail}`);
         let spreadsheetResult;
         try {
-          spreadsheetResult = await getOrCreateUserSpreadsheet(from);
+          spreadsheetResult = await getOrCreateUserSpreadsheet(from, trimmedEmail);
+          console.log(`[DEBUG] Spreadsheet result for ${from}:`, spreadsheetResult);
           if (!spreadsheetResult || !spreadsheetResult.spreadsheetId) {
             throw new Error('getOrCreateUserSpreadsheet returned no spreadsheetId');
           }
@@ -650,83 +645,85 @@ if (userProfile.onboarding_in_progress) {
           })
         };
         console.log(`[DEBUG] Sending spreadsheet link template to ${from}: ${spreadsheetLink}`);
-        try {
-          const twilioResponse = await axios.post(
-            `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
-            new URLSearchParams(messageBody),
-            {
-              auth: {
-                username: process.env.TWILIO_ACCOUNT_SID,
-                password: process.env.TWILIO_AUTH_TOKEN
-              },
-              timeout: 5000
-            }
-          );
-          console.log(`[DEBUG] Twilio API response:`, twilioResponse.data);
-        } catch (error) {
-          console.error(`[ERROR] Twilio API request failed:`, error.response ? error.response.data : error.message);
-          throw new Error(`Twilio API request failed: ${error.message}`);
-        }
+        const twilioResponse = await axios.post(
+          `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
+          new URLSearchParams(messageBody),
+          {
+            auth: {
+              username: process.env.TWILIO_ACCOUNT_SID,
+              password: process.env.TWILIO_AUTH_TOKEN
+            },
+            timeout: 5000
+          }
+        );
+        console.log(`[DEBUG] Twilio API response:`, twilioResponse.data);
         console.log(`[DEBUG] Onboarding complete for ${from}, spreadsheet ID: ${spreadsheetId}`);
         return res.send(`<Response></Response>`);
+      } else {
+        console.log(`[DEBUG] Unexpected onboarding step for ${from}: ${state.step}`);
+        return res.send(`<Response><Message>Onboarding step out of sync. Please restart by saying "Hi".</Message></Response>`);
+      }
     }
-    
-  
-                    // Dynamic Industry prompt (on first expense)
-                    if (!userProfileData.industry && input && input.includes('$') && type === 'expense' && !state.dynamicStep) {
-                        await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'industry' });
-                        reply = "Hey, what industry are you in? (e.g., Construction, Freelancer)";
-                        return res.send(`<Response><Message>${reply}</Message></Response>`);
-                    }
-                    if (state.dynamicStep === 'industry') {
-                        userProfileData.industry = response;
-                        await saveUserProfile(userProfileData);
-                        reply = `Got it, ${userProfileData.name}! Industry set to ${response}. Keep logging—next up, I’ll ask your financial goal when you add a bill or revenue.`;
-                        await deleteOnboardingState(from);
-                        return res.send(`<Response><Message>${reply}</Message></Response>`);
-                    }
+  } catch (error) {
+    console.error(`[ERROR] Onboarding flow failed for ${from}:`, error.stack || error.message);
+    throw new Error(`Inner webhook processing failed: ${error.message}`);
+  }
+} else {
+  // NON-ONBOARDING FLOW
+  let reply;
+  const pendingState = await getPendingTransactionState(from);
+  const spreadsheetId = userProfile.spreadsheetId; // Assuming ownerProfile is userProfile
+  if (withinLimit.exceeded) {
+    return res.send(`<Response><Message>⚠️ Trial limit reached! Reply 'Upgrade' to continue.</Message></Response>`);
+  }
+  if (!userProfile.name) { // Fixed: userName to userProfile.name
+    return res.send(`<Response><Message>⚠️ Your name is missing. Please reply with your name to continue.</Message></Response>`);
+  }
 
-                    // Dynamic Goal prompt (on first bill or revenue)
-                    if (!userProfileData.goal && input && (input.toLowerCase().includes('bill') || type === 'revenue') && !state.dynamicStep) {
-                        await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'goal' });
-                        reply = "What’s your financial goal, boss? (e.g., Grow profit by $10,000, Pay off $5,000 debt)";
-                        return res.send(`<Response><Message>${reply}</Message></Response>`);
-                    }
-                    if (state.dynamicStep === 'goal') {
-                        userProfileData.goal = response;
-                        userProfileData.goalProgress = { 
-                            target: response.includes('debt') ? -parseFloat(response.match(/\d+/)?.[0] || 5000) * 1000 : parseFloat(response.match(/\d+/)?.[0] || 10000) * 1000, 
-                            current: 0 
-                        };
-                        await saveUserProfile(userProfileData);
-                        const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
-                        reply = `Goal locked in: "${response}" (${currency} ${userProfileData.goalProgress.target.toFixed(2)}). You’re unstoppable, ${userProfileData.name}! Check "Goal" anytime to track it.`;
-                        await deleteOnboardingState(from);
-                        return res.send(`<Response><Message>${reply}</Message></Response>`);
-                    }
-                }
-            }
-            // NON-ONBOARDING FLOW
-            else {
-                let reply;
-                const pendingState = await getPendingTransactionState(from);
-                const spreadsheetId = ownerProfile.spreadsheetId;
-                if (withinLimit.exceeded) {
-                    return res.send(`<Response><Message>⚠️ Trial limit reached! Reply 'Upgrade' to continue.</Message></Response>`);
-                }
-                if (!userName) {
-                    return res.send(`<Response><Message>⚠️ Your name is missing. Please reply with your name to continue.</Message></Response>`);
-                }
-                // "team" command (single instance)
-                if (body.toLowerCase() === "team") {
-                    const teamInfo = await getTeamInfo(ownerId);
-                    if (teamInfo && teamInfo.teamMembers.length > 0) {
-                        reply = `Your team: ${teamInfo.teamMembers.map(m => `${m.name} (${m.phone})`).join(", ")}`;
-                    } else {
-                        reply = "No team members yet. Reply 'Add [name] [phone]' to add one.";
-                    }
-                    return res.send(`<Response><Message>${reply}</Message></Response>`);
-                }
+  // Dynamic Industry prompt (on first expense)
+  if (!userProfile.industry && body && body.includes('$') && !state?.dynamicStep) {
+    await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'industry' });
+    reply = "Hey, what industry are you in? (e.g., Construction, Freelancer)";
+    return res.send(`<Response><Message>${reply}</Message></Response>`);
+  }
+  if (state?.dynamicStep === 'industry') {
+    userProfile.industry = response;
+    await saveUserProfile(userProfile);
+    reply = `Got it, ${userProfile.name}! Industry set to ${response}. Keep logging—next up, I’ll ask your financial goal when you add a bill or revenue.`;
+    await deleteOnboardingState(from);
+    return res.send(`<Response><Message>${reply}</Message></Response>`);
+  }
+
+  // Dynamic Goal prompt (on first bill or revenue)
+  if (!userProfile.goal && body && (body.toLowerCase().includes('bill') || body.toLowerCase().includes('revenue')) && !state?.dynamicStep) {
+    await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'goal' });
+    reply = "What’s your financial goal, boss? (e.g., Grow profit by $10,000, Pay off $5,000 debt)";
+    return res.send(`<Response><Message>${reply}</Message></Response>`);
+  }
+  if (state?.dynamicStep === 'goal') {
+    userProfile.goal = response;
+    userProfile.goalProgress = { 
+      target: response.includes('debt') ? -parseFloat(response.match(/\d+/)?.[0] || 5000) * 1000 : parseFloat(response.match(/\d+/)?.[0] || 10000) * 1000, 
+      current: 0 
+    };
+    await saveUserProfile(userProfile);
+    const currency = userProfile.country === 'United States' ? 'USD' : 'CAD';
+    reply = `Goal locked in: "${response}" (${currency} ${userProfile.goalProgress.target.toFixed(2)}). You’re unstoppable, ${userProfile.name}! Check "Goal" anytime to track it.`;
+    await deleteOnboardingState(from);
+    return res.send(`<Response><Message>${reply}</Message></Response>`);
+  }
+
+  // "team" command (single instance)
+  if (body.toLowerCase() === "team") {
+    const teamInfo = await getTeamInfo(from); // Fixed: ownerId to from
+    if (teamInfo && teamInfo.teamMembers.length > 0) {
+      reply = `Your team: ${teamInfo.teamMembers.map(m => `${m.name} (${m.phone})`).join(", ")}`;
+    } else {
+      reply = "No team members yet. Reply 'Add [name] [phone]' to add one.";
+    }
+    return res.send(`<Response><Message>${reply}</Message></Response>`);
+  }
+
 
                 // Existing branches
                 if (body.toLowerCase().startsWith("add ")) {
