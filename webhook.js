@@ -495,7 +495,7 @@ app.post('/webhook', async (req, res) => {
                 type = body.toLowerCase().includes('revenue') || body.toLowerCase().includes('earned') ? 'revenue' : 'expense';
             }
 
-           /// ONBOARDING FLOW
+          // ONBOARDING FLOW
 if (userProfile.onboarding_in_progress) {
     let state = await getOnboardingState(from);
     const isTeamMember = userProfile.isTeamMember;
@@ -512,7 +512,6 @@ if (userProfile.onboarding_in_progress) {
   
     if (isTeamMember) {
       // Team member onboarding (placeholder for now)
-      const steps = teamMemberOnboardingSteps; // Define this if needed
       console.log(`[DEBUG] Team member onboarding not fully implemented for ${from}`);
       return res.send(`<Response><Message>Team member onboarding TBD</Message></Response>`);
     } else {
@@ -524,13 +523,11 @@ if (userProfile.onboarding_in_progress) {
         const { country, region } = detectCountryAndRegion(from);
         state.responses.detectedCountry = country;
         state.responses.detectedRegion = region;
-        console.log(`[DEBUG] Setting onboarding state for ${from}`);
+        console.log(`[DEBUG] Setting onboarding state for ${from} to step 1`);
         await setOnboardingState(from, state);
-        console.log(`[DEBUG] Onboarding state set for ${from}`);
         userProfileData.name = response;
-        console.log(`[DEBUG] Saving user profile for ${from}`);
+        console.log(`[DEBUG] Saving user profile for ${from} with name`);
         await saveUserProfile(userProfileData);
-        console.log(`[DEBUG] User profile saved for ${from}`);
         console.log(`[DEBUG] Detected location for ${from}: ${country}, ${region}`);
         const normalizePhoneNumber = (phone) => phone.replace(/^whatsapp:/i, '').replace(/^\+/, '').trim();
         const fromNumber = `whatsapp:+${normalizePhoneNumber(process.env.TWILIO_WHATSAPP_NUMBER)}`;
@@ -562,7 +559,6 @@ if (userProfile.onboarding_in_progress) {
           console.error(`[ERROR] Twilio API request failed:`, error.response ? error.response.data : error.message);
           throw new Error(`Twilio API request failed: ${error.message}`);
         }
-        console.log(`[DEBUG] Location confirmation sent for ${from}`);
         return res.send(`<Response></Response>`);
       } else if (state.step === 1) {
         console.log(`[DEBUG] Processing location confirmation for ${from}: ${response}`);
@@ -570,7 +566,9 @@ if (userProfile.onboarding_in_progress) {
           userProfileData.country = state.responses.detectedCountry;
           userProfileData.province = state.responses.detectedRegion;
           state.step = 2;
+          console.log(`[DEBUG] Setting onboarding state for ${from} to step 2`);
           await setOnboardingState(from, state);
+          console.log(`[DEBUG] Saving user profile with location for ${from}`);
           await saveUserProfile(userProfileData);
           console.log(`[DEBUG] Asking for email for ${from}`);
           return res.send(`<Response><Message>What’s your email address?</Message></Response>`);
@@ -590,6 +588,7 @@ if (userProfile.onboarding_in_progress) {
             userProfileData.country = correctedCountry;
             userProfileData.province = correctedRegion;
             state.step = 2;
+            console.log(`[DEBUG] Setting onboarding state for ${from} to step 2 with manual correction`);
             await setOnboardingState(from, state);
             await saveUserProfile(userProfileData);
             console.log(`[DEBUG] Asking for email for ${from}`);
@@ -607,6 +606,7 @@ if (userProfile.onboarding_in_progress) {
         userProfileData.onboarding_in_progress = false;
         const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
         const taxRate = getTaxRate(userProfileData.country, userProfileData.province);
+        console.log(`[DEBUG] Saving user profile with email for ${from}`);
         await saveUserProfile(userProfileData);
         const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
         console.log(`[DEBUG] Onboarding complete for ${from}, spreadsheet ID: ${spreadsheetId}`);
