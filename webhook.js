@@ -513,62 +513,47 @@ app.post('/webhook', async (req, res) => {
                 if (isTeamMember) {
                     const steps = teamMemberOnboardingSteps;
                     if (state.step === 0) {
-                        state.responses.step_0 = response;
+                        console.log(`[DEBUG] Processing name response for ${from}: ${response}`);
+                        state.responses.name = response;
                         state.step = 1;
+                        const { country, region } = detectCountryAndRegion(from);
+                        state.responses.detectedCountry = country;
+                        state.responses.detectedRegion = region;
                         await setOnboardingState(from, state);
-                        await saveUserProfile({ ...userProfile, name: response, onboarding_in_progress: false });
-                        await deleteOnboardingState(from);
-                        const ownerProfile = await getUserProfile(ownerId);
-                        const teamMembers = ownerProfile.teamMembers.map(member =>
-                            member.phone === from ? { ...member, name: response } : member
-                        );
-                        await db.collection('users').doc(ownerId).update({ teamMembers });
-                        reply = `✅ Welcome, ${response}! You can now log expenses, revenue, and bills for ${ownerProfile.name}'s team.`;
-                        return res.send(`<Response><Message>${reply}</Message></Response>`);
-                    }
-                } else {
-                   // Owner onboarding
-if (state.step === 0) {
-  console.log(`[DEBUG] Processing name response for ${from}: ${response}`);
-  state.responses.name = response;
-  state.step = 1;
-  const { country, region } = detectCountryAndRegion(from);
-  state.responses.detectedCountry = country;
-  state.responses.detectedRegion = region;
-  await setOnboardingState(from, state);
-  userProfileData.name = response;
-  await saveUserProfile(userProfileData);
-  console.log(`[DEBUG] Detected location for ${from}: ${country}, ${region}`);
-  // Send Twilio template with quick reply buttons
-  const messageBody = {
-    MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-    To: `whatsapp:${from}`,
-    From: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
-    ContentSid: "HX0280df498999848aaff04cc079e16c31",
-    ContentVariables: JSON.stringify({
-      1: country,
-      2: region
-    })
-  };
-  console.log(`[DEBUG] Sending location confirmation template to ${from} with payload:`, messageBody);
-  try {
-    const twilioResponse = await axios.post(
-      `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
-      new URLSearchParams(messageBody),
-      {
-        auth: {
-          username: process.env.TWILIO_ACCOUNT_SID,
-          password: process.env.TWILIO_AUTH_TOKEN
-        }
-      }
-    );
-    console.log(`[DEBUG] Twilio API response:`, twilioResponse.data);
-  } catch (error) {
-    console.error(`[ERROR] Twilio API request failed:`, error.response ? error.response.data : error.message);
-    throw new Error(`Twilio API request failed: ${error.message}`);
-  }
-  return res.send(`<Response></Response>`);
-
+                        userProfileData.name = response;
+                        await saveUserProfile(userProfileData);
+                        console.log(`[DEBUG] Detected location for ${from}: ${country}, ${region}`);
+                        const normalizePhoneNumber = (phone) => phone.replace(/^whatsapp:/i, '').replace(/^\+/, '').trim();
+                        const fromNumber = `whatsapp:+${normalizePhoneNumber(process.env.TWILIO_WHATSAPP_NUMBER)}`;
+                        const messageBody = {
+                          MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+                          To: `whatsapp:${from}`,
+                          From: fromNumber,
+                          ContentSid: "HX0280df498999848aaff04cc079e16c31",
+                          ContentVariables: JSON.stringify({
+                            1: country,
+                            2: region
+                          })
+                        };
+                        console.log(`[DEBUG] Sending location confirmation template to ${from} with payload:`, messageBody);
+                        try {
+                          const twilioResponse = await axios.post(
+                            `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
+                            new URLSearchParams(messageBody),
+                            {
+                              auth: {
+                                username: process.env.TWILIO_ACCOUNT_SID,
+                                password: process.env.TWILIO_AUTH_TOKEN
+                              }
+                            }
+                          );
+                          console.log(`[DEBUG] Twilio API response:`, twilioResponse.data);
+                        } catch (error) {
+                          console.error(`[ERROR] Twilio API request failed:`, error.response ? error.response.data : error.message);
+                          throw new Error(`Twilio API request failed: ${error.message}`);
+                        }
+                        return res.send(`<Response></Response>`);
+                  
 } else if (state.step === 1) {
   console.log(`[DEBUG] Processing location confirmation for ${from}: ${response}`);
   if (responseLower === 'yes') {
@@ -604,39 +589,43 @@ if (state.step === 0) {
     }
   }
 } else if (state.step === 2) {
-  console.log(`[DEBUG] Processing email response for ${from}: ${response}`);
-  state.responses.email = response;
-  state.step = 3;
-  await setOnboardingState(from, state);
-  userProfileData.email = response;
-  userProfileData.onboarding_in_progress = false;
-  const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
-  const taxRate = getTaxRate(userProfileData.country, userProfileData.province);
-  await saveUserProfile(userProfileData);
-  const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
-  console.log(`[DEBUG] Onboarding complete for ${from}, spreadsheet ID: ${spreadsheetId}`);
-  await deleteOnboardingState(from);
-  const spreadsheetLink = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
-  // Send Twilio template for spreadsheet link
-  const messageBody = {
-    "MessagingServiceSid": process.env.TWILIO_MESSAGING_SERVICE_SID,
-    "To": `whatsapp:${from}`,
-    "From": `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
-    "ContentSid": "HXf5964d5ffeecc5e7f4e94d7b3379e084", // spreadsheetLink template ID
-    "ContentVariables": JSON.stringify({
-      "1": spreadsheetLink // Assuming template expects {{1}} as the link
-    })
-  };
-  console.log(`[DEBUG] Sending spreadsheet link template to ${from}: ${spreadsheetLink}`);
-  await axios.post('https://api.twilio.com/2010-04-01/Accounts/' + process.env.TWILIO_ACCOUNT_SID + '/Messages.json', 
-    new URLSearchParams(messageBody), {
-      auth: {
-        username: process.env.TWILIO_ACCOUNT_SID,
-        password: process.env.TWILIO_AUTH_TOKEN
+    console.log(`[DEBUG] Processing email response for ${from}: ${response}`);
+    state.responses.email = response;
+    state.step = 3;
+    await setOnboardingState(from, state);
+    userProfileData.email = response;
+    userProfileData.onboarding_in_progress = false;
+    const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
+    const taxRate = getTaxRate(userProfileData.country, userProfileData.province);
+    await saveUserProfile(userProfileData);
+    const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
+    console.log(`[DEBUG] Onboarding complete for ${from}, spreadsheet ID: ${spreadsheetId}`);
+    await deleteOnboardingState(from);
+    const spreadsheetLink = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
+    const normalizePhoneNumber = (phone) => phone.replace(/^whatsapp:/i, '').replace(/^\+/, '').trim();
+    const fromNumber = `whatsapp:+${normalizePhoneNumber(process.env.TWILIO_WHATSAPP_NUMBER)}`;
+    const messageBody = {
+      MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+      To: `whatsapp:${from}`,
+      From: fromNumber,
+      ContentSid: "HXf5964d5ffeecc5e7f4e94d7b3379e084",
+      ContentVariables: JSON.stringify({
+        1: spreadsheetLink
+      })
+    };
+    console.log(`[DEBUG] Sending spreadsheet link template to ${from}: ${spreadsheetLink}`);
+    await axios.post(
+      `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
+      new URLSearchParams(messageBody),
+      {
+        auth: {
+          username: process.env.TWILIO_ACCOUNT_SID,
+          password: process.env.TWILIO_AUTH_TOKEN
+        }
       }
-    });
-  return res.send(`<Response></Response>`);
-}
+    );
+    return res.send(`<Response></Response>`);
+  }
                     // Dynamic Industry prompt (on first expense)
                     if (!userProfileData.industry && input && input.includes('$') && type === 'expense' && !state.dynamicStep) {
                         await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'industry' });
