@@ -1,28 +1,10 @@
-const path = require("path");
-require('dotenv').config({ path: path.resolve(__dirname, '.env') });
-process.env.GOOGLE_CREDENTIALS_BASE64 = "ewogICJ0eXBlIjogInNlcnZpY2VfYWNjb3VudCIsCiAgInByb2plY3RfaWQiOiAic2hlcnBhLWFpLWM3MzJkIiwKICAicHJpdmF0ZV9rZXlfaWQiOiAiZDg2YjE4NTFjZDE2MjZmYTAxZjY3ZmZiMTQzOTA2YTVkYWRmNGE2NCIsCiAgInByaXZhdGVfa2V5IjogIi0tLS0tQkVHSU4gUFJJVkFURSBLRVktLS0tLVxuTUlJRXV3SUJBREFOQmdrcWhraUc5dzBCQVFFRkFBU0NCS1V3Z2dTaEFnRUFBb0lCQVFDU0FHbGtuOC9iKytRZ1xuVDhtY09FNnhod254MjZCTzlvZDUwdVpWV3gzV3IyMEE5QVhZbDRCY3NVWEt6KzY4QmMxZXl0Q3BvdGdIZXZUR1xuZ0pLTDJzYWx1Qk1xbmRLallxRjRibTNmTmRJWGppdDVqR294dkFjeExueVdoRnpkV0g4ZjdyT2orOSs0Ylpqd1xuNzYrTGdTYThTUjZUTGRmZ3ZoV29yTDErVDUyZ29SdldpSmtSaDNQRlIyT0FCNlhkWlBXN2V6dzA3RThOSm41NlxucmNsbjhvd0JKVlgvMFdkS2RnMVh4T3Zhbkd2L3UxN3MvNzBGSGZvOTlFcndvWERUQ2NSenVpOVFxdWdza1VPUlxuWWJLdWxOMUdjVWVWRkVjZVh4MFUwR1JmQVJHK0lTNXNzU2JXenl2WHhBaVpnT2NKWXcyRWVNbUpoVzhlb2ZWVVxuVVJLUDhEczFBZ01CQUFFQ2dmOW5sWnI4UEJkYWo2RGt5SWp2aE03Nno2L3pFdSttVVZZSCt4TEwzclZkUEZxdFxuZlI2Ymo5ck56b0cvaytlbzU1WERtc1Z3UCs0ZlUySG5KTzdHNGJ4OTBESlpZcCt3Q2d1NkRXUHRBekh0NXRrc1xuZW0rSUcwdG9CYW8rTTVicVV1SnU5cUNEdXQyZjVMK2c5aDMwK1loeGc3Q3RrODhDQThCMFhvTW1oc3dXL3Z5MlxuSVl5VlZJaWwrM0Q0d2FzaVIvTzBtS1RhQW9Yc0syMGFUTG0vYTB1UU9RV0l3TnczMStwaDF4NGhjMEpVUDRmWlxuVXkxSm0yamhVM3p2Sit5QUZMdXZ3OUNqVWRqeDVLQmJiS3FyTjZWNXY4UjhjNTF3aElhcGZLZncrOHVoWEY0aFxuK0w2T29pT296Y3laNE9Fc3Z2aHJPdWQ0Vmx6V2trZGdodFEzZnhFQ2dZRUF6UHltU3ZFRUNCS2N0UkJNM2pXaVxubFhkU2V3VjNFZmNEbnVGYW9DN0xWTzhOUVBWbWFtcDJ2MTF0TFoxdWpabUE2MEk4Y0RXd0IxT2xramNMV09ycVxuNGV2TnRxQmM5YlNJeHF5MmZuRXg2cVRkaDdwdFQ1RUgzRXdDSWxQY055N3B0WitYeDV5eS9LSGFYSkl1UlRCS1xuQk1VY3NHcnFJQWwrV1doMWpCUG0zVGtDZ1lFQXRsWHA0NFNoSk1qZTJaM293R2FtdSsvbS9pTWlXTDBmT0RxSlxuSUNoT2ZrOVRvVXp4dElJTmRzQmYyMVl6Y2ZiUXhzTG8wRDBjMTlQM05uemR6QkFWeGhLaURta1FEekJhYUdrUlxueGR5NjRubThOWTZPbkVWQXJZTWdmNnhzRSs4dkZ4R2MxOUtoeWhNcjhIeGRwV2UyRTN2V2psa0RLTFVHeU84NFxudjM3K1NkMENnWUJhT0xWRWROSXViMnF6c3NueVg2OEFsRFVrV21KdThNYVNMbVBCN3ZhbG1sVytDb1NhUCtPbVxuRkl2U01PR1F4MGhidzVwd1ZPRDJTSld1UmpYalcvb25sNjdDTzlET2dEaFhJWHR0S1lzcjJJWjhqOHcrNGZtUVxudDQrVTVrNGRwN05Mc2tPT291U1FsdmhTR0REdldQS3JLTXFZeDJYbTFlYmJtVU5yZFBMKzJRS0JnQ3gwSWNQUVxua0NFUndCTTZSb2F5QURDTnVybDNBMmF6SlN0bVNneEhCMndRRndtYVlzdHBjYkxrRC9xL3QyY3ZqNU1GN2hEbVxuOVdOQlVHSStheXpYTnhmRmJ6RW9PRHdidzg3MDN0cG9pRCt6QWtua2FheDd6ZHIvdnlxaGRQQWZQbEhYZjIrMlxuOEs3OW9aYk9HMTY2UEUvZnYxMlJJZzRJcEpEVWtmZE9GTjBaQW9HQkFNWjNpV3VPeFZRQ1ltVXFjalZZcnNUNlxuZXMxcEN1UWxydnNWbEtWNjlhcWFsVVkrZ3dZVm1sNjBYRk5jaTltUWNIREpFTi9KUVZPODdvbFhrM1dvWFNGOVxucnRzS2drSUp2QnBTaUlURGUrbWFWTUdYZG44SUhiblRLc2xFeTNvdkZHODdDdCtVM0hYT2NobjlsMlJQQmR5blxuRnhCVW5SN3ZKdS80WGZRSVlSRkNcbi0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS1cbiIsCiAgImNsaWVudF9lbWFpbCI6ICJnb29nbGUtc2hlZXRzLWJvdEBzaGVycGEtYWktYzczMmQuaWFtLmdzZXJ2aWNlYWNjb3VudC5jb20iLAogICJjbGllbnRfaWQiOiAiMTAyOTI1MDk0NTM2ODM0NzQwNDY0IiwKICAiYXV0aF91cmkiOiAiaHR0cHM6Ly9hY2NvdW50cy5nb29nbGUuY29tL28vb2F1dGgyL2F1dGgiLAogICJ0b2tlbl91cmkiOiAiaHR0cHM6Ly9vYXV0aDIuZ29vZ2xlYXBpcy5jb20vdG9rZW4iLAogICJhdXRoX3Byb3ZpZGVyX3g1MDlfY2VydF91cmwiOiAiaHR0cHM6Ly93d3cuZ29vZ2xlYXBpcy5jb20vb2F1dGgyL3YxL2NlcnRzIiwKICAiY2xpZW50X3g1MDlfY2VydF91cmwiOiAiaHR0cHM6Ly93d3cuZ29vZ2xlYXBpcy5jb20vcm9ib3QvdjEvbWV0YWRhdGEveDUwOS9nb29nbGUtc2hlZXRzLWJvdCU0MHNoZXJwYS1haS1jNzMyZC5pYW0uZ3NlcnZpY2VhY2NvdW50LmNvbSIsCiAgInVuaXZlcnNlX2RvbWFpbiI6ICJnb29nbGVhcGlzLmNvbSIKfQo="; 
-
-console.log("[DEBUG] 🔍 ACTUAL VALUE from ENV FILE:");
-console.log("[DEBUG] GOOGLE_CREDENTIALS_BASE64:", process.env.GOOGLE_CREDENTIALS_BASE64?.substring(0, 30));
-if (
-    !process.env.GOOGLE_CREDENTIALS_BASE64 ||
-    process.env.GOOGLE_CREDENTIALS_BASE64.includes("your_base64_encoded")
-  ) {
-    throw new Error("[🔥 ERROR] GOOGLE_CREDENTIALS_BASE64 is NOT loaded correctly from .env!");
-  }
-  
-// Google credentials
-const googleCredentials = JSON.parse(Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8'));
-console.log("[✅] Successfully parsed service account email:", googleCredentials.client_email);
-
-//console.log(process.env.FIREBASE_CREDENTIALS_BASE64);
-
-
+require('dotenv').config();
 
 // Core Node.js utilities
 const { URLSearchParams } = require('url');
 const fs = require('fs');
-const { db, storage } = require('./sandbox-chief-dev/firebase.js');
+const path = require('path');
+const { db, storage } = require('./firebase');
 
 // Third-party libraries
 const admin = require("firebase-admin");
@@ -36,15 +18,15 @@ const Papa = require('papaparse');
 const XLSX = require('xlsx');
 
 // Local utilities
-const { handleInputWithAI } = require('./utils/aiErrorHandler.js');
-const areaCodeMap = require('./sandbox-chief-dev/utils/areaCodes.js');
-const { parseExpenseMessage, parseRevenueMessage } = require('./sandbox-chief-dev/utils/expenseParser.js');
-const { processDocumentAI } = require('./sandbox-chief-dev/documentAI.js');
-const { transcribeAudio } = require('./sandbox-chief-dev/utils/transcriptionService.js');
-const { detectErrors, correctErrorsWithAI } = require('./sandbox-chief-dev/utils/errorDetector.js');
-const { getPendingTransactionState, setPendingTransactionState, deletePendingTransactionState } = require('./sandbox-chief-dev/utils/stateManager');
-const { sendTemplateMessage } = require('./sandbox-chief-dev/utils/twilioHelper.js');
-const { updateUserTokenUsage, checkTokenLimit, getSubscriptionTier } = require('./sandbox-chief-dev/utils/tokenManager.js');
+const { handleInputWithAI } = require('./utils/aiErrorHandler');
+const areaCodeMap = require('./utils/areaCodes');
+const { parseExpenseMessage, parseRevenueMessage } = require('./utils/expenseParser');
+const { processDocumentAI } = require('./documentAI');
+const { transcribeAudio } = require('./utils/transcriptionService');
+const { detectErrors, correctErrorsWithAI } = require('./utils/errorDetector');
+const { getPendingTransactionState, setPendingTransactionState, deletePendingTransactionState } = require('./utils/stateManager');
+const { sendTemplateMessage } = require('./utils/twilioHelper');
+const { updateUserTokenUsage, checkTokenLimit, getSubscriptionTier } = require('./utils/tokenManager');
 const {
     getUserProfile,
     saveUserProfile,
@@ -58,15 +40,19 @@ const {
     createSpreadsheetForUser,
     calculateIncomeGoal,
     fetchMaterialPrices,
-} = require("./sandbox-chief-dev/utils/googleSheets.js");
-
-const { extractTextFromImage } = require('./sandbox-chief-dev/utils/visionService.js');
+} = require("./utils/googleSheets");
+const { detectCountryAndRegion } = require('./utils/location');
+const { extractTextFromImage } = require('./utils/visionService');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
-const { sendSpreadsheetEmail, sendEmail } = require('./sandbox-chief-dev/utils/sendGridService.js');
-const { generateQuotePDF } = require('./sandbox-chief-dev/utils/pdfService.js');
-const { parseQuoteMessage, buildQuoteDetails } = require('./sandbox-chief-dev/utils/quoteUtils.js');
-const { getAuthorizedClient } = require('./sandbox-chief-dev/utils/googleSheets.js');
-const { getTaxRate } = require('./sandbox-chief-dev/utils/taxRate.js');
+const { sendSpreadsheetEmail, sendEmail } = require('./utils/sendGridService');
+const { generateQuotePDF } = require('./utils/pdfService');
+const { parseQuoteMessage, buildQuoteDetails } = require('./utils/quoteUtils');
+const { getAuthorizedClient } = require("./utils/googleSheets");
+const { getTaxRate } = require('./utils/taxRate.js');
+
+// Google credentials
+const googleCredentials = JSON.parse(Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8'));
+console.log('[DEBUG] Service account email from GOOGLE_CREDENTIALS_BASE64:', googleCredentials.client_email);
 
 // Helper functions for state persistence in Firestore
 const getOnboardingState = async (from) => {
@@ -231,23 +217,6 @@ function normalizePhoneNumber(phone) {
         .replace(/^whatsapp:/i, '')
         .replace(/^\+/, '')
         .trim();
-}
-
-function detectCountryAndRegion(phoneNumber) {
-    if (!phoneNumber.startsWith("+")) {
-        phoneNumber = `+${phoneNumber}`;
-    }
-    const phoneInfo = parsePhoneNumberFromString(phoneNumber);
-    if (!phoneInfo || !phoneInfo.isValid()) {
-        return { country: "Unknown", region: "Unknown" };
-    }
-    const nationalNumber = phoneInfo.nationalNumber;
-    const areaCode = nationalNumber.substring(0, 3);
-    const location = areaCodeMap[areaCode];
-    if (location) {
-        return { country: location.country, region: location.province || location.state || "Unknown" };
-    }
-    return { country: phoneInfo.country || "Unknown", region: "Unknown" };
 }
 
 // Express App Setup
@@ -526,194 +495,195 @@ app.post('/webhook', async (req, res) => {
                 type = body.toLowerCase().includes('revenue') || body.toLowerCase().includes('earned') ? 'revenue' : 'expense';
             }
 
-            // ONBOARDING FLOW
-            if (userProfile.onboarding_in_progress) {
-                let state = await getOnboardingState(from);
-                const isTeamMember = userProfile.isTeamMember;
+          // ONBOARDING FLOW
+          if (userProfile.onboarding_in_progress) {
+            let state = await getOnboardingState(from);
+            const isTeamMember = userProfile.isTeamMember;
 
-                if (!state) {
-                    state = { step: 0, responses: {}, dynamicStep: null };
+            if (!state) {
+                state = { step: 0, responses: {}, dynamicStep: null };
+                await setOnboardingState(from, state);
+                return res.send(`<Response><Message>Welcome! What's your name?</Message></Response>`);
+            }
+
+            const response = body.trim();
+            const responseLower = response.toLowerCase();
+
+            if (isTeamMember) {
+                const steps = teamMemberOnboardingSteps;
+                if (state.step === 0) {
+                    state.responses.step_0 = response;
+                    state.step = 1;
                     await setOnboardingState(from, state);
-                    return res.send(`<Response><Message>Welcome! What's your name?</Message></Response>`);
+                    await saveUserProfile({ ...userProfile, name: response, onboarding_in_progress: false });
+                    await deleteOnboardingState(from);
+                    const ownerProfile = await getUserProfile(ownerId);
+                    const teamMembers = ownerProfile.teamMembers.map(member =>
+                        member.phone === from ? { ...member, name: response } : member
+                    );
+                    await db.collection('users').doc(ownerId).update({ teamMembers });
+                    reply = `✅ Welcome, ${response}! You can now log expenses, revenue, and bills for ${ownerProfile.name}'s team.`;
+                    return res.send(`<Response><Message>${reply}</Message></Response>`);
+                }
+            } else {
+                // Owner onboarding (slimmed to Name, dynamic Industry/Goal)
+                if (state.step === 0) {
+                    state.responses.step_0 = response;
+                    state.step = 1;
+                    await setOnboardingState(from, state);
+                    userProfileData.name = response;
+                    userProfileData.onboarding_in_progress = false; // Core onboarding done
+                    const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
+                    const taxRate = getTaxRate(userProfileData.country, userProfileData.province);
+                    await saveUserProfile(userProfileData);
+                    const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email || 'unknown@email.com');
+                    await sendSpreadsheetEmail(userProfileData.email || 'unknown@email.com', spreadsheetId);
+                    reply = `🎉 Hey ${response}, I’m Chief, your pocket CFO! Congrats on joining—you’re now the boss of your books. I’ve auto-set your location to ${userProfileData.province}, ${userProfileData.country} (${currency}, ${(taxRate * 100).toFixed(2)}% tax). Here’s your dashboard:\nRevenue: ${currency} 0.00\nProfit: ${currency} 0.00\nHourly: ${currency} 0.00\nText me "expense $100 tools" or "revenue $200 client" to start rocking your finances. Pro tip: "Stats" shows your Shark Tank-ready numbers anytime!`;
+                    await deleteOnboardingState(from);
+                    return res.send(`<Response><Message>${reply}</Message></Response>`);
                 }
 
-                const response = body.trim();
-                const responseLower = response.toLowerCase();
+                // Dynamic Industry prompt (on first expense)
+                if (!userProfileData.industry && input && input.includes('$') && type === 'expense' && !state.dynamicStep) {
+                    await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'industry' });
+                    reply = "Hey, what industry are you in? (e.g., Construction, Freelancer)";
+                    return res.send(`<Response><Message>${reply}</Message></Response>`);
+                }
+                if (state.dynamicStep === 'industry') {
+                    userProfileData.industry = response;
+                    await saveUserProfile(userProfileData);
+                    reply = `Got it, ${userProfileData.name}! Industry set to ${response}. Keep logging—next up, I’ll ask your financial goal when you add a bill or revenue.`;
+                    await deleteOnboardingState(from);
+                    return res.send(`<Response><Message>${reply}</Message></Response>`);
+                }
 
-                if (isTeamMember) {
-                    const steps = teamMemberOnboardingSteps;
-                    if (state.step === 0) {
-                        state.responses.step_0 = response;
-                        state.step = 1;
-                        await setOnboardingState(from, state);
-                        await saveUserProfile({ ...userProfile, name: response, onboarding_in_progress: false });
-                        await deleteOnboardingState(from);
-                        const ownerProfile = await getUserProfile(ownerId);
-                        const teamMembers = ownerProfile.teamMembers.map(member =>
-                            member.phone === from ? { ...member, name: response } : member
-                        );
-                        await db.collection('users').doc(ownerId).update({ teamMembers });
-                        reply = `✅ Welcome, ${response}! You can now log expenses, revenue, and bills for ${ownerProfile.name}'s team.`;
-                        return res.send(`<Response><Message>${reply}</Message></Response>`);
-                    }
-                } else {
-                    // Owner onboarding (slimmed to Name, dynamic Industry/Goal)
-                    if (state.step === 0) {
-                        state.responses.step_0 = response;
-                        state.step = 1;
-                        await setOnboardingState(from, state);
-                        userProfileData.name = response;
-                        userProfileData.onboarding_in_progress = false; // Core onboarding done
-                        const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
-                        const taxRate = getTaxRate(userProfileData.country, userProfileData.province);
-                        await saveUserProfile(userProfileData);
-                        const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email || 'unknown@email.com');
-                        await sendSpreadsheetEmail(userProfileData.email || 'unknown@email.com', spreadsheetId);
-                        reply = `🎉 Hey ${response}, I’m Chief, your pocket CFO! Congrats on joining—you’re now the boss of your books. I’ve auto-set your location to ${userProfileData.province}, ${userProfileData.country} (${currency}, ${(taxRate * 100).toFixed(2)}% tax). Here’s your dashboard:\nRevenue: ${currency} 0.00\nProfit: ${currency} 0.00\nHourly: ${currency} 0.00\nText me "expense $100 tools" or "revenue $200 client" to start rocking your finances. Pro tip: "Stats" shows your Shark Tank-ready numbers anytime!`;
-                        await deleteOnboardingState(from);
-                        return res.send(`<Response><Message>${reply}</Message></Response>`);
-                    }
-
-                    // Dynamic Industry prompt (on first expense)
-                    if (!userProfileData.industry && input && input.includes('$') && type === 'expense' && !state.dynamicStep) {
-                        await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'industry' });
-                        reply = "Hey, what industry are you in? (e.g., Construction, Freelancer)";
-                        return res.send(`<Response><Message>${reply}</Message></Response>`);
-                    }
-                    if (state.dynamicStep === 'industry') {
-                        userProfileData.industry = response;
-                        await saveUserProfile(userProfileData);
-                        reply = `Got it, ${userProfileData.name}! Industry set to ${response}. Keep logging—next up, I’ll ask your financial goal when you add a bill or revenue.`;
-                        await deleteOnboardingState(from);
-                        return res.send(`<Response><Message>${reply}</Message></Response>`);
-                    }
-
-                    // Dynamic Goal prompt (on first bill or revenue)
-                    if (!userProfileData.goal && input && (input.toLowerCase().includes('bill') || type === 'revenue') && !state.dynamicStep) {
-                        await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'goal' });
-                        reply = "What’s your financial goal, boss? (e.g., Grow profit by $10,000, Pay off $5,000 debt)";
-                        return res.send(`<Response><Message>${reply}</Message></Response>`);
-                    }
-                    if (state.dynamicStep === 'goal') {
-                        userProfileData.goal = response;
-                        userProfileData.goalProgress = { 
-                            target: response.includes('debt') ? -parseFloat(response.match(/\d+/)?.[0] || 5000) * 1000 : parseFloat(response.match(/\d+/)?.[0] || 10000) * 1000, 
-                            current: 0 
-                        };
-                        await saveUserProfile(userProfileData);
-                        const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
-                        reply = `Goal locked in: "${response}" (${currency} ${userProfileData.goalProgress.target.toFixed(2)}). You’re unstoppable, ${userProfileData.name}! Check "Goal" anytime to track it.`;
-                        await deleteOnboardingState(from);
-                        return res.send(`<Response><Message>${reply}</Message></Response>`);
-                    }
+                // Dynamic Goal prompt (on first bill or revenue)
+                if (!userProfileData.goal && input && (input.toLowerCase().includes('bill') || type === 'revenue') && !state.dynamicStep) {
+                    await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'goal' });
+                    reply = "What’s your financial goal, boss? (e.g., Grow profit by $10,000, Pay off $5,000 debt)";
+                    return res.send(`<Response><Message>${reply}</Message></Response>`);
+                }
+                if (state.dynamicStep === 'goal') {
+                    userProfileData.goal = response;
+                    userProfileData.goalProgress = { 
+                        target: response.includes('debt') ? -parseFloat(response.match(/\d+/)?.[0] || 5000) * 1000 : parseFloat(response.match(/\d+/)?.[0] || 10000) * 1000, 
+                        current: 0 
+                    };
+                    await saveUserProfile(userProfileData);
+                    const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
+                    reply = `Goal locked in: "${response}" (${currency} ${userProfileData.goalProgress.target.toFixed(2)}). You’re unstoppable, ${userProfileData.name}! Check "Goal" anytime to track it.`;
+                    await deleteOnboardingState(from);
+                    return res.send(`<Response><Message>${reply}</Message></Response>`);
                 }
             }
-            // NON-ONBOARDING FLOW
-            else {
-                let reply;
-                const pendingState = await getPendingTransactionState(from);
-                const spreadsheetId = ownerProfile.spreadsheetId;
-                if (withinLimit.exceeded) {
-                    return res.send(`<Response><Message>⚠️ Trial limit reached! Reply 'Upgrade' to continue.</Message></Response>`);
+        }
+        // NON-ONBOARDING FLOW
+        else {
+            let reply;
+            const pendingState = await getPendingTransactionState(from);
+            const spreadsheetId = ownerProfile.spreadsheetId;
+            if (withinLimit.exceeded) {
+                return res.send(`<Response><Message>⚠️ Trial limit reached! Reply 'Upgrade' to continue.</Message></Response>`);
+            }
+            if (!userName) {
+                return res.send(`<Response><Message>⚠️ Your name is missing. Please reply with your name to continue.</Message></Response>`);
+            }
+            // "team" command (single instance)
+            if (body.toLowerCase() === "team") {
+                const teamInfo = await getTeamInfo(ownerId);
+                if (teamInfo && teamInfo.teamMembers.length > 0) {
+                    reply = `Your team: ${teamInfo.teamMembers.map(m => `${m.name} (${m.phone})`).join(", ")}`;
+                } else {
+                    reply = "No team members yet. Reply 'Add [name] [phone]' to add one.";
                 }
-                if (!userName) {
-                    return res.send(`<Response><Message>⚠️ Your name is missing. Please reply with your name to continue.</Message></Response>`);
-                }
-                // "team" command (single instance)
-                if (body.toLowerCase() === "team") {
-                    const teamInfo = await getTeamInfo(ownerId);
-                    if (teamInfo && teamInfo.teamMembers.length > 0) {
-                        reply = `Your team: ${teamInfo.teamMembers.map(m => `${m.name} (${m.phone})`).join(", ")}`;
-                    } else {
-                        reply = "No team members yet. Reply 'Add [name] [phone]' to add one.";
-                    }
+                return res.send(`<Response><Message>${reply}</Message></Response>`);
+            }
+
+            // Existing branches
+            if (body.toLowerCase().startsWith("add ")) {
+                const addMatch = body.match(/add\s+(.+?)\s+\+(\d{10,11})\s+as\s+a\s+team\s+member/i);
+                if (addMatch) {
+                    const newMemberPhone = normalizePhoneNumber(addMatch[2]);
+                    await db.collection('users').doc(ownerId).update({
+                        teamMembers: admin.firestore.FieldValue.arrayUnion({
+                            phone: newMemberPhone,
+                            name: addMatch[1],
+                            added_at: new Date().toISOString()
+                        })
+                    });
+                    reply = `✅ Added ${addMatch[1]} (${newMemberPhone}) to your team.`;
                     return res.send(`<Response><Message>${reply}</Message></Response>`);
                 }
+            }
+            
+            // Edit bill command
+            if (body.toLowerCase().startsWith("edit bill ")) {
+                if (!isOwner) {
+                    return res.send(`<Response><Message>⚠️ Only the owner can edit bills.</Message></Response>`);
+                }
+                const match = body.match(/edit bill\s+(.+?)(?:\s+amount\s+(\$?\d+\.?\d*))?(?:\s+due\s+(.+?))?(?:\s+(yearly|monthly|weekly|bi-weekly|one-time))?/i);
+                if (!match) {
+                    return res.send(`<Response><Message>⚠️ Format: "Edit bill [name] [amount $X] [due date] [recurrence]" (e.g., "Edit bill Rent amount $600 due June 1st monthly")</Message></Response>`);
+                }
+                const [, billName, amount, dueDate, recurrence] = match;
+                const billData = {
+                    billName,
+                    date: new Date().toISOString().split('T')[0],
+                    amount: amount ? `$${parseFloat(amount.replace('$', '')).toFixed(2)}` : null,
+                    dueDate: dueDate || null,
+                    recurrence: recurrence || null
+                };
+                const success = await updateBillInSheets(ownerId, billData);
+                reply = success 
+                    ? `✅ Bill "${billName}" updated${amount ? ` to ${billData.amount}` : ''}${dueDate ? ` due ${dueDate}` : ''}${recurrence ? ` (${recurrence})` : ''}.`
+                    : `⚠️ Bill "${billName}" not found or update failed.`;
+                return res.send(`<Response><Message>${reply}</Message></Response>`);
+            }
 
-                // Existing branches
-                if (body.toLowerCase().startsWith("add ")) {
-                    const addMatch = body.match(/add\s+(.+?)\s+\+(\d{10,11})\s+as\s+a\s+team\s+member/i);
-                    if (addMatch) {
-                        const newMemberPhone = normalizePhoneNumber(addMatch[2]);
-                        await db.collection('users').doc(ownerId).update({
-                            teamMembers: admin.firestore.FieldValue.arrayUnion({
-                                phone: newMemberPhone,
-                                name: addMatch[1],
-                                added_at: new Date().toISOString()
-                            })
+            // Delete bill command (standalone version)
+            if (body.toLowerCase().startsWith("delete bill ")) {
+                if (!isOwner) {
+                    return res.send(`<Response><Message>⚠️ Only the owner can delete bills.</Message></Response>`);
+                }
+                const billName = body.replace(/^delete bill\s+/i, '').trim();
+                await setPendingTransactionState(from, { pendingDelete: { type: 'bill', billName } });
+                return res.send(`<Response><Message>Are you sure you want to delete bill "${billName}"? Reply 'yes' or 'no'.</Message></Response>`);
+            }
+
+            // Enhance existing pending delete confirmation for bills
+            if (pendingState && pendingState.pendingDelete) {
+                if (!isOwner) {
+                    await deletePendingTransactionState(from);
+                    return res.send(`<Response><Message>⚠️ Only the owner can delete entries.</Message></Response>`);
+                }
+                if (input.toLowerCase() === 'yes') {
+                    const { type, billName, rowIndex } = pendingState.pendingDelete;
+                    if (type === 'bill') {
+                        const success = await deleteBillInSheets(ownerId, billName);
+                        reply = success ? `✅ Bill "${billName}" deleted.` : `⚠️ Bill "${billName}" not found or deletion We failed.`;
+                    } else {
+                        const sheets = google.sheets({ version: 'v4', auth: await getAuthorizedClient() });
+                        const sheetName = type === 'revenue' ? 'Revenue' : 'Sheet1';
+                        await sheets.spreadsheets.values.update({
+                            spreadsheetId,
+                            range: `${sheetName}!A${rowIndex + 2}:I${rowIndex + 2}`,
+                            valueInputOption: 'RAW',
+                            resource: { values: [[]] }
                         });
-                        reply = `✅ Added ${addMatch[1]} (${newMemberPhone}) to your team.`;
-                        return res.send(`<Response><Message>${reply}</Message></Response>`);
+                        reply = `✅ Deleted ${type} entry successfully.`;
                     }
-                }
-                
-                // Edit bill command
-                if (body.toLowerCase().startsWith("edit bill ")) {
-                    if (!isOwner) {
-                        return res.send(`<Response><Message>⚠️ Only the owner can edit bills.</Message></Response>`);
-                    }
-                    const match = body.match(/edit bill\s+(.+?)(?:\s+amount\s+(\$?\d+\.?\d*))?(?:\s+due\s+(.+?))?(?:\s+(yearly|monthly|weekly|bi-weekly|one-time))?/i);
-                    if (!match) {
-                        return res.send(`<Response><Message>⚠️ Format: "Edit bill [name] [amount $X] [due date] [recurrence]" (e.g., "Edit bill Rent amount $600 due June 1st monthly")</Message></Response>`);
-                    }
-                    const [, billName, amount, dueDate, recurrence] = match;
-                    const billData = {
-                        billName,
-                        date: new Date().toISOString().split('T')[0],
-                        amount: amount ? `$${parseFloat(amount.replace('$', '')).toFixed(2)}` : null,
-                        dueDate: dueDate || null,
-                        recurrence: recurrence || null
-                    };
-                    const success = await updateBillInSheets(ownerId, billData);
-                    reply = success 
-                        ? `✅ Bill "${billName}" updated${amount ? ` to ${billData.amount}` : ''}${dueDate ? ` due ${dueDate}` : ''}${recurrence ? ` (${recurrence})` : ''}.`
-                        : `⚠️ Bill "${billName}" not found or update failed.`;
+                    await deletePendingTransactionState(from);
+                    return res.send(`<Response><Message>${reply}</Message></Response>`);
+                } else if (input.toLowerCase() === 'no' || input.toLowerCase() === 'cancel') {
+                    await deletePendingTransactionState(from);
+                    reply = "❌ Deletion cancelled.";
+                    return res.send(`<Response><Message>${reply}</Message></Response>`);
+                } else {
+                    reply = "⚠️ Please reply with 'yes' or 'no' to confirm deletion.";
                     return res.send(`<Response><Message>${reply}</Message></Response>`);
                 }
+            }
 
-                // Delete bill command (standalone version)
-                if (body.toLowerCase().startsWith("delete bill ")) {
-                    if (!isOwner) {
-                        return res.send(`<Response><Message>⚠️ Only the owner can delete bills.</Message></Response>`);
-                    }
-                    const billName = body.replace(/^delete bill\s+/i, '').trim();
-                    await setPendingTransactionState(from, { pendingDelete: { type: 'bill', billName } });
-                    return res.send(`<Response><Message>Are you sure you want to delete bill "${billName}"? Reply 'yes' or 'no'.</Message></Response>`);
-                }
-
-                // Enhance existing pending delete confirmation for bills
-                if (pendingState && pendingState.pendingDelete) {
-                    if (!isOwner) {
-                        await deletePendingTransactionState(from);
-                        return res.send(`<Response><Message>⚠️ Only the owner can delete entries.</Message></Response>`);
-                    }
-                    if (input.toLowerCase() === 'yes') {
-                        const { type, billName, rowIndex } = pendingState.pendingDelete;
-                        if (type === 'bill') {
-                            const success = await deleteBillInSheets(ownerId, billName);
-                            reply = success ? `✅ Bill "${billName}" deleted.` : `⚠️ Bill "${billName}" not found or deletion We failed.`;
-                        } else {
-                            const sheets = google.sheets({ version: 'v4', auth: await getAuthorizedClient() });
-                            const sheetName = type === 'revenue' ? 'Revenue' : 'Sheet1';
-                            await sheets.spreadsheets.values.update({
-                                spreadsheetId,
-                                range: `${sheetName}!A${rowIndex + 2}:I${rowIndex + 2}`,
-                                valueInputOption: 'RAW',
-                                resource: { values: [[]] }
-                            });
-                            reply = `✅ Deleted ${type} entry successfully.`;
-                        }
-                        await deletePendingTransactionState(from);
-                        return res.send(`<Response><Message>${reply}</Message></Response>`);
-                    } else if (input.toLowerCase() === 'no' || input.toLowerCase() === 'cancel') {
-                        await deletePendingTransactionState(from);
-                        reply = "❌ Deletion cancelled.";
-                        return res.send(`<Response><Message>${reply}</Message></Response>`);
-                    } else {
-                        reply = "⚠️ Please reply with 'yes' or 'no' to confirm deletion.";
-                        return res.send(`<Response><Message>${reply}</Message></Response>`);
-                    }
-                }
 
                 // 0. Team Management Commands (Owner Only)
                 if (isOwner && input.toLowerCase().startsWith("add ")) {
