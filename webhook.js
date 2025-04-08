@@ -496,13 +496,12 @@ app.post('/webhook', async (req, res) => {
             }
 
           // ONBOARDING FLOW
-// Force onboarding to continue if user email is missing
 if (!userProfile.email) {
     userProfile.onboarding_in_progress = true;
     await saveUserProfile(userProfile);
-}
-
-if (userProfile.onboarding_in_progress) {
+  }
+  
+  if (userProfile.onboarding_in_progress) {
     let state = await getOnboardingState(from);
     const isTeamMember = userProfile.isTeamMember;
   
@@ -610,6 +609,7 @@ if (userProfile.onboarding_in_progress) {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         const trimmedEmail = response.trim();
         if (!emailRegex.test(trimmedEmail)) {
+          console.log(`[DEBUG] Invalid email format provided by ${from}: ${trimmedEmail}`);
           return res.send(`<Response><Message>Please provide a valid email address.</Message></Response>`);
         }
         state.responses.email = trimmedEmail;
@@ -619,8 +619,18 @@ if (userProfile.onboarding_in_progress) {
         userProfileData.onboarding_in_progress = false;
         console.log(`[DEBUG] Saving user profile with email for ${from}`);
         await saveUserProfile(userProfileData);
-        const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
-        console.log(`[DEBUG] Onboarding complete for ${from}, spreadsheet ID: ${spreadsheetId}`);
+        console.log(`[DEBUG] Getting or creating spreadsheet for ${from}`);
+        let spreadsheetResult;
+        try {
+          spreadsheetResult = await getOrCreateUserSpreadsheet(from);
+          if (!spreadsheetResult || !spreadsheetResult.spreadsheetId) {
+            throw new Error('getOrCreateUserSpreadsheet returned no spreadsheetId');
+          }
+        } catch (error) {
+          console.error(`[ERROR] Failed to get or create spreadsheet for ${from}:`, error.message);
+          return res.send(`<Response><Message>Sorry, there was an issue setting up your spreadsheet. Please try again later.</Message></Response>`);
+        }
+        const { spreadsheetId } = spreadsheetResult;
         await deleteOnboardingState(from);
         const spreadsheetLink = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
         const normalizePhoneNumber = (phone) => phone.replace(/^whatsapp:/i, '').replace(/^\+/, '').trim();
@@ -652,6 +662,7 @@ if (userProfile.onboarding_in_progress) {
           console.error(`[ERROR] Twilio API request failed:`, error.response ? error.response.data : error.message);
           throw new Error(`Twilio API request failed: ${error.message}`);
         }
+        console.log(`[DEBUG] Onboarding complete for ${from}, spreadsheet ID: ${spreadsheetId}`);
         return res.send(`<Response></Response>`);
       }
                     // Dynamic Industry prompt (on first expense)
