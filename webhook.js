@@ -525,41 +525,48 @@ if (userProfile.onboarding_in_progress) {
       }
     } else {
       // Owner Onboarding Flow (Name then Email)
-      if (state.step === 0) {
-        // Step 0: Collect user's name.
-        state.responses.step_0 = response;
-        state.step = 1; // Move to email collection
-        await setOnboardingState(from, state);
-        userProfileData.name = response;
-        // Do not mark onboarding as complete yet – we still need the email.
-        const reply = `Hi ${response}, can you please provide your email address?`;
+if (state.step === 0) {
+    // Step 0: Collect user's name.
+    state.responses.step_0 = response;
+    state.step = 1; // Move to email collection
+    await setOnboardingState(from, state);
+    userProfileData.name = response;  // Save the name
+    // Do not mark onboarding as complete yet – we still need the email.
+    const reply = `Hi ${response}, can you please provide your email address?`;
+    return res.send(`<Response><Message>${reply}</Message></Response>`);
+} else if (state.step === 1) {
+    // Step 1: Collect user's email.
+    state.responses.step_1 = response;
+    const email = response.trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        const reply = "That doesn't seem like a valid email. Please provide a valid email address.";
         return res.send(`<Response><Message>${reply}</Message></Response>`);
-      } else if (state.step === 1) {
-        // Step 1: Collect user's email.
-        state.responses.step_1 = response;
-        const email = response.trim();
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email)) {
-          const reply = "That doesn't seem like a valid email. Please provide a valid email address.";
-          return res.send(`<Response><Message>${reply}</Message></Response>`);
-        }
-        userProfileData.email = email;
-        // Now that we have a valid email, mark onboarding as complete.
-        userProfileData.onboarding_in_progress = false;
-        await saveUserProfile(userProfileData);
-        // Create and share the spreadsheet using the provided email.
-        const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
-        await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
-        const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
-        const taxRate = getTaxRate(userProfileData.country, userProfileData.province);
-        const reply = `🎉 Hey ${userProfileData.name}, I’m Chief, your pocket CFO! Congrats on joining—you’re now the boss of your books. I’ve auto-set your location to ${userProfileData.province}, ${userProfileData.country} (${currency}, ${(taxRate * 100).toFixed(2)}% tax). Here’s your dashboard:
-  Revenue: ${currency} 0.00
-  Profit: ${currency} 0.00
-  Hourly: ${currency} 0.00
-  Text me "expense $100 tools" or "revenue $200 client" to start rocking your finances. Pro tip: "Stats" shows your Shark Tank-ready numbers anytime!`;
-        await deleteOnboardingState(from);
-        return res.send(`<Response><Message>${reply}</Message></Response>`);
-      }
+    }
+    userProfileData.email = email;
+    // Now that we have a valid email, mark onboarding as complete.
+    userProfileData.onboarding_in_progress = false;
+    // Save the profile with both name and email.
+    await saveUserProfile(userProfileData);
+    // Re-fetch the updated profile so that the name is correctly present.
+    userProfileData = await getUserProfile(from);
+    
+    // Create and share the spreadsheet using the provided email.
+    const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
+    await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
+    
+    const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
+    const taxRate = getTaxRate(userProfileData.country, userProfileData.province);
+    const reply = `🎉 Hey ${userProfileData.name}, I’m Chief, your pocket CFO! Congrats on joining—you’re now the boss of your books. I’ve auto-set your location to ${userProfileData.province}, ${userProfileData.country} (${currency}, ${(taxRate * 100).toFixed(2)}% tax). Here’s your dashboard:
+Revenue: ${currency} 0.00
+Profit: ${currency} 0.00
+Hourly: ${currency} 0.00
+Text me "expense $100 tools" or "revenue $200 client" to start rocking your finances. Pro tip: "Stats" shows your Shark Tank-ready numbers anytime!`;
+    
+    await deleteOnboardingState(from);
+    return res.send(`<Response><Message>${reply}</Message></Response>`);
+}
+
   
       // Dynamic prompts (industry and goal) can be handled here if desired.
       // NOTE: Ensure variable consistency (use response instead of input) and proper state management.
