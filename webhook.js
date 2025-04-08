@@ -495,7 +495,7 @@ app.post('/webhook', async (req, res) => {
                 type = body.toLowerCase().includes('revenue') || body.toLowerCase().includes('earned') ? 'revenue' : 'expense';
             }
 
-           // ONBOARDING FLOW
+           /// ONBOARDING FLOW
 if (userProfile.onboarding_in_progress) {
     let state = await getOnboardingState(from);
     const isTeamMember = userProfile.isTeamMember;
@@ -554,7 +554,7 @@ if (userProfile.onboarding_in_progress) {
                 username: process.env.TWILIO_ACCOUNT_SID,
                 password: process.env.TWILIO_AUTH_TOKEN
               },
-              timeout: 5000 // Added timeout to prevent 504
+              timeout: 5000
             }
           );
           console.log(`[DEBUG] Twilio API response:`, twilioResponse.data);
@@ -633,7 +633,7 @@ if (userProfile.onboarding_in_progress) {
                 username: process.env.TWILIO_ACCOUNT_SID,
                 password: process.env.TWILIO_AUTH_TOKEN
               },
-              timeout: 5000 // Added timeout to prevent 504
+              timeout: 5000
             }
           );
           console.log(`[DEBUG] Twilio API response:`, twilioResponse.data);
@@ -643,8 +643,7 @@ if (userProfile.onboarding_in_progress) {
         }
         return res.send(`<Response></Response>`);
       }
-    }
-  }
+    
                     // Dynamic Industry prompt (on first expense)
                     if (!userProfileData.industry && input && input.includes('$') && type === 'expense' && !state.dynamicStep) {
                         await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'industry' });
