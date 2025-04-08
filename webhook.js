@@ -421,7 +421,8 @@ app.post('/webhook', async (req, res) => {
         const isOwner = !ownerInfo || ownerId === from;
         const ownerProfile = isOwner ? userProfile : await getUserProfile(ownerId);
         const userName = userProfile?.name || 'Unknown User';
-        const userProfileData = userProfile; // Alias for consistency
+        let userProfileData = userProfile; // Alias for consistency, now reassignable
+
 
         await updateUserTokenUsage(ownerId, { 
             messages: 1, 
@@ -524,7 +525,7 @@ if (userProfile.onboarding_in_progress) {
         return res.send(`<Response><Message>${reply}</Message></Response>`);
       }
     } else {
-      // Owner Onboarding Flow (Name then Email)
+     // Owner Onboarding Flow (Name then Email)
 if (state.step === 0) {
     // Step 0: Collect user's name.
     state.responses.step_0 = response;
@@ -546,7 +547,6 @@ if (state.step === 0) {
     userProfileData.email = email;
     // Now that we have a valid email, mark onboarding as complete.
     userProfileData.onboarding_in_progress = false;
-    // Save the profile with both name and email.
     await saveUserProfile(userProfileData);
     // Re-fetch the updated profile so that the name is correctly present.
     userProfileData = await getUserProfile(from);
@@ -566,6 +566,7 @@ Text me "expense $100 tools" or "revenue $200 client" to start rocking your fina
     await deleteOnboardingState(from);
     return res.send(`<Response><Message>${reply}</Message></Response>`);
 }
+
 
   
       // Dynamic prompts (industry and goal) can be handled here if desired.
