@@ -496,159 +496,166 @@ app.post('/webhook', async (req, res) => {
             }
 
           // ONBOARDING FLOW
-if (userProfile.onboarding_in_progress) {
-    let state = await getOnboardingState(from);
-    const isTeamMember = userProfile.isTeamMember;
+// Before processing, force onboarding if email is missing
+if (!userProfile.email) {
+    userProfile.onboarding_in_progress = true;
+    await saveUserProfile(userProfile);
+  }
   
-    if (!state) {
-      state = { step: 0, responses: {}, dynamicStep: null };
-      await setOnboardingState(from, state);
-      console.log(`[DEBUG] Starting onboarding for ${from}`);
-      return res.send(`<Response><Message>Welcome! What's your name?</Message></Response>`);
-    }
-  
-    const response = body.trim();
-    const responseLower = response.toLowerCase();
-  
-    if (isTeamMember) {
-      // Team member onboarding (placeholder for now)
-      console.log(`[DEBUG] Team member onboarding not fully implemented for ${from}`);
-      return res.send(`<Response><Message>Team member onboarding TBD</Message></Response>`);
-    } else {
-      // Owner onboarding
-      if (state.step === 0) {
-        console.log(`[DEBUG] Processing name response for ${from}: ${response}`);
-        state.responses.name = response;
-        state.step = 1;
-        const { country, region } = detectCountryAndRegion(from);
-        state.responses.detectedCountry = country;
-        state.responses.detectedRegion = region;
-        console.log(`[DEBUG] Setting onboarding state for ${from} to step 1`);
+  if (userProfile.onboarding_in_progress) {
+      let state = await getOnboardingState(from);
+      const isTeamMember = userProfile.isTeamMember;
+    
+      if (!state) {
+        state = { step: 0, responses: {}, dynamicStep: null };
         await setOnboardingState(from, state);
-        userProfileData.name = response;
-        console.log(`[DEBUG] Saving user profile for ${from} with name`);
-        await saveUserProfile(userProfileData);
-        console.log(`[DEBUG] Detected location for ${from}: ${country}, ${region}`);
-        const normalizePhoneNumber = (phone) => phone.replace(/^whatsapp:/i, '').replace(/^\+/, '').trim();
-        const fromNumber = `whatsapp:+${normalizePhoneNumber(process.env.TWILIO_WHATSAPP_NUMBER)}`;
-        const messageBody = {
-          MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-          To: `whatsapp:${from}`,
-          From: fromNumber,
-          ContentSid: "HX0280df498999848aaff04cc079e16c31",
-          ContentVariables: JSON.stringify({
-            1: country,
-            2: region
-          })
-        };
-        console.log(`[DEBUG] Sending location confirmation template to ${from} with payload:`, messageBody);
-        try {
-          const twilioResponse = await axios.post(
-            `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
-            new URLSearchParams(messageBody),
-            {
-              auth: {
-                username: process.env.TWILIO_ACCOUNT_SID,
-                password: process.env.TWILIO_AUTH_TOKEN
-              },
-              timeout: 5000
-            }
-          );
-          console.log(`[DEBUG] Twilio API response:`, twilioResponse.data);
-        } catch (error) {
-          console.error(`[ERROR] Twilio API request failed:`, error.response ? error.response.data : error.message);
-          throw new Error(`Twilio API request failed: ${error.message}`);
-        }
-        return res.send(`<Response></Response>`);
-      } else if (state.step === 1) {
-        console.log(`[DEBUG] Processing location confirmation for ${from}: ${response}`);
-        if (responseLower === 'yes') {
-          userProfileData.country = state.responses.detectedCountry;
-          userProfileData.province = state.responses.detectedRegion;
-          state.step = 2;
-          console.log(`[DEBUG] Setting onboarding state for ${from} to step 2`);
+        console.log(`[DEBUG] Starting onboarding for ${from}`);
+        return res.send(`<Response><Message>Welcome! What's your name?</Message></Response>`);
+      }
+    
+      const response = body.trim();
+      const responseLower = response.toLowerCase();
+    
+      if (isTeamMember) {
+        // Team member onboarding (placeholder for now)
+        console.log(`[DEBUG] Team member onboarding not fully implemented for ${from}`);
+        return res.send(`<Response><Message>Team member onboarding TBD</Message></Response>`);
+      } else {
+        // Owner onboarding
+        if (state.step === 0) {
+          console.log(`[DEBUG] Processing name response for ${from}: ${response}`);
+          state.responses.name = response;
+          state.step = 1;
+          const { country, region } = detectCountryAndRegion(from);
+          state.responses.detectedCountry = country;
+          state.responses.detectedRegion = region;
+          console.log(`[DEBUG] Setting onboarding state for ${from} to step 1`);
           await setOnboardingState(from, state);
-          console.log(`[DEBUG] Saving user profile with location for ${from}`);
+          userProfileData.name = response;
+          console.log(`[DEBUG] Saving user profile for ${from} with name`);
           await saveUserProfile(userProfileData);
-          console.log(`[DEBUG] Asking for email for ${from}`);
-          return res.send(`<Response><Message>What’s your email address?</Message></Response>`);
-        } else if (responseLower === 'edit') {
-          console.log(`[DEBUG] User chose to edit location for ${from}`);
-          return res.send(`<Response><Message>Please provide your country and state/province (e.g., "Canada, Ontario"):</Message></Response>`);
-        } else if (responseLower === 'cancel') {
-          console.log(`[DEBUG] User cancelled onboarding for ${from}`);
-          userProfileData.onboarding_in_progress = false;
-          await saveUserProfile(userProfileData);
-          await deleteOnboardingState(from);
-          return res.send(`<Response><Message>Onboarding cancelled. Send "Hi" to start again!</Message></Response>`);
-        } else {
-          // Handle manual correction (e.g., "Canada, Ontario")
-          const [correctedCountry, correctedRegion] = response.split(',').map(s => s.trim());
-          if (correctedCountry && correctedRegion) {
-            userProfileData.country = correctedCountry;
-            userProfileData.province = correctedRegion;
+          console.log(`[DEBUG] Detected location for ${from}: ${country}, ${region}`);
+          const normalizePhoneNumber = (phone) => phone.replace(/^whatsapp:/i, '').replace(/^\+/, '').trim();
+          const fromNumber = `whatsapp:+${normalizePhoneNumber(process.env.TWILIO_WHATSAPP_NUMBER)}`;
+          const messageBody = {
+            MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+            To: `whatsapp:${from}`,
+            From: fromNumber,
+            ContentSid: "HX0280df498999848aaff04cc079e16c31",
+            ContentVariables: JSON.stringify({
+              1: country,
+              2: region
+            })
+          };
+          console.log(`[DEBUG] Sending location confirmation template to ${from} with payload:`, messageBody);
+          try {
+            const twilioResponse = await axios.post(
+              `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
+              new URLSearchParams(messageBody),
+              {
+                auth: {
+                  username: process.env.TWILIO_ACCOUNT_SID,
+                  password: process.env.TWILIO_AUTH_TOKEN
+                },
+                timeout: 5000
+              }
+            );
+            console.log(`[DEBUG] Twilio API response:`, twilioResponse.data);
+          } catch (error) {
+            console.error(`[ERROR] Twilio API request failed:`, error.response ? error.response.data : error.message);
+            throw new Error(`Twilio API request failed: ${error.message}`);
+          }
+          return res.send(`<Response></Response>`);
+        } else if (state.step === 1) {
+          console.log(`[DEBUG] Processing location confirmation for ${from}: ${response}`);
+          if (responseLower === 'yes') {
+            userProfileData.country = state.responses.detectedCountry;
+            userProfileData.province = state.responses.detectedRegion;
             state.step = 2;
-            console.log(`[DEBUG] Setting onboarding state for ${from} to step 2 with manual correction`);
+            console.log(`[DEBUG] Setting onboarding state for ${from} to step 2`);
             await setOnboardingState(from, state);
+            console.log(`[DEBUG] Saving user profile with location for ${from}`);
             await saveUserProfile(userProfileData);
             console.log(`[DEBUG] Asking for email for ${from}`);
             return res.send(`<Response><Message>What’s your email address?</Message></Response>`);
+          } else if (responseLower === 'edit') {
+            console.log(`[DEBUG] User chose to edit location for ${from}`);
+            return res.send(`<Response><Message>Please provide your country and state/province (e.g., "Canada, Ontario"):</Message></Response>`);
+          } else if (responseLower === 'cancel') {
+            console.log(`[DEBUG] User cancelled onboarding for ${from}`);
+            userProfileData.onboarding_in_progress = false;
+            await saveUserProfile(userProfileData);
+            await deleteOnboardingState(from);
+            return res.send(`<Response><Message>Onboarding cancelled. Send "Hi" to start again!</Message></Response>`);
           } else {
-            return res.send(`<Response><Message>Invalid format. Use "Country, State/Province" or press a button.</Message></Response>`);
-          }
-        }
-      } else if (state.step === 2) {
-        console.log(`[DEBUG] Processing email response for ${from}: ${response}`);
-        // Validate email address format with a regex
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        const trimmedEmail = response.trim();
-        if (!emailRegex.test(trimmedEmail)) {
-          return res.send(`<Response><Message>Please provide a valid email address.</Message></Response>`);
-        }
-        state.responses.email = trimmedEmail;
-        state.step = 3;
-        await setOnboardingState(from, state);
-        userProfileData.email = trimmedEmail;
-        userProfileData.onboarding_in_progress = false;
-        const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
-        const taxRate = getTaxRate(userProfileData.country, userProfileData.province);
-        console.log(`[DEBUG] Saving user profile with email for ${from}`);
-        await saveUserProfile(userProfileData);
-        const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
-        console.log(`[DEBUG] Onboarding complete for ${from}, spreadsheet ID: ${spreadsheetId}`);
-        await deleteOnboardingState(from);
-        const spreadsheetLink = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
-        const normalizePhoneNumber = (phone) => phone.replace(/^whatsapp:/i, '').replace(/^\+/, '').trim();
-        const fromNumber = `whatsapp:+${normalizePhoneNumber(process.env.TWILIO_WHATSAPP_NUMBER)}`;
-        const messageBody = {
-          MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-          To: `whatsapp:${from}`,
-          From: fromNumber,
-          ContentSid: "HXf5964d5ffeecc5e7f4e94d7b3379e084",
-          ContentVariables: JSON.stringify({
-            1: spreadsheetLink
-          })
-        };
-        console.log(`[DEBUG] Sending spreadsheet link template to ${from}: ${spreadsheetLink}`);
-        try {
-          const twilioResponse = await axios.post(
-            `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
-            new URLSearchParams(messageBody),
-            {
-              auth: {
-                username: process.env.TWILIO_ACCOUNT_SID,
-                password: process.env.TWILIO_AUTH_TOKEN
-              },
-              timeout: 5000
+            // Handle manual correction (e.g., "Canada, Ontario")
+            const [correctedCountry, correctedRegion] = response.split(',').map(s => s.trim());
+            if (correctedCountry && correctedRegion) {
+              userProfileData.country = correctedCountry;
+              userProfileData.province = correctedRegion;
+              state.step = 2;
+              console.log(`[DEBUG] Setting onboarding state for ${from} to step 2 with manual correction`);
+              await setOnboardingState(from, state);
+              await saveUserProfile(userProfileData);
+              console.log(`[DEBUG] Asking for email for ${from}`);
+              return res.send(`<Response><Message>What’s your email address?</Message></Response>`);
+            } else {
+              return res.send(`<Response><Message>Invalid format. Use "Country, State/Province" or press a button.</Message></Response>`);
             }
-          );
-          console.log(`[DEBUG] Twilio API response:`, twilioResponse.data);
-        } catch (error) {
-          console.error(`[ERROR] Twilio API request failed:`, error.response ? error.response.data : error.message);
-          throw new Error(`Twilio API request failed: ${error.message}`);
-        }
-        return res.send(`<Response></Response>`);
-      }    
+          }
+        } else if (state.step === 2) {
+          console.log(`[DEBUG] Processing email response for ${from}: ${response}`);
+          // Validate email address format with a regex
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          const trimmedEmail = response.trim();
+          if (!emailRegex.test(trimmedEmail)) {
+            return res.send(`<Response><Message>Please provide a valid email address.</Message></Response>`);
+          }
+          state.responses.email = trimmedEmail;
+          state.step = 3;
+          await setOnboardingState(from, state);
+          userProfileData.email = trimmedEmail;
+          // Only mark onboarding as complete once a valid email is received
+          userProfileData.onboarding_in_progress = false;
+          const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
+          const taxRate = getTaxRate(userProfileData.country, userProfileData.province);
+          console.log(`[DEBUG] Saving user profile with email for ${from}`);
+          await saveUserProfile(userProfileData);
+          const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
+          console.log(`[DEBUG] Onboarding complete for ${from}, spreadsheet ID: ${spreadsheetId}`);
+          await deleteOnboardingState(from);
+          const spreadsheetLink = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
+          const normalizePhoneNumber = (phone) => phone.replace(/^whatsapp:/i, '').replace(/^\+/, '').trim();
+          const fromNumber = `whatsapp:+${normalizePhoneNumber(process.env.TWILIO_WHATSAPP_NUMBER)}`;
+          const messageBody = {
+            MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+            To: `whatsapp:${from}`,
+            From: fromNumber,
+            ContentSid: "HXf5964d5ffeecc5e7f4e94d7b3379e084",
+            ContentVariables: JSON.stringify({
+              1: spreadsheetLink
+            })
+          };
+          console.log(`[DEBUG] Sending spreadsheet link template to ${from}: ${spreadsheetLink}`);
+          try {
+            const twilioResponse = await axios.post(
+              `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
+              new URLSearchParams(messageBody),
+              {
+                auth: {
+                  username: process.env.TWILIO_ACCOUNT_SID,
+                  password: process.env.TWILIO_AUTH_TOKEN
+                },
+                timeout: 5000
+              }
+            );
+            console.log(`[DEBUG] Twilio API response:`, twilioResponse.data);
+          } catch (error) {
+            console.error(`[ERROR] Twilio API request failed:`, error.response ? error.response.data : error.message);
+            throw new Error(`Twilio API request failed: ${error.message}`);
+          }
+          return res.send(`<Response></Response>`);
+        }  
                     // Dynamic Industry prompt (on first expense)
                     if (!userProfileData.industry && input && input.includes('$') && type === 'expense' && !state.dynamicStep) {
                         await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'industry' });
