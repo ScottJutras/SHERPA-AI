@@ -1,10 +1,28 @@
-require('dotenv').config();
+const path = require("path");
+require('dotenv').config({ path: path.resolve(__dirname, '.env') });
+process.env.GOOGLE_CREDENTIALS_BASE64 = "ewogICJ0eXBlIjogInNlcnZpY2VfYWNjb3VudCIsCiAgInByb2plY3RfaWQiOiAic2hlcnBhLWFpLWM3MzJkIiwKICAicHJpdmF0ZV9rZXlfaWQiOiAiZDg2YjE4NTFjZDE2MjZmYTAxZjY3ZmZiMTQzOTA2YTVkYWRmNGE2NCIsCiAgInByaXZhdGVfa2V5IjogIi0tLS0tQkVHSU4gUFJJVkFURSBLRVktLS0tLVxuTUlJRXV3SUJBREFOQmdrcWhraUc5dzBCQVFFRkFBU0NCS1V3Z2dTaEFnRUFBb0lCQVFDU0FHbGtuOC9iKytRZ1xuVDhtY09FNnhod254MjZCTzlvZDUwdVpWV3gzV3IyMEE5QVhZbDRCY3NVWEt6KzY4QmMxZXl0Q3BvdGdIZXZUR1xuZ0pLTDJzYWx1Qk1xbmRLallxRjRibTNmTmRJWGppdDVqR294dkFjeExueVdoRnpkV0g4ZjdyT2orOSs0Ylpqd1xuNzYrTGdTYThTUjZUTGRmZ3ZoV29yTDErVDUyZ29SdldpSmtSaDNQRlIyT0FCNlhkWlBXN2V6dzA3RThOSm41NlxucmNsbjhvd0JKVlgvMFdkS2RnMVh4T3Zhbkd2L3UxN3MvNzBGSGZvOTlFcndvWERUQ2NSenVpOVFxdWdza1VPUlxuWWJLdWxOMUdjVWVWRkVjZVh4MFUwR1JmQVJHK0lTNXNzU2JXenl2WHhBaVpnT2NKWXcyRWVNbUpoVzhlb2ZWVVxuVVJLUDhEczFBZ01CQUFFQ2dmOW5sWnI4UEJkYWo2RGt5SWp2aE03Nno2L3pFdSttVVZZSCt4TEwzclZkUEZxdFxuZlI2Ymo5ck56b0cvaytlbzU1WERtc1Z3UCs0ZlUySG5KTzdHNGJ4OTBESlpZcCt3Q2d1NkRXUHRBekh0NXRrc1xuZW0rSUcwdG9CYW8rTTVicVV1SnU5cUNEdXQyZjVMK2c5aDMwK1loeGc3Q3RrODhDQThCMFhvTW1oc3dXL3Z5MlxuSVl5VlZJaWwrM0Q0d2FzaVIvTzBtS1RhQW9Yc0syMGFUTG0vYTB1UU9RV0l3TnczMStwaDF4NGhjMEpVUDRmWlxuVXkxSm0yamhVM3p2Sit5QUZMdXZ3OUNqVWRqeDVLQmJiS3FyTjZWNXY4UjhjNTF3aElhcGZLZncrOHVoWEY0aFxuK0w2T29pT296Y3laNE9Fc3Z2aHJPdWQ0Vmx6V2trZGdodFEzZnhFQ2dZRUF6UHltU3ZFRUNCS2N0UkJNM2pXaVxubFhkU2V3VjNFZmNEbnVGYW9DN0xWTzhOUVBWbWFtcDJ2MTF0TFoxdWpabUE2MEk4Y0RXd0IxT2xramNMV09ycVxuNGV2TnRxQmM5YlNJeHF5MmZuRXg2cVRkaDdwdFQ1RUgzRXdDSWxQY055N3B0WitYeDV5eS9LSGFYSkl1UlRCS1xuQk1VY3NHcnFJQWwrV1doMWpCUG0zVGtDZ1lFQXRsWHA0NFNoSk1qZTJaM293R2FtdSsvbS9pTWlXTDBmT0RxSlxuSUNoT2ZrOVRvVXp4dElJTmRzQmYyMVl6Y2ZiUXhzTG8wRDBjMTlQM05uemR6QkFWeGhLaURta1FEekJhYUdrUlxueGR5NjRubThOWTZPbkVWQXJZTWdmNnhzRSs4dkZ4R2MxOUtoeWhNcjhIeGRwV2UyRTN2V2psa0RLTFVHeU84NFxudjM3K1NkMENnWUJhT0xWRWROSXViMnF6c3NueVg2OEFsRFVrV21KdThNYVNMbVBCN3ZhbG1sVytDb1NhUCtPbVxuRkl2U01PR1F4MGhidzVwd1ZPRDJTSld1UmpYalcvb25sNjdDTzlET2dEaFhJWHR0S1lzcjJJWjhqOHcrNGZtUVxudDQrVTVrNGRwN05Mc2tPT291U1FsdmhTR0REdldQS3JLTXFZeDJYbTFlYmJtVU5yZFBMKzJRS0JnQ3gwSWNQUVxua0NFUndCTTZSb2F5QURDTnVybDNBMmF6SlN0bVNneEhCMndRRndtYVlzdHBjYkxrRC9xL3QyY3ZqNU1GN2hEbVxuOVdOQlVHSStheXpYTnhmRmJ6RW9PRHdidzg3MDN0cG9pRCt6QWtua2FheDd6ZHIvdnlxaGRQQWZQbEhYZjIrMlxuOEs3OW9aYk9HMTY2UEUvZnYxMlJJZzRJcEpEVWtmZE9GTjBaQW9HQkFNWjNpV3VPeFZRQ1ltVXFjalZZcnNUNlxuZXMxcEN1UWxydnNWbEtWNjlhcWFsVVkrZ3dZVm1sNjBYRk5jaTltUWNIREpFTi9KUVZPODdvbFhrM1dvWFNGOVxucnRzS2drSUp2QnBTaUlURGUrbWFWTUdYZG44SUhiblRLc2xFeTNvdkZHODdDdCtVM0hYT2NobjlsMlJQQmR5blxuRnhCVW5SN3ZKdS80WGZRSVlSRkNcbi0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS1cbiIsCiAgImNsaWVudF9lbWFpbCI6ICJnb29nbGUtc2hlZXRzLWJvdEBzaGVycGEtYWktYzczMmQuaWFtLmdzZXJ2aWNlYWNjb3VudC5jb20iLAogICJjbGllbnRfaWQiOiAiMTAyOTI1MDk0NTM2ODM0NzQwNDY0IiwKICAiYXV0aF91cmkiOiAiaHR0cHM6Ly9hY2NvdW50cy5nb29nbGUuY29tL28vb2F1dGgyL2F1dGgiLAogICJ0b2tlbl91cmkiOiAiaHR0cHM6Ly9vYXV0aDIuZ29vZ2xlYXBpcy5jb20vdG9rZW4iLAogICJhdXRoX3Byb3ZpZGVyX3g1MDlfY2VydF91cmwiOiAiaHR0cHM6Ly93d3cuZ29vZ2xlYXBpcy5jb20vb2F1dGgyL3YxL2NlcnRzIiwKICAiY2xpZW50X3g1MDlfY2VydF91cmwiOiAiaHR0cHM6Ly93d3cuZ29vZ2xlYXBpcy5jb20vcm9ib3QvdjEvbWV0YWRhdGEveDUwOS9nb29nbGUtc2hlZXRzLWJvdCU0MHNoZXJwYS1haS1jNzMyZC5pYW0uZ3NlcnZpY2VhY2NvdW50LmNvbSIsCiAgInVuaXZlcnNlX2RvbWFpbiI6ICJnb29nbGVhcGlzLmNvbSIKfQo="; 
+
+console.log("[DEBUG] 🔍 ACTUAL VALUE from ENV FILE:");
+console.log("[DEBUG] GOOGLE_CREDENTIALS_BASE64:", process.env.GOOGLE_CREDENTIALS_BASE64?.substring(0, 30));
+if (
+    !process.env.GOOGLE_CREDENTIALS_BASE64 ||
+    process.env.GOOGLE_CREDENTIALS_BASE64.includes("your_base64_encoded")
+  ) {
+    throw new Error("[🔥 ERROR] GOOGLE_CREDENTIALS_BASE64 is NOT loaded correctly from .env!");
+  }
+  
+// Google credentials
+const googleCredentials = JSON.parse(Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8'));
+console.log("[✅] Successfully parsed service account email:", googleCredentials.client_email);
+
+//console.log(process.env.FIREBASE_CREDENTIALS_BASE64);
+
+
 
 // Core Node.js utilities
 const { URLSearchParams } = require('url');
 const fs = require('fs');
-const path = require('path');
-const { db, storage } = require('./firebase');
+const { db, storage } = require('./sandbox-chief-dev/firebase.js');
 
 // Third-party libraries
 const admin = require("firebase-admin");
@@ -18,15 +36,15 @@ const Papa = require('papaparse');
 const XLSX = require('xlsx');
 
 // Local utilities
-const { handleInputWithAI } = require('./utils/aiErrorHandler');
-const areaCodeMap = require('./utils/areaCodes');
-const { parseExpenseMessage, parseRevenueMessage } = require('./utils/expenseParser');
-const { processDocumentAI } = require('./documentAI');
-const { transcribeAudio } = require('./utils/transcriptionService');
-const { detectErrors, correctErrorsWithAI } = require('./utils/errorDetector');
-const { getPendingTransactionState, setPendingTransactionState, deletePendingTransactionState } = require('./utils/stateManager');
-const { sendTemplateMessage } = require('./utils/twilioHelper');
-const { updateUserTokenUsage, checkTokenLimit, getSubscriptionTier } = require('./utils/tokenManager');
+const { handleInputWithAI } = require('./utils/aiErrorHandler.js');
+const areaCodeMap = require('./sandbox-chief-dev/utils/areaCodes.js');
+const { parseExpenseMessage, parseRevenueMessage } = require('./sandbox-chief-dev/utils/expenseParser.js');
+const { processDocumentAI } = require('./sandbox-chief-dev/documentAI.js');
+const { transcribeAudio } = require('./sandbox-chief-dev/utils/transcriptionService.js');
+const { detectErrors, correctErrorsWithAI } = require('./sandbox-chief-dev/utils/errorDetector.js');
+const { getPendingTransactionState, setPendingTransactionState, deletePendingTransactionState } = require('./sandbox-chief-dev/utils/stateManager');
+const { sendTemplateMessage } = require('./sandbox-chief-dev/utils/twilioHelper.js');
+const { updateUserTokenUsage, checkTokenLimit, getSubscriptionTier } = require('./sandbox-chief-dev/utils/tokenManager.js');
 const {
     getUserProfile,
     saveUserProfile,
@@ -40,19 +58,15 @@ const {
     createSpreadsheetForUser,
     calculateIncomeGoal,
     fetchMaterialPrices,
-} = require("./utils/googleSheets");
-const { detectCountryAndRegion } = require('./utils/location');
-const { extractTextFromImage } = require('./utils/visionService');
-const { parsePhoneNumberFromString } = require('libphonenumber-js');
-const { sendSpreadsheetEmail, sendEmail } = require('./utils/sendGridService');
-const { generateQuotePDF } = require('./utils/pdfService');
-const { parseQuoteMessage, buildQuoteDetails } = require('./utils/quoteUtils');
-const { getAuthorizedClient } = require("./utils/googleSheets");
-const { getTaxRate } = require('./utils/taxRate.js');
+} = require("./sandbox-chief-dev/utils/googleSheets.js");
 
-// Google credentials
-const googleCredentials = JSON.parse(Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8'));
-console.log('[DEBUG] Service account email from GOOGLE_CREDENTIALS_BASE64:', googleCredentials.client_email);
+const { extractTextFromImage } = require('./sandbox-chief-dev/utils/visionService.js');
+const { parsePhoneNumberFromString } = require('libphonenumber-js');
+const { sendSpreadsheetEmail, sendEmail } = require('./sandbox-chief-dev/utils/sendGridService.js');
+const { generateQuotePDF } = require('./sandbox-chief-dev/utils/pdfService.js');
+const { parseQuoteMessage, buildQuoteDetails } = require('./sandbox-chief-dev/utils/quoteUtils.js');
+const { getAuthorizedClient } = require('./sandbox-chief-dev/utils/googleSheets.js');
+const { getTaxRate } = require('./sandbox-chief-dev/utils/taxRate.js');
 
 // Helper functions for state persistence in Firestore
 const getOnboardingState = async (from) => {
@@ -217,6 +231,23 @@ function normalizePhoneNumber(phone) {
         .replace(/^whatsapp:/i, '')
         .replace(/^\+/, '')
         .trim();
+}
+
+function detectCountryAndRegion(phoneNumber) {
+    if (!phoneNumber.startsWith("+")) {
+        phoneNumber = `+${phoneNumber}`;
+    }
+    const phoneInfo = parsePhoneNumberFromString(phoneNumber);
+    if (!phoneInfo || !phoneInfo.isValid()) {
+        return { country: "Unknown", region: "Unknown" };
+    }
+    const nationalNumber = phoneInfo.nationalNumber;
+    const areaCode = nationalNumber.substring(0, 3);
+    const location = areaCodeMap[areaCode];
+    if (location) {
+        return { country: location.country, region: location.province || location.state || "Unknown" };
+    }
+    return { country: phoneInfo.country || "Unknown", region: "Unknown" };
 }
 
 // Express App Setup
@@ -495,235 +526,109 @@ app.post('/webhook', async (req, res) => {
                 type = body.toLowerCase().includes('revenue') || body.toLowerCase().includes('earned') ? 'revenue' : 'expense';
             }
 
-          // ONBOARDING FLOW
-console.log(`[DEBUG] Entering onboarding flow for ${from}, profile:`, userProfile);
+            // ONBOARDING FLOW
+            if (userProfile.onboarding_in_progress) {
+                let state = await getOnboardingState(from);
+                const isTeamMember = userProfile.isTeamMember;
 
-// Force onboarding to continue if user email is missing
-if (!userProfile.email) {
-  userProfile.onboarding_in_progress = true;
-  console.log(`[DEBUG] Forcing onboarding for ${userProfile.user_id} due to missing email`);
-  await saveUserProfile(userProfile);
-}
+                if (!state) {
+                    state = { step: 0, responses: {}, dynamicStep: null };
+                    await setOnboardingState(from, state);
+                    return res.send(`<Response><Message>Welcome! What's your name?</Message></Response>`);
+                }
 
-if (userProfile.onboarding_in_progress) {
-  let state = await getOnboardingState(from);
-  const isTeamMember = userProfile.isTeamMember;
+                const response = body.trim();
+                const responseLower = response.toLowerCase();
 
-  console.log(`[DEBUG] Current onboarding state for ${from}:`, state);
+                if (isTeamMember) {
+                    const steps = teamMemberOnboardingSteps;
+                    if (state.step === 0) {
+                        state.responses.step_0 = response;
+                        state.step = 1;
+                        await setOnboardingState(from, state);
+                        await saveUserProfile({ ...userProfile, name: response, onboarding_in_progress: false });
+                        await deleteOnboardingState(from);
+                        const ownerProfile = await getUserProfile(ownerId);
+                        const teamMembers = ownerProfile.teamMembers.map(member =>
+                            member.phone === from ? { ...member, name: response } : member
+                        );
+                        await db.collection('users').doc(ownerId).update({ teamMembers });
+                        reply = `✅ Welcome, ${response}! You can now log expenses, revenue, and bills for ${ownerProfile.name}'s team.`;
+                        return res.send(`<Response><Message>${reply}</Message></Response>`);
+                    }
+                } else {
+                    // Owner onboarding (slimmed to Name, dynamic Industry/Goal)
+                    if (state.step === 0) {
+                        state.responses.step_0 = response;
+                        state.step = 1;
+                        await setOnboardingState(from, state);
+                        userProfileData.name = response;
+                        userProfileData.onboarding_in_progress = false; // Core onboarding done
+                        const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
+                        const taxRate = getTaxRate(userProfileData.country, userProfileData.province);
+                        await saveUserProfile(userProfileData);
+                        const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email || 'unknown@email.com');
+                        await sendSpreadsheetEmail(userProfileData.email || 'unknown@email.com', spreadsheetId);
+                        reply = `🎉 Hey ${response}, I’m Chief, your pocket CFO! Congrats on joining—you’re now the boss of your books. I’ve auto-set your location to ${userProfileData.province}, ${userProfileData.country} (${currency}, ${(taxRate * 100).toFixed(2)}% tax). Here’s your dashboard:\nRevenue: ${currency} 0.00\nProfit: ${currency} 0.00\nHourly: ${currency} 0.00\nText me "expense $100 tools" or "revenue $200 client" to start rocking your finances. Pro tip: "Stats" shows your Shark Tank-ready numbers anytime!`;
+                        await deleteOnboardingState(from);
+                        return res.send(`<Response><Message>${reply}</Message></Response>`);
+                    }
 
-  if (!state) {
-    state = { step: 0, responses: {}, dynamicStep: null };
-    await setOnboardingState(from, state);
-    console.log(`[DEBUG] Starting onboarding for ${from}`);
-    return res.send(`<Response><Message>Welcome! What's your name?</Message></Response>`);
-  }
+                    // Dynamic Industry prompt (on first expense)
+                    if (!userProfileData.industry && input && input.includes('$') && type === 'expense' && !state.dynamicStep) {
+                        await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'industry' });
+                        reply = "Hey, what industry are you in? (e.g., Construction, Freelancer)";
+                        return res.send(`<Response><Message>${reply}</Message></Response>`);
+                    }
+                    if (state.dynamicStep === 'industry') {
+                        userProfileData.industry = response;
+                        await saveUserProfile(userProfileData);
+                        reply = `Got it, ${userProfileData.name}! Industry set to ${response}. Keep logging—next up, I’ll ask your financial goal when you add a bill or revenue.`;
+                        await deleteOnboardingState(from);
+                        return res.send(`<Response><Message>${reply}</Message></Response>`);
+                    }
 
-  const response = body.trim();
-  const responseLower = response.toLowerCase();
-
-  try {
-    if (isTeamMember) {
-      console.log(`[DEBUG] Team member onboarding not fully implemented for ${from}`);
-      return res.send(`<Response><Message>Team member onboarding TBD</Message></Response>`);
-    } else {
-      // Owner onboarding
-      if (state.step === 0) {
-        console.log(`[DEBUG] Processing name response for ${from}: ${response}`);
-        state.responses.name = response;
-        state.step = 1;
-        const { country, region } = detectCountryAndRegion(from);
-        state.responses.detectedCountry = country;
-        state.responses.detectedRegion = region;
-        console.log(`[DEBUG] Setting onboarding state for ${from} to step 1`);
-        await setOnboardingState(from, state);
-        userProfile.name = response; // Fixed: Use userProfile instead of userProfileData
-        console.log(`[DEBUG] Saving user profile for ${from} with name`);
-        await saveUserProfile(userProfile);
-        console.log(`[DEBUG] Detected location for ${from}: ${country}, ${region}`);
-        const normalizePhoneNumber = (phone) =>
-          phone.replace(/^whatsapp:/i, '').replace(/^\+/, '').trim();
-        const fromNumber = `whatsapp:+${normalizePhoneNumber(process.env.TWILIO_WHATSAPP_NUMBER)}`;
-        const messageBody = {
-          MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-          To: `whatsapp:${from}`,
-          From: fromNumber,
-          ContentSid: "HX0280df498999848aaff04cc079e16c31",
-          ContentVariables: JSON.stringify({
-            1: country,
-            2: region
-          })
-        };
-        console.log(`[DEBUG] Sending location confirmation template to ${from} with payload:`, messageBody);
-        const twilioResponse = await axios.post(
-          `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
-          new URLSearchParams(messageBody),
-          {
-            auth: {
-              username: process.env.TWILIO_ACCOUNT_SID,
-              password: process.env.TWILIO_AUTH_TOKEN
-            },
-            timeout: 5000
-          }
-        );
-        console.log(`[DEBUG] Twilio API response:`, twilioResponse.data);
-        return res.send(`<Response></Response>`);
-      } else if (state.step === 1) {
-        console.log(`[DEBUG] Processing location confirmation for ${from}: ${response}`);
-        if (responseLower === 'yes') {
-          userProfile.country = state.responses.detectedCountry;
-          userProfile.province = state.responses.detectedRegion;
-          state.step = 2;
-          console.log(`[DEBUG] Setting onboarding state for ${from} to step 2`);
-          await setOnboardingState(from, state);
-          console.log(`[DEBUG] Saving user profile with location for ${from}`);
-          await saveUserProfile(userProfile);
-          console.log(`[DEBUG] Asking for email for ${from}`);
-          return res.send(`<Response><Message>What’s your email address?</Message></Response>`);
-        } else if (responseLower === 'edit') {
-          console.log(`[DEBUG] User chose to edit location for ${from}`);
-          return res.send(`<Response><Message>Please provide your country and state/province (e.g., "Canada, Ontario"):</Message></Response>`);
-        } else if (responseLower === 'cancel') {
-          console.log(`[DEBUG] User cancelled onboarding for ${from}`);
-          userProfile.onboarding_in_progress = false;
-          await saveUserProfile(userProfile);
-          await deleteOnboardingState(from);
-          return res.send(`<Response><Message>Onboarding cancelled. Send "Hi" to start again!</Message></Response>`);
-        } else {
-          const [correctedCountry, correctedRegion] = response.split(',').map(s => s.trim());
-          if (correctedCountry && correctedRegion) {
-            userProfile.country = correctedCountry;
-            userProfile.province = correctedRegion;
-            state.step = 2;
-            console.log(`[DEBUG] Setting onboarding state for ${from} to step 2 with manual correction`);
-            await setOnboardingState(from, state);
-            await saveUserProfile(userProfile);
-            console.log(`[DEBUG] Asking for email for ${from}`);
-            return res.send(`<Response><Message>What’s your email address?</Message></Response>`);
-          } else {
-            return res.send(`<Response><Message>Invalid format. Use "Country, State/Province" or press a button.</Message></Response>`);
-          }
-        }
-      } else if (state.step === 2) {
-        console.log(`[DEBUG] Processing email response for ${from}: ${response}`);
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        const trimmedEmail = response.trim();
-        if (!emailRegex.test(trimmedEmail)) {
-          console.log(`[DEBUG] Invalid email format provided by ${from}: ${trimmedEmail}`);
-          return res.send(`<Response><Message>Please provide a valid email address.</Message></Response>`);
-        }
-        state.responses.email = trimmedEmail;
-        state.step = 3;
-        await setOnboardingState(from, state);
-        userProfile.email = trimmedEmail;
-        userProfile.onboarding_in_progress = false;
-        console.log(`[DEBUG] Saving user profile with email for ${from}`);
-        await saveUserProfile(userProfile);
-        console.log(`[DEBUG] Getting or creating spreadsheet for ${from} with email: ${trimmedEmail}`);
-        let spreadsheetResult;
-        try {
-          spreadsheetResult = await getOrCreateUserSpreadsheet(from, trimmedEmail);
-          console.log(`[DEBUG] Spreadsheet result for ${from}:`, spreadsheetResult);
-          if (!spreadsheetResult || !spreadsheetResult.spreadsheetId) {
-            throw new Error('getOrCreateUserSpreadsheet returned no spreadsheetId');
-          }
-        } catch (error) {
-          console.error(`[ERROR] Failed to get or create spreadsheet for ${from}:`, error.message);
-          return res.send(`<Response><Message>Sorry, there was an issue setting up your spreadsheet. Please try again later.</Message></Response>`);
-        }
-        const { spreadsheetId } = spreadsheetResult;
-        await deleteOnboardingState(from);
-        const spreadsheetLink = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
-        const normalizePhoneNumber = (phone) => phone.replace(/^whatsapp:/i, '').replace(/^\+/, '').trim();
-        const fromNumber = `whatsapp:+${normalizePhoneNumber(process.env.TWILIO_WHATSAPP_NUMBER)}`;
-        const messageBody = {
-          MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-          To: `whatsapp:${from}`,
-          From: fromNumber,
-          ContentSid: "HXf5964d5ffeecc5e7f4e94d7b3379e084",
-          ContentVariables: JSON.stringify({
-            1: spreadsheetLink
-          })
-        };
-        console.log(`[DEBUG] Sending spreadsheet link template to ${from}: ${spreadsheetLink}`);
-        const twilioResponse = await axios.post(
-          `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
-          new URLSearchParams(messageBody),
-          {
-            auth: {
-              username: process.env.TWILIO_ACCOUNT_SID,
-              password: process.env.TWILIO_AUTH_TOKEN
-            },
-            timeout: 5000
-          }
-        );
-        console.log(`[DEBUG] Twilio API response:`, twilioResponse.data);
-        console.log(`[DEBUG] Onboarding complete for ${from}, spreadsheet ID: ${spreadsheetId}`);
-        return res.send(`<Response></Response>`);
-      } else {
-        console.log(`[DEBUG] Unexpected onboarding step for ${from}: ${state.step}`);
-        return res.send(`<Response><Message>Onboarding step out of sync. Please restart by saying "Hi".</Message></Response>`);
-      }
-    }
-  } catch (error) {
-    console.error(`[ERROR] Onboarding flow failed for ${from}:`, error.stack || error.message);
-    throw new Error(`Inner webhook processing failed: ${error.message}`);
-  }
-} else {
-  // NON-ONBOARDING FLOW
-  let reply;
-  const pendingState = await getPendingTransactionState(from);
-  const spreadsheetId = userProfile.spreadsheetId; // Assuming ownerProfile is userProfile
-  if (withinLimit.exceeded) {
-    return res.send(`<Response><Message>⚠️ Trial limit reached! Reply 'Upgrade' to continue.</Message></Response>`);
-  }
-  if (!userProfile.name) { // Fixed: userName to userProfile.name
-    return res.send(`<Response><Message>⚠️ Your name is missing. Please reply with your name to continue.</Message></Response>`);
-  }
-
-  // Dynamic Industry prompt (on first expense)
-  if (!userProfile.industry && body && body.includes('$') && !state?.dynamicStep) {
-    await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'industry' });
-    reply = "Hey, what industry are you in? (e.g., Construction, Freelancer)";
-    return res.send(`<Response><Message>${reply}</Message></Response>`);
-  }
-  if (state?.dynamicStep === 'industry') {
-    userProfile.industry = response;
-    await saveUserProfile(userProfile);
-    reply = `Got it, ${userProfile.name}! Industry set to ${response}. Keep logging—next up, I’ll ask your financial goal when you add a bill or revenue.`;
-    await deleteOnboardingState(from);
-    return res.send(`<Response><Message>${reply}</Message></Response>`);
-  }
-
-  // Dynamic Goal prompt (on first bill or revenue)
-  if (!userProfile.goal && body && (body.toLowerCase().includes('bill') || body.toLowerCase().includes('revenue')) && !state?.dynamicStep) {
-    await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'goal' });
-    reply = "What’s your financial goal, boss? (e.g., Grow profit by $10,000, Pay off $5,000 debt)";
-    return res.send(`<Response><Message>${reply}</Message></Response>`);
-  }
-  if (state?.dynamicStep === 'goal') {
-    userProfile.goal = response;
-    userProfile.goalProgress = { 
-      target: response.includes('debt') ? -parseFloat(response.match(/\d+/)?.[0] || 5000) * 1000 : parseFloat(response.match(/\d+/)?.[0] || 10000) * 1000, 
-      current: 0 
-    };
-    await saveUserProfile(userProfile);
-    const currency = userProfile.country === 'United States' ? 'USD' : 'CAD';
-    reply = `Goal locked in: "${response}" (${currency} ${userProfile.goalProgress.target.toFixed(2)}). You’re unstoppable, ${userProfile.name}! Check "Goal" anytime to track it.`;
-    await deleteOnboardingState(from);
-    return res.send(`<Response><Message>${reply}</Message></Response>`);
-  }
-
-  // "team" command (single instance)
-  if (body.toLowerCase() === "team") {
-    const teamInfo = await getTeamInfo(from); // Fixed: ownerId to from
-    if (teamInfo && teamInfo.teamMembers.length > 0) {
-      reply = `Your team: ${teamInfo.teamMembers.map(m => `${m.name} (${m.phone})`).join(", ")}`;
-    } else {
-      reply = "No team members yet. Reply 'Add [name] [phone]' to add one.";
-    }
-    return res.send(`<Response><Message>${reply}</Message></Response>`);
-  }
-
+                    // Dynamic Goal prompt (on first bill or revenue)
+                    if (!userProfileData.goal && input && (input.toLowerCase().includes('bill') || type === 'revenue') && !state.dynamicStep) {
+                        await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'goal' });
+                        reply = "What’s your financial goal, boss? (e.g., Grow profit by $10,000, Pay off $5,000 debt)";
+                        return res.send(`<Response><Message>${reply}</Message></Response>`);
+                    }
+                    if (state.dynamicStep === 'goal') {
+                        userProfileData.goal = response;
+                        userProfileData.goalProgress = { 
+                            target: response.includes('debt') ? -parseFloat(response.match(/\d+/)?.[0] || 5000) * 1000 : parseFloat(response.match(/\d+/)?.[0] || 10000) * 1000, 
+                            current: 0 
+                        };
+                        await saveUserProfile(userProfileData);
+                        const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
+                        reply = `Goal locked in: "${response}" (${currency} ${userProfileData.goalProgress.target.toFixed(2)}). You’re unstoppable, ${userProfileData.name}! Check "Goal" anytime to track it.`;
+                        await deleteOnboardingState(from);
+                        return res.send(`<Response><Message>${reply}</Message></Response>`);
+                    }
+                }
+            }
+            // NON-ONBOARDING FLOW
+            else {
+                let reply;
+                const pendingState = await getPendingTransactionState(from);
+                const spreadsheetId = ownerProfile.spreadsheetId;
+                if (withinLimit.exceeded) {
+                    return res.send(`<Response><Message>⚠️ Trial limit reached! Reply 'Upgrade' to continue.</Message></Response>`);
+                }
+                if (!userName) {
+                    return res.send(`<Response><Message>⚠️ Your name is missing. Please reply with your name to continue.</Message></Response>`);
+                }
+                // "team" command (single instance)
+                if (body.toLowerCase() === "team") {
+                    const teamInfo = await getTeamInfo(ownerId);
+                    if (teamInfo && teamInfo.teamMembers.length > 0) {
+                        reply = `Your team: ${teamInfo.teamMembers.map(m => `${m.name} (${m.phone})`).join(", ")}`;
+                    } else {
+                        reply = "No team members yet. Reply 'Add [name] [phone]' to add one.";
+                    }
+                    return res.send(`<Response><Message>${reply}</Message></Response>`);
+                }
 
                 // Existing branches
                 if (body.toLowerCase().startsWith("add ")) {
