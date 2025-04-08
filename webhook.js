@@ -599,10 +599,16 @@ if (userProfile.onboarding_in_progress) {
         }
       } else if (state.step === 2) {
         console.log(`[DEBUG] Processing email response for ${from}: ${response}`);
-        state.responses.email = response;
+        // Validate email address format with a regex
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const trimmedEmail = response.trim();
+        if (!emailRegex.test(trimmedEmail)) {
+          return res.send(`<Response><Message>Please provide a valid email address.</Message></Response>`);
+        }
+        state.responses.email = trimmedEmail;
         state.step = 3;
         await setOnboardingState(from, state);
-        userProfileData.email = response;
+        userProfileData.email = trimmedEmail;
         userProfileData.onboarding_in_progress = false;
         const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
         const taxRate = getTaxRate(userProfileData.country, userProfileData.province);
@@ -642,8 +648,7 @@ if (userProfile.onboarding_in_progress) {
           throw new Error(`Twilio API request failed: ${error.message}`);
         }
         return res.send(`<Response></Response>`);
-      }
-    
+      }    
                     // Dynamic Industry prompt (on first expense)
                     if (!userProfileData.industry && input && input.includes('$') && type === 'expense' && !state.dynamicStep) {
                         await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'industry' });
