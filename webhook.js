@@ -535,7 +535,8 @@ if (userProfile.onboarding_in_progress) {
         console.log(`[DEBUG] Saving user profile for ${from} with name`);
         await saveUserProfile(userProfileData);
         console.log(`[DEBUG] Detected location for ${from}: ${country}, ${region}`);
-        const normalizePhoneNumber = (phone) => phone.replace(/^whatsapp:/i, '').replace(/^\+/, '').trim();
+        const normalizePhoneNumber = (phone) =>
+          phone.replace(/^whatsapp:/i, '').replace(/^\+/, '').trim();
         const fromNumber = `whatsapp:+${normalizePhoneNumber(process.env.TWILIO_WHATSAPP_NUMBER)}`;
         const messageBody = {
           MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
