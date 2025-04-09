@@ -525,7 +525,7 @@ if (userProfile.onboarding_in_progress) {
         return res.send(`<Response><Message>${reply}</Message></Response>`);
       }
     } else {
-     // Owner Onboarding Flow (with name, location confirmation, then email)
+    // ONBOARDING FLOW for Owner (with name, location confirmation, then email)
 if (userProfile.onboarding_in_progress) {
     let state = await getOnboardingState(from);
     // Initialize onboarding state if not already present.
@@ -615,9 +615,14 @@ if (userProfile.onboarding_in_progress) {
       await saveUserProfile(userProfileData);
       // Re-fetch updated profile to be sure fields (like name) are current.
       userProfileData = await getUserProfile(from);
+      
+      // Use a fallback if the re-fetched profile doesn't contain the name.
+      const name = userProfileData.name || state.responses.name;
+      
       // Create the spreadsheet and share it.
       const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
       await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
+      
       // Send the spreadsheet link via Twilio template so it appears as a quick reply with a button.
       await sendTemplateMessage(
         from,
@@ -626,21 +631,19 @@ if (userProfile.onboarding_in_progress) {
           { type: "text", text: `https://docs.google.com/spreadsheets/d/${spreadsheetId}` }
         ]
       );
+      
       await deleteOnboardingState(from);
       // Also send a final text reply confirming onboarding.
       const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
       const taxRate = getTaxRate(userProfileData.country, userProfileData.province);
-      const reply = `🎉 Hey ${userProfileData.name}, I’m Chief, your pocket CFO! Congrats on joining—you’re now the boss of your books. I’ve set your location to ${userProfileData.province}, ${userProfileData.country} (${currency}, ${(taxRate * 100).toFixed(2)}% tax). Here’s your dashboard:
+      const reply = `🎉 Hey ${name}, I’m Chief, your pocket CFO! Congrats on joining—you’re now the boss of your books. I’ve set your location to ${userProfileData.province}, ${userProfileData.country} (${currency}, ${(taxRate * 100).toFixed(2)}% tax). Here’s your dashboard:
   Revenue: ${currency} 0.00
   Profit: ${currency} 0.00
   Hourly: ${currency} 0.00
   Text me "expense $100 tools" or "revenue $200 client" to start rocking your finances. Pro tip: "Stats" shows your Shark Tank-ready numbers anytime!`;
       return res.send(`<Response><Message>${reply}</Message></Response>`);
     }
-  }
-  
-
-
+}
   
       // Dynamic prompts (industry and goal) can be handled here if desired.
       // NOTE: Ensure variable consistency (use response instead of input) and proper state management.
