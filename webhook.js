@@ -525,56 +525,63 @@ if (userProfile.onboarding_in_progress) {
         return res.send(`<Response><Message>${reply}</Message></Response>`);
       }
     } else {
-        // ONBOARDING FLOW for Owner (Name, then Location Confirmation, then Email)
-        if (userProfile.onboarding_in_progress) {
-            let state = await getOnboardingState(from);
-            // Use a reassignable variable for the user profile data.
-            let userProfileData = userProfile;
-            const response = body.trim();
-            
-            // Step 0: Collect user's name.
-            if (state.step === 0) {
-              state.responses.step_0 = response;
-              state.step = 1; // Next step: confirm location
-              await setOnboardingState(from, state);
-              // Save the name locally so we can use it later.
-              userProfileData.name = response;
-              const reply = `Hi ${response}, we detected your location as ${state.detectedLocation.country}, ${state.detectedLocation.region}. Is this correct?`;
-              // Use Twilio template message for location confirmation (template ID "HX0280df498999848aaff04cc079e16c31").
-              // For example, call your helper to send a template message:
-              await sendTemplateMessage(from, "HX0280df498999848aaff04cc079e16c31", [
-                { type: "text", text: state.detectedLocation.country },
-                { type: "text", text: state.detectedLocation.region }
-              ]);
-              return res.send(`<Response><Message>${reply}</Message></Response>`);
-            }
-            
-            // Step 1: Process location confirmation response.
-            // Expecting one of the responses: "yes", "edit", or "cancel" (based on button IDs).
-            if (state.step === 1) {
-              // For simplicity, assume that if the user replies with "yes" (case-insensitive), we accept the detected location.
-              if (response.toLowerCase() === "yes") {
-                // Optionally, you might store the confirmed location in the profile.
-                userProfileData.country = state.detectedLocation.country;
-                userProfileData.province = state.detectedLocation.region;
-                state.step = 2; // Move to email collection.
-                await setOnboardingState(from, state);
-                const reply = `Great! Now, can you please provide your email address?`;
-                return res.send(`<Response><Message>${reply}</Message></Response>`);
-              } else if (response.toLowerCase() === "edit") {
-                // Handle manual editing if needed.
-                const reply = `Please enter your country and region (separated by a comma).`;
-                return res.send(`<Response><Message>${reply}</Message></Response>`);
-              } else if (response.toLowerCase() === "cancel") {
-                await deleteOnboardingState(from);
-                const reply = "Location confirmation cancelled. Please start the onboarding again.";
-                return res.send(`<Response><Message>${reply}</Message></Response>`);
-              } else {
-                const reply = "I didn’t understand that. Please reply with 'Yes', 'Edit', or 'Cancel'.";
-                return res.send(`<Response><Message>${reply}</Message></Response>`);
-              }
-            }
-            
+     // Owner Onboarding Flow (with name, location confirmation, then email)
+if (userProfile.onboarding_in_progress) {
+    let state = await getOnboardingState(from);
+    // Initialize onboarding state if not already present.
+    if (!state) {
+      state = { step: 0, responses: {} };
+      await setOnboardingState(from, state);
+      return res.send(`<Response><Message>Welcome! What's your name?</Message></Response>`);
+    }
+  
+    const response = body.trim();
+  
+    // Step 0: Collect Name.
+    if (state.step === 0) {
+      state.responses.name = response;
+      userProfileData.name = response;
+      state.step = 1; // Advance to location confirmation step.
+      await setOnboardingState(from, state);
+      // Send Twilio template for location confirmation using auto-detected values.
+      // (Assume userProfileData already contains auto-detected country and province.)
+      await sendTemplateMessage(
+        from,
+        "HX0280df498999848aaff04cc079e16c31",
+        [
+          { type: "text", text: userProfileData.country },
+          { type: "text", text: userProfileData.province }
+        ]
+      );
+      // No text response is needed here because the template is sent.
+      return res.send(`<Response></Response>`);
+    }
+  
+    // Step 1: Process Location Confirmation Response.
+    else if (state.step === 1) {
+      const lcResponse = response.toLowerCase();
+      if (lcResponse === "yes") {
+        // User confirms detected location; move to email collection.
+        state.step = 2;
+        await setOnboardingState(from, state);
+        const reply = "Great! Now, please provide your email address.";
+        return res.send(`<Response><Message>${reply}</Message></Response>`);
+      } else if (lcResponse === "edit") {
+        // Allow user to enter location manually.
+        state.step = 1.5;
+        await setOnboardingState(from, state);
+        const reply = "Please provide your country and state/province in the format: Country, Region";
+        return res.send(`<Response><Message>${reply}</Message></Response>`);
+      } else if (lcResponse === "cancel") {
+        // Cancel onboarding if requested.
+        await deleteOnboardingState(from);
+        const reply = "Onboarding cancelled. Please start over if you'd like to join.";
+        return res.send(`<Response><Message>${reply}</Message></Response>`);
+      } else {
+        const reply = "Please reply with 'Yes', 'Edit' or 'Cancel' to confirm your location.";
+        return res.send(`<Response><Message>${reply}</Message></Response>`);
+      }
+    }
   
     // Step 1.5: Process Custom Location (if user selected "edit").
     else if (state.step === 1.5) {
@@ -592,51 +599,49 @@ if (userProfile.onboarding_in_progress) {
       return res.send(`<Response><Message>${reply}</Message></Response>`);
     }
   
-    // Step 2: Collect user's email.
-  if (state.step === 2) {
-    state.responses.step_2 = response; // Email response.
-    const email = response.trim();
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      const reply = "That doesn't seem like a valid email. Please provide a valid email address.";
+    // Step 2: Collect Email and Complete Onboarding.
+    else if (state.step === 2) {
+      // Validate provided email.
+      const email = response.trim();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        const reply = "That doesn't seem like a valid email. Please provide a valid email address.";
+        return res.send(`<Response><Message>${reply}</Message></Response>`);
+      }
+      state.responses.email = email;
+      userProfileData.email = email;
+      // Mark onboarding as complete.
+      userProfileData.onboarding_in_progress = false;
+      await saveUserProfile(userProfileData);
+      // Re-fetch updated profile to be sure fields (like name) are current.
+      userProfileData = await getUserProfile(from);
+      // Create the spreadsheet and share it.
+      const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
+      await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
+      // Send the spreadsheet link via Twilio template so it appears as a quick reply with a button.
+      await sendTemplateMessage(
+        from,
+        "HXf5964d5ffeecc5e7f4e94d7b3379e084",
+        [
+          { type: "text", text: `https://docs.google.com/spreadsheets/d/${spreadsheetId}` }
+        ]
+      );
+      await deleteOnboardingState(from);
+      // Also send a final text reply confirming onboarding.
+      const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
+      const taxRate = getTaxRate(userProfileData.country, userProfileData.province);
+      const reply = `🎉 Hey ${userProfileData.name}, I’m Chief, your pocket CFO! Congrats on joining—you’re now the boss of your books. I’ve set your location to ${userProfileData.province}, ${userProfileData.country} (${currency}, ${(taxRate * 100).toFixed(2)}% tax). Here’s your dashboard:
+  Revenue: ${currency} 0.00
+  Profit: ${currency} 0.00
+  Hourly: ${currency} 0.00
+  Text me "expense $100 tools" or "revenue $200 client" to start rocking your finances. Pro tip: "Stats" shows your Shark Tank-ready numbers anytime!`;
       return res.send(`<Response><Message>${reply}</Message></Response>`);
     }
-    userProfileData.email = email;
-    // Now mark onboarding as complete.
-    userProfileData.onboarding_in_progress = false;
-    await saveUserProfile(userProfileData);
-    
-    // Re-fetch updated profile to ensure latest data.
-    userProfileData = await getUserProfile(from);
-    // Fallback: if the re-fetched profile doesn't contain the name, use the one from state.
-    const name = userProfileData.name || state.responses.step_0;
-    
-    // Create and share the spreadsheet using the provided email.
-    const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
-    await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
-    
-    // Use your tax rate helper and currency settings.
-    const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
-    const taxRate = getTaxRate(userProfileData.country, userProfileData.province);
-    
-    // Now send a Twilio template message containing the spreadsheet link.
-    // Template ID: "HXf5964d5ffeecc5e7f4e94d7b3379e084"
-    // Populate template variables as needed.
-    await sendTemplateMessage(from, "HXf5964d5ffeecc5e7f4e94d7b3379e084", [
-      { type: "text", text: spreadsheetId } // Adjust as necessary to include the link or other variables.
-    ]);
-    
-    const reply = `🎉 Hey ${name}, I’m Chief, your pocket CFO! Congrats on joining—you’re now the boss of your books. I’ve set your location to ${userProfileData.province}, ${userProfileData.country} (${currency}, ${(taxRate * 100).toFixed(2)}% tax). Here’s your dashboard:
-Revenue: ${currency} 0.00
-Profit: ${currency} 0.00
-Hourly: ${currency} 0.00
-Text me "expense $100 tools" or "revenue $200 client" to start rocking your finances. Pro tip: "Stats" shows your Shark Tank-ready numbers anytime!`;
-    
-    await deleteOnboardingState(from);
-    return res.send(`<Response><Message>${reply}</Message></Response>`);
   }
-}
- 
+  
+
+
+  
       // Dynamic prompts (industry and goal) can be handled here if desired.
       // NOTE: Ensure variable consistency (use response instead of input) and proper state management.
       if (!userProfileData.industry && response && response.includes('$') && type === 'expense' && !state.dynamicStep) {
