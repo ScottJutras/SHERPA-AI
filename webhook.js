@@ -585,19 +585,22 @@ if (userProfile.onboarding_in_progress) {
   
     // Step 1.5: Process Custom Location (if user selected "edit").
     else if (state.step === 1.5) {
-      // Expect input in "Country, Region" format.
-      const parts = response.split(",");
-      if (parts.length < 2) {
-        const reply = "Please provide your location in the format: Country, Region";
+        // Expect input in "Country, Region" format.
+        const parts = response.split(",");
+        if (parts.length < 2) {
+          const reply = "Please provide your location in the format: Country, Region";
+          return res.send(`<Response><Message>${reply}</Message></Response>`);
+        }
+        userProfileData.country = parts[0].trim();
+        userProfileData.province = parts[1].trim();
+        state.step = 2;
+        await setOnboardingState(from, state);
+        // Save the updated location immediately.
+        await saveUserProfile(userProfileData);
+        const reply = "Thanks. Now, please provide your email address.";
         return res.send(`<Response><Message>${reply}</Message></Response>`);
       }
-      userProfileData.country = parts[0].trim();
-      userProfileData.province = parts[1].trim();
-      state.step = 2;
-      await setOnboardingState(from, state);
-      const reply = "Thanks. Now, please provide your email address.";
-      return res.send(`<Response><Message>${reply}</Message></Response>`);
-    }
+      
   
     // Step 2: Collect Email and Complete Onboarding.
     else if (state.step === 2) {
