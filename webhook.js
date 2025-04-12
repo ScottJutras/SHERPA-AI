@@ -497,14 +497,15 @@ app.post('/webhook', async (req, res) => {
                 type = body.toLowerCase().includes('revenue') || body.toLowerCase().includes('earned') ? 'revenue' : 'expense';
             }
 
-         // ONBOARDING FLOW for Owner (with name, location confirmation, business location, then email)
+        // ONBOARDING FLOW for Owner (with name, personal location confirmation, business location confirmation, then email)
 if (userProfile.onboarding_in_progress) {
     let state = await getOnboardingState(from);
-    // Initialize onboarding state if not already present.
+    const responseMsg = body.trim();
+  
+    // If state is not initialized, do so now.
     if (!state) {
-      // Also initialize detectedLocation using auto-detected values from userProfileData.
-      state = { 
-        step: 0, 
+      state = {
+        step: 0,
         responses: {},
         detectedLocation: {
           country: userProfileData.country || "Unknown Country",
@@ -512,18 +513,18 @@ if (userProfile.onboarding_in_progress) {
         }
       };
       await setOnboardingState(from, state);
+      // Immediately prompt for name on the first message.
       return res.send(`<Response><Message>Welcome! What's your name?</Message></Response>`);
     }
   
-    const responseMsg = body.trim();
-  
-    // Step 0: Collect Name.
+    // --- Step 0: Collect Name ---
     if (state.step === 0) {
+      // Save name and advance to next step.
       state.responses.name = responseMsg;
       userProfileData.name = responseMsg;
-      state.step = 1; // Advance to personal location confirmation.
+      state.step = 1;
       await setOnboardingState(from, state);
-      // Send template for location confirmation (State/Province, Country).
+      // Send the quick-reply template for personal location confirmation.
       await sendTemplateMessage(
         from,
         "HX0280df498999848aaff04cc079e16c31",
@@ -532,28 +533,27 @@ if (userProfile.onboarding_in_progress) {
           { type: "text", text: userProfileData.country }
         ]
       );
-      const reply = `Hi ${responseMsg}, we detected your location as ${userProfileData.province}, ${userProfileData.country}. Is this correct?`;
-      return res.send(`<Response><Message>${reply}</Message></Response>`);
+      // Do not send an additional text message.
+      return res.send(`<Response></Response>`);
     }
-    // Step 1: Process Personal Location Confirmation.
+    // --- Step 1: Process Personal Location Confirmation ---
     else if (state.step === 1) {
       const lcResponse = responseMsg.toLowerCase();
       if (lcResponse === "yes") {
         // Personal location confirmed; move to business location confirmation.
         state.step = 2;
         await setOnboardingState(from, state);
-        // Send template for business location confirmation.
         await sendTemplateMessage(
           from,
           "HXa885f78d7654642672bfccfae98d57cb",
-          [] // No dynamic variables needed per your spec.
+          [] // Quick-reply template for business location confirmation.
         );
-        const reply = "Is this also where your business is registered for tax purposes?";
-        return res.send(`<Response><Message>${reply}</Message></Response>`);
+        // Return without an extra text message.
+        return res.send(`<Response></Response>`);
       } else if (lcResponse === "edit") {
-        // Allow user to manually edit personal location.
         state.step = 1.5;
         await setOnboardingState(from, state);
+        // For manual personal location, send a plain text prompt.
         const reply = "Please provide your State/Province, Country.";
         return res.send(`<Response><Message>${reply}</Message></Response>`);
       } else if (lcResponse === "cancel") {
@@ -565,10 +565,10 @@ if (userProfile.onboarding_in_progress) {
         return res.send(`<Response><Message>${reply}</Message></Response>`);
       }
     }
-    // Step 1.5: Process Manual Personal Location.
+    // --- Step 1.5: Process Manual Personal Location ---
     else if (state.step === 1.5) {
       if (state.responses.location) {
-        // Ignore duplicate manual inputs.
+        // Already received manual input; ignore duplicates.
         return res.send(`<Response></Response>`);
       }
       const parts = responseMsg.split(",");
@@ -581,26 +581,32 @@ if (userProfile.onboarding_in_progress) {
       state.responses.location = { province: manualProvince, country: manualCountry };
       userProfileData.province = manualProvince;
       userProfileData.country = manualCountry;
-      state.step = 2; // Move to business location confirmation.
+      state.step = 2;  // Advance to business location confirmation.
       await setOnboardingState(from, state);
-      // Save updated personal location.
       await saveUserProfile(userProfileData);
+      // Prompt for business location confirmation.
       const reply = "Thanks. Is this also where your business is registered for tax purposes?";
       return res.send(`<Response><Message>${reply}</Message></Response>`);
     }
-    // Step 2: Process Business Location Confirmation Response.
+    // --- Step 2: Process Business Location Confirmation ---
     else if (state.step === 2) {
       const bizResponse = responseMsg.toLowerCase();
       if (bizResponse === "yes") {
-        // Business location is same as personal location.
+        // Use personal location for business.
         userProfileData.businessProvince = userProfileData.province;
         userProfileData.businessCountry = userProfileData.country;
-        state.step = 3; // Move to email collection.
+        state.step = 3;  // Advance to email collection.
         await setOnboardingState(from, state);
-        const reply = "Thank you! We're almost finished. Please share your email address so I can send you your financial dashboard spreadsheet.";
-        return res.send(`<Response><Message>${reply}</Message></Response>`);
+        await sendTemplateMessage(
+          from,
+          // If you have a template for the email prompt, you can send that here;
+          // Otherwise, you can simply return a prompt message.
+          "HXf5964d5ffeecc5e7f4e94d7b3379e084",
+          [] 
+        );
+        // Here, we choose to send only the template message for email prompt.
+        return res.send(`<Response></Response>`);
       } else if (bizResponse === "no") {
-        // Prompt for manual business location.
         state.step = 2.5;
         await setOnboardingState(from, state);
         const reply = "Please provide your business’s State/Province, Country.";
@@ -610,7 +616,7 @@ if (userProfile.onboarding_in_progress) {
         return res.send(`<Response><Message>${reply}</Message></Response>`);
       }
     }
-    // Step 2.5: Process Manual Business Location.
+    // --- Step 2.5: Process Manual Business Location ---
     else if (state.step === 2.5) {
       if (state.responses.bizLocation) {
         return res.send(`<Response></Response>`);
@@ -631,7 +637,7 @@ if (userProfile.onboarding_in_progress) {
       const reply = "Thank you! We're almost finished. Please share your email address so I can send you your financial dashboard spreadsheet.";
       return res.send(`<Response><Message>${reply}</Message></Response>`);
     }
-    // Step 3: Collect Email and Complete Onboarding.
+    // --- Step 3: Collect Email and Complete Onboarding ---
     else if (state.step === 3) {
       const email = responseMsg;
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -641,16 +647,14 @@ if (userProfile.onboarding_in_progress) {
       }
       state.responses.email = email;
       userProfileData.email = email;
-      // Mark onboarding as complete.
       userProfileData.onboarding_in_progress = false;
       await saveUserProfile(userProfileData);
-      // Re-fetch updated profile to ensure latest fields; use fallback if null.
+      // Re-fetch updated profile; if null, fall back to previous data.
       userProfileData = (await getUserProfile(from)) || userProfileData;
       const name = userProfileData.name || state.responses.name;
-      // Create the spreadsheet and share it.
       const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
       await sendSpreadsheetEmail(userProfileData.email, spreadsheetId);
-      // Send the spreadsheet link via a Twilio template quick reply.
+      // Send the spreadsheet link via a quick-reply template.
       await sendTemplateMessage(
         from,
         "HXf5964d5ffeecc5e7f4e94d7b3379e084",
@@ -668,7 +672,7 @@ if (userProfile.onboarding_in_progress) {
   Text me "expense $100 tools" or "revenue $200 client" to start rocking your finances. Pro tip: "Stats" shows your Shark Tank-ready numbers anytime!`;
       return res.send(`<Response><Message>${finalReply}</Message></Response>`);
     }
-    // Dynamic prompts (industry and goal) can be handled here if desired.
+    // --- Dynamic Prompts (Industry / Goal) ---
     else if (!userProfileData.industry && response && response.includes('$') && type === 'expense' && !state.dynamicStep) {
       await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'industry' });
       const reply = "Hey, what industry are you in? (e.g., Construction, Freelancer)";
@@ -688,9 +692,9 @@ if (userProfile.onboarding_in_progress) {
     }
     else if (state.dynamicStep === 'goal') {
       userProfileData.goal = response;
-      userProfileData.goalProgress = { 
-        target: response.includes('debt') ? -parseFloat(response.match(/\d+/)?.[0] || 5000) * 1000 : parseFloat(response.match(/\d+/)?.[0] || 10000) * 1000, 
-        current: 0 
+      userProfileData.goalProgress = {
+        target: response.includes('debt') ? -parseFloat(response.match(/\d+/)?.[0] || 5000) * 1000 : parseFloat(response.match(/\d+/)?.[0] || 10000) * 1000,
+        current: 0
       };
       await saveUserProfile(userProfileData);
       const currency = userProfileData.country === 'United States' ? 'USD' : 'CAD';
@@ -699,6 +703,7 @@ if (userProfile.onboarding_in_progress) {
       return res.send(`<Response><Message>${reply}</Message></Response>`);
     }
   } // End of owner onboarding flow.
+  
   
   
         // NON-ONBOARDING FLOW
