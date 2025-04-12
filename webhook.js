@@ -499,7 +499,7 @@ app.post('/webhook', async (req, res) => {
 
          // ONBOARDING FLOW for Owner (with name, personal location confirmation, business location confirmation, then email)
 if (userProfile.onboarding_in_progress) {
-    // Ensure our alias is valid.
+    // Ensure our alias is up-to-date.
     let userProfileData = userProfile || {};
     let state = await getOnboardingState(from);
     const responseMsg = body.trim();
@@ -524,7 +524,7 @@ if (userProfile.onboarding_in_progress) {
       userProfileData.name = responseMsg;
       state.step = 1; // Advance to personal location confirmation.
       await setOnboardingState(from, state);
-      // Send the quick-reply template for personal location confirmation (State/Province then Country)
+      // Send quick-reply template for personal location confirmation (State/Province then Country).
       await sendTemplateMessage(
         from,
         "HX0280df498999848aaff04cc079e16c31",
@@ -533,7 +533,7 @@ if (userProfile.onboarding_in_progress) {
           { type: "text", text: userProfileData.country }
         ]
       );
-      // Send only the template (no additional text reply)
+      // Do not send an extra text message.
       return res.send(`<Response></Response>`);
     }
     // --- Step 1: Process Personal Location Confirmation ---
@@ -548,6 +548,7 @@ if (userProfile.onboarding_in_progress) {
           "HXa885f78d7654642672bfccfae98d57cb",
           [] // Quick-reply for business location confirmation.
         );
+        // Do not send duplicate text.
         return res.send(`<Response></Response>`);
       } else if (lcResponse === "edit") {
         state.step = 1.5;
@@ -566,6 +567,7 @@ if (userProfile.onboarding_in_progress) {
     // --- Step 1.5: Process Manual Personal Location ---
     else if (state.step === 1.5) {
       if (state.responses.location) {
+        // Duplicate manual input; ignore.
         return res.send(`<Response></Response>`);
       }
       const parts = responseMsg.split(",");
@@ -593,13 +595,8 @@ if (userProfile.onboarding_in_progress) {
         userProfileData.businessCountry = userProfileData.country;
         state.step = 3; // Advance to email collection.
         await setOnboardingState(from, state);
-        // Optionally send a quick-reply template for email prompting (or just wait for input).
-        await sendTemplateMessage(
-          from,
-          "HXf5964d5ffeecc5e7f4e94d7b3379e084",
-          [] 
-        );
-        return res.send(`<Response></Response>`);
+        const reply = "Thank you! We're almost finished. Please share your email address so I can send you your financial dashboard spreadsheet.";
+        return res.send(`<Response><Message>${reply}</Message></Response>`);
       } else if (bizResponse === "no") {
         state.step = 2.5;
         await setOnboardingState(from, state);
@@ -633,6 +630,11 @@ if (userProfile.onboarding_in_progress) {
     }
     // --- Step 3: Collect Email and Complete Onboarding ---
     else if (state.step === 3) {
+      // If the response is "yes" (or similar), it likely came from a button press; prompt again.
+      if (responseMsg.toLowerCase() === "yes") {
+        const reply = "Please share your email address so I can send you your financial dashboard spreadsheet.";
+        return res.send(`<Response><Message>${reply}</Message></Response>`);
+      }
       const email = responseMsg;
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(email)) {
@@ -643,7 +645,7 @@ if (userProfile.onboarding_in_progress) {
       userProfileData.email = email;
       userProfileData.onboarding_in_progress = false;
       await saveUserProfile(userProfileData);
-      // Re-fetch updated profile; if null, fallback to previous data.
+      // Re-fetch updated profile; if null, fallback to previously stored data.
       userProfileData = (await getUserProfile(from)) || userProfileData;
       const name = userProfileData.name || state.responses.name;
       const spreadsheetId = await createSpreadsheetForUser(from, userProfileData.email);
@@ -670,17 +672,20 @@ if (userProfile.onboarding_in_progress) {
       await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'industry' });
       const reply = "Hey, what industry are you in? (e.g., Construction, Freelancer)";
       return res.send(`<Response><Message>${reply}</Message></Response>`);
-    } else if (state.dynamicStep === 'industry') {
+    }
+    else if (state.dynamicStep === 'industry') {
       userProfileData.industry = response;
       await saveUserProfile(userProfileData);
       const reply = `Got it, ${userProfileData.name}! Industry set to ${response}. Keep logging—next up, I’ll ask your financial goal when you add a bill or revenue.`;
       await deleteOnboardingState(from);
       return res.send(`<Response><Message>${reply}</Message></Response>`);
-    } else if (!userProfileData.goal && response && (response.toLowerCase().includes('bill') || type === 'revenue') && !state.dynamicStep) {
+    }
+    else if (!userProfileData.goal && response && (response.toLowerCase().includes('bill') || type === 'revenue') && !state.dynamicStep) {
       await setOnboardingState(from, { step: 0, responses: {}, dynamicStep: 'goal' });
       const reply = "What’s your financial goal, boss? (e.g., Grow profit by $10,000, Pay off $5,000 debt)";
       return res.send(`<Response><Message>${reply}</Message></Response>`);
-    } else if (state.dynamicStep === 'goal') {
+    }
+    else if (state.dynamicStep === 'goal') {
       userProfileData.goal = response;
       userProfileData.goalProgress = {
         target: response.includes('debt')
@@ -695,6 +700,7 @@ if (userProfile.onboarding_in_progress) {
       return res.send(`<Response><Message>${reply}</Message></Response>`);
     }
   } // End of owner onboarding flow.
+  
   
   
         // NON-ONBOARDING FLOW
